@@ -290,6 +290,8 @@ export interface DrainInput {
   noProgressMs?: number;
   publicationCeilingMs?: number;
   governMs?: number;
+  /** Test seam: the drain's clock for commit times, stall windows and the governor's quiet time (its timers still tick on real time). */
+  clock?: () => number;
   pauseMs?: number;
   backoffMs?: number;
   progressMs?: number;
@@ -312,7 +314,8 @@ function stallText(index: number, total: number | null, stalledMs: number, claim
 
 /** Re-enter `pass` until the managed cursor is done, the caller stops it, or it is blocked. */
 export async function runDrain(input: DrainInput): Promise<SyncResult> {
-  const startedAt = Date.now();
+  const clock = input.clock ?? Date.now;
+  const startedAt = clock();
   const coop = cooperativeDeadline();
   const signal = coop.signal && input.signal ? AbortSignal.any([input.signal, coop.signal]) : coop.signal ?? input.signal;
   let passes = 0, attempt = 0, readFailures = 0, refreshWaitedMs = 0, written = 0, waived = 0, index = 0, total: number | null = null;
@@ -333,7 +336,7 @@ export async function runDrain(input: DrainInput): Promise<SyncResult> {
   // Between passes the stall comes from the probe's fingerprint; inside a pass (a grouped publish parked in preparation never
   // returns to this loop) the timer reads the source's head claim itself, bounded, and prints nothing when nothing is unfinished.
   const stallLine = input.announce ? setInterval(() => {
-    const tickAt = Date.now();
+    const tickAt = clock();
     if (tickAt - lastCommitAt < every || tickAt - lastLine < every) return;
     if (stall) {
       lastLine = tickAt;
@@ -344,9 +347,9 @@ export async function runDrain(input: DrainInput): Promise<SyncResult> {
     readingHead = true;
     const probe = input.probe;
     Promise.resolve().then(() => probe.head!()).then(head => {
-      if (!head || !inPass || stall || Date.now() - lastCommitAt < every || tickAt - lastLine < every) return;
+      if (!head || !inPass || stall || clock() - lastCommitAt < every || tickAt - lastLine < every) return;
       lastLine = tickAt;
-      serr(stallText(index, total, head.claim?.step_age_ms ?? Date.now() - lastCommitAt, head.claim, head.head_state));
+      serr(stallText(index, total, head.claim?.step_age_ms ?? clock() - lastCommitAt, head.claim, head.head_state));
     }).catch(() => undefined).finally(() => { readingHead = false; });
   }, every) : null;
   stallLine?.unref?.();
@@ -364,11 +367,11 @@ export async function runDrain(input: DrainInput): Promise<SyncResult> {
     if (event.phase === 'managed_sync.lanes' && event.lanes) lanes = { effective: event.lanes.effective, stepDown: event.lanes.stepDown, overlapped: event.lanes.overlapped, fallbacks: event.lanes.fallbacks };
     if (event.phase !== 'managed_sync.page_committed') return;
     if (event.waived) waived++; else written++;
-    lastCommitAt = Date.now(); drops = 0;
+    lastCommitAt = clock(); drops = 0;
     noteForwardProgress();
-    if (input.announce && Date.now() - lastLine >= PROGRESS_EVERY_MS) {
-      lastLine = Date.now();
-      const estimate = drainEstimate(remaining(), written + waived, Date.now() - startedAt);
+    if (input.announce && clock() - lastLine >= PROGRESS_EVERY_MS) {
+      lastLine = clock();
+      const estimate = drainEstimate(remaining(), written + waived, clock() - startedAt);
       serr(`[sync] ${index}/${total ?? '?'} processed (${written} written, ${waived} waived this run) · `
         + `${estimate.rate_pages_per_min ?? '?'} pages/min · indexing ETA ${estimate.eta_seconds === null ? 'unknown' : formatDuration(estimate.eta_seconds)}`);
     }
@@ -380,7 +383,7 @@ export async function runDrain(input: DrainInput): Promise<SyncResult> {
   // late result or rejection is dropped.
   const noProgressMs = input.noProgressMs ?? IN_PASS_NO_PROGRESS_MS, ceilingMs = input.publicationCeilingMs ?? PUBLICATION_CEILING_DEFAULT_MS;
   const governedPass = (): Promise<{ result: SyncResult } | { stall: DrainStall }> => {
-    const controller = new AbortController(), passStartedAt = Date.now();
+    const controller = new AbortController(), passStartedAt = clock();
     const passSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
     clearDrainStep();
     const running = Promise.resolve().then(() => input.pass(passSignal, onProgress));
@@ -389,7 +392,7 @@ export async function runDrain(input: DrainInput): Promise<SyncResult> {
       const stop = (stall: DrainStall) => { if (timer) clearInterval(timer); timer = null; controller.abort(new DrainPassAbandoned(`drain_stalled: ${stall.cause}`)); resolve({ stall }); };
       timer = setInterval(() => {
         const quietSince = Math.max(lastCommitAt, passStartedAt);
-        if (probing || Date.now() - quietSince < Math.min(noProgressMs, ceilingMs)) return;
+        if (probing || clock() - quietSince < Math.min(noProgressMs, ceilingMs)) return;
         probing = true;
         const head = input.probe?.head
           ? Promise.race([Promise.resolve().then(() => input.probe!.head!()), new Promise<never>((_, reject) => setTimeout(() => reject(new Error('head read timed out')), Math.min(GOVERN_PROBE_MS, noProgressMs)).unref?.())])
@@ -397,7 +400,7 @@ export async function runDrain(input: DrainInput): Promise<SyncResult> {
           : Promise.resolve({ ok: true as const, value: null });
         void head.then(read => {
           if (!timer) return;
-          const now = Date.now(), quiet = now - Math.max(lastCommitAt, passStartedAt);
+          const now = clock(), quiet = now - Math.max(lastCommitAt, passStartedAt);
           const head = read.ok ? read.value : null, claim = head?.claim ?? null;
           const step = readDrainStep();
           const base = { request_id: head?.request_id ?? 'none', state: head?.head_state ?? 'none', blocked_reason: null, head_request_id: head?.request_id ?? null,
@@ -433,7 +436,7 @@ export async function runDrain(input: DrainInput): Promise<SyncResult> {
     if (carried) result = { ...result, added: result.added + carried.added, modified: result.modified + carried.modified, deleted: result.deleted + carried.deleted,
       renamed: result.renamed + carried.renamed, chunksCreated: result.chunksCreated + carried.chunksCreated };
     return { ...result, drain: { outcome, ...(stopReason ? { stop_reason: stopReason } : {}), passes, processed: written + waived, written, waived,
-      remaining: left, ...drainEstimate(left, written + waived, Date.now() - startedAt),
+      remaining: left, ...drainEstimate(left, written + waived, clock() - startedAt),
       ...(input.bulk ? { bulk: { enabled: input.bulk.enabled, reason: input.bulk.reason, groups, grouped_pages: groupedPages, largest_group: largestGroup, admitted_ahead: admittedAhead,
         lanes: { maximum: input.bulk.lanesMax ?? input.bulk.lanes ?? 1, configured: input.bulk.lanes ?? 1, effective: lanes?.effective ?? input.bulk.lanes ?? 1, reason: input.bulk.lanesReason ?? null,
           step_down: lanes?.stepDown ?? null, overlapped_groups: lanes?.overlapped ?? 0, fallbacks: lanes?.fallbacks ?? 0 } } } : {}), ...extra } };
@@ -458,11 +461,11 @@ export async function runDrain(input: DrainInput): Promise<SyncResult> {
         // could not admit its next write. They settle on their own: wait with backoff, say so, and past the no-progress window stop
         // `blocked` with the counts and the writer to inspect, never an uncaught exit without a drain summary.
         if (isWriteCapacityWait(error) && !signal?.aborted) {
-          capacity ??= { since: Date.now(), attempts: 0 };
-          const counts = outstandingCapacityOf(error), waitedMs = Date.now() - capacity.since;
+          capacity ??= { since: clock(), attempts: 0 };
+          const counts = outstandingCapacityOf(error), waitedMs = clock() - capacity.since;
           if (waitedMs >= (input.stallMs ?? STALL_MS)) return finish(last ?? NO_PASS_RESULT, 'blocked', 'write_capacity', { capacity: { ...counts, waited_seconds: Math.round(waitedMs / 1000) } });
-          if (input.announce && Date.now() - lastLine >= every) {
-            lastLine = Date.now();
+          if (input.announce && clock() - lastLine >= every) {
+            lastLine = clock();
             serr(`[sync] ${index}/${total ?? '?'} processed · waiting for write capacity (${counts.outstanding ?? '?'} outstanding${counts.limit === null ? '' : ` of ${counts.limit}`})`);
           }
           await sleep(Math.min(CAPACITY_RETRY_MAX_MS, (input.backoffMs ?? 250) * 2 ** capacity.attempts++), signal);
@@ -510,14 +513,14 @@ export async function runDrain(input: DrainInput): Promise<SyncResult> {
         const print = await input.probe.fingerprint(result);
         if (print) {
           const claim = print.claim ?? null;
-          if (!stall || stall.key !== print.key) stall = { key: print.key, since: Date.now(), passes: 0, claim, stallInfo: print.stall };
+          if (!stall || stall.key !== print.key) stall = { key: print.key, since: clock(), passes: 0, claim, stallInfo: print.stall };
           else {
             stall.claim = claim; stall.stallInfo = print.stall;
             // #6278: a live preparation (its owner still renews) is allowed its budget plus grace; renewals themselves never count as
             // progress (the key ignores lease columns). A lapsed claim or an unstamped head keeps the plain no-progress window.
             const live = !!claim && !claim.lapsed && claim.phase !== null;
             const window = live ? Math.max(input.stallMs ?? STALL_MS, claim.allowance_ms) : input.stallMs ?? STALL_MS;
-            const elapsed = Math.max(Date.now() - stall.since, live ? claim.step_age_ms ?? 0 : 0);
+            const elapsed = Math.max(clock() - stall.since, live ? claim.step_age_ms ?? 0 : 0);
             // #6317 (B2): `claimable_here` no longer gates the stop (it sees queued rows only, and a same-host owner made it always false).
             if (++stall.passes >= STALL_PASSES && elapsed >= window) {
               const cause: DrainStall['cause'] = claim?.lapsed ? 'owner_missing' : live ? claim.phase === 'publishing' ? 'publication_overdue' : 'preparation_overdue' : 'no_progress';
@@ -529,14 +532,14 @@ export async function runDrain(input: DrainInput): Promise<SyncResult> {
               }
               // #6317: a lapsed head a consumer on this host can reclaim (`head_lapsed` + owner host + a live consumer) gets exactly one more window.
               if (cause === 'owner_missing' && !stall.extended && print.stall.owner_is_this_host !== false && await (input.probe.reclaimableHere?.().catch(() => false) ?? false)) {
-                stall.extended = true; stall.since = Date.now(); stall.passes = 0;
+                stall.extended = true; stall.since = clock(); stall.passes = 0;
               } else if (cause === 'preparation_overdue' && claim && print.stall.owner_is_this_host !== false) {
                 // #6317 (B2, G5): a live same-host owner keeps the drain running past the allowance (the stall line names it every interval);
                 // the drain stops only past the ceiling, where #6298 frees the root and the next pass holds the entry, or when the owner's own
                 // heartbeat row says it is wedged (restart_required, a root barrier past the ceiling). The envelope then says how long until
                 // the ceiling (`retry_after_ms`), so a looping caller waits instead of hammering.
-                if (stall.ownerAt === undefined || Date.now() - stall.ownerAt >= every) {
-                  stall.ownerAt = Date.now();
+                if (stall.ownerAt === undefined || clock() - stall.ownerAt >= every) {
+                  stall.ownerAt = clock();
                   stall.owner = await (input.probe.owner?.(claim).catch(() => null) ?? null);
                 }
                 const age = claim.claim_age_ms ?? elapsed;
