@@ -10,13 +10,13 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
-## [0.60.164.0] - 2026-10-11
+## [0.60.166.0] - 2026-10-11
 
 **Wave 14 PR4: the Google connector, open loops, contacts, calendar, Windows and polish.** Gmail loops now find the person page wherever it lives in the brain, extraction runs under a daily spend cap and your own label exclusions, contacts land next to your people pages, and three Windows reports (parked tests, console windows, backups) get native coverage on CI.
 
 ### Google connector and open loops
 
-- **Loops find the person across sources (#5504).** A Gmail source's loop names someone whose page lives in `default:people/<slug>`; resolution now runs in the mail's own source first and then across sources by identity only (the exact email as a page alias, or an `entity_identities` canonical member; names never cross, ties stay unresolved). The loop row records the page's source (`open_loops.counterparty_source_id`, migration `open_loops_counterparty_source`, v235), the `owes_to` / `awaiting_reply_from` edge points there, and the entity card, `gbrain waiting` and `open_loops` read the loop from that page and never from a namesake in another source. The commitment fact stays in the connector source.
+- **Loops find the person across sources (#5504).** A Gmail source's loop names someone whose page lives in `default:people/<slug>`; resolution now runs in the mail's own source first and then across sources by identity only (the exact email as a page alias, or an `entity_identities` canonical member; names never cross, ties stay unresolved). The loop row records the page's source (`open_loops.counterparty_source_id`, migration `open_loops_counterparty_source`, v236), the `owes_to` / `awaiting_reply_from` edge points there, and the entity card, `gbrain waiting` and `open_loops` read the loop from that page and never from a namesake in another source. The commitment fact stays in the connector source.
 - **Daily spend cap on loop extraction.** `loops.extraction_max_usd_per_day` (default $2.00, per UTC day, brain-wide): every `loops_extract` job a sweep or the managed catch-up queues shares the day's spend group through the job spend envelope; an attempt the cap cannot admit is refused before the provider call and a sweep at the cap queues nothing (`daily_spend_cap`; `spend_cap_zero` when the user set 0).
 - **Your own label exclusions (#5445).** Per-source `g_loops_exclude_labels` (`gbrain sources add … --loops-exclude-labels`) with the brain-wide `loops.extraction_exclude_labels` as the fallback; label names are resolved once per sweep and gate all three eligibility sites, the execution-time check and grace-hold publication, plus the deterministic detector. A name that does not resolve fails closed for new paid extraction (`excluded_label_unresolved`, visible in the sweep counters and retried every sweep). Contributed by @furuchanchan. Supersedes #5524.
 - **Contacts next to your own people (#4845, #6158).** `g_contacts_dir` (default `people`, `--contacts-dir`) decides where a Google contact page renders; an existing page is renamed in place (import the new path, then retire the old one). A connector stub yields to its canonical twin in another source under `link_resolution.cross_source`, and doctor `junk_entity_hubs` names the twin and the exact remedy instead of an open policy question.
@@ -49,6 +49,62 @@ identifiers and attribution are available in the pre-removal Git revision
 ### For contributors
 
 - New tests: `test/loops-counterparty-null-entity.test.ts` (+ Postgres arm), `test/loops-exclusion.test.ts`, `test/loops-extract-spend-cap.test.ts`, `test/db-lock-token-predicate.test.ts` (+ Postgres arm, in the PgBouncer matrix), `test/backup-archive-roundtrip-5312.test.ts`, `test/spawn-windows-hide.test.ts`, `test/scripts/windows-hide-guard.test.ts`, `test/windows-hidden-console.test.ts`. The `add_link` per-endpoint source parameters were deferred (the composite-key path is not cleanly scoped yet).
+## [0.60.165.0] - 2026-10-11
+
+**Managed sync stops instead of hanging, a database publish that never finishes is cancelled and retried, and managed brains write meeting timelines and extracted entities through the coordinator.**
+
+Fix wave 13 PR2 closes 18 reported gaps in managed sync, persistence and the writers that bypassed the coordinator. A sync that used to wait forever now stops and says why; work that used to fail with an internal error is retried or held with a fix.
+
+### Itemized changes
+
+- A managed sync whose pass never returns (a publish stuck in `publishing`, or a pass behind a transaction-mode pooler that admits nothing) stops `drain_stalled` with `publication_overdue` or `no_admission`, names the step it was in and says what to do next. A sync cancelled after it admitted a page still keeps that page.
+- On Postgres, a publish still running 30 s past `persistence.publication_ceiling_ms` (default 5 minutes) is cancelled: nothing commits and the write is queued again. One that still does not settle makes its owner report `restart_required`. Keep the ceiling at or below `GBRAIN_STATEMENT_TIMEOUT`, or raise both.
+- A source more than 100,000 changes behind catches up in bounded stages instead of refusing forever.
+- On a managed brain, `extract timeline --from-meetings` (and its job) and `extract_entities` write through the coordinator, gated at their source's trust tier. A refused or pending write is reported (the job fails, the command exits 1, `extract_entities` names the entities already written) instead of a raw writer error or a silently missing row. `extract_entities` creates stub pages only for callers allowed to write pages.
+- `gbrain migrate` with the legacy copier keeps every page column and rebuilds text projections before it switches engines; a failed rebuild keeps the old engine active and exits 1.
+- `gbrain extract` skips and counts a page another writer changed mid-run (`skipped_concurrent_write`) instead of aborting the run, and `extract all --source db` marks a page extracted only when both phases finished.
+- Smaller fixes:
+  - Stale recorded sync failures that a later successful sync already settles are cleared, and the brain host can clear one explicitly.
+  - A page cancelled because an earlier page failed is a retryable page fault, not a "needs human" stop.
+  - A process that cannot open the worktree lock leaves its write for the owner and names the OS error.
+  - A facts backstop for a deleted page settles instead of retrying forever.
+  - Purging a deleted page no longer touches a file excluded from sync.
+  - `gbrain sources reconcile` can resolve a page that records no file of its own.
+  - Alias lookups no longer scan every page.
+  - A queued freshness sync skips a source disabled after it was queued.
+  - Graduation's verify step no longer fails its sync-freshness check.
+
+### For contributors
+
+- Flake fix: `managed-sync-pinned-reads` counted Git processes that depended on follower freeze order; pinned `cat-file` slices are now cut by window position (forced probe: 5 processes before, 2 after).
+- Test fault-injection wrappers around `engine.transaction` forward its options.
+- The stress gate lists a file that skips without the PgBouncer fixture as not stressed when a workflow step requiring the pooler runs it; `test/e2e/publication-deadline-pgbouncer.test.ts` now runs in persistence validation through the pooler.
+- New probes: `test/sync-drain-inpass-stall.test.ts`, `test/sync-drain-no-admission.test.ts`, `test/persistence-publication-deadline.test.ts`, `test/e2e/publication-deadline-group-postgres.test.ts`, `test/sync-staged-catchup.test.ts`, `test/extract-entities-managed.test.ts`, `test/extract-timeline-from-meetings-managed.test.ts`, `test/sync-blobs-pinned-order.test.ts`.
+
+Contributed by @andreineacsu, @harjothkhara, @dovstern, @Masashi-Ono0611, @Margok1987 and @ethanbeard.
+
+## [0.60.164.0] - 2026-10-11
+
+**`query` now answers with the facts you corrected, and gbrain can keep a question answered for you.**
+
+A fact you save with `remember` used to lose to the stale page text it corrected, because page search never ranked saved facts. `query` now brings matching saved facts in as their own rows, in space the pages left free. Pinned questions are a new opt-in: pin a question once, and gbrain keeps its answer current with a citation behind every sentence.
+
+### Itemized changes
+
+- `query` adds up to 3 saved facts that match the question as rows of their own (`result_type: "fact"`, with `fact_id` and a `follow_up` recall call). They use only rows and tokens the pages left free, so no page is pushed out, and a page row whose claim a newer fact replaced is marked `superseded_claim`. It costs up to three database lookups and no model call. Remote callers see only facts whose source pages they could read. On by default; `gbrain config set search.query_facts_arm false` turns it off.
+- `remember` takes `valid_from`, so a correction can carry the date it became true instead of the day it was saved.
+- Fact supersession uses a threshold measured for the brain's embedding model. The default voyage-4 at 1024 dimensions keeps 0.95 and decides as before. Any other model no longer replaces a similar fact by cosine: both stay active and conflict review judges the pair, and exact-text duplicates still merge. Doctor `supersession_calibration` names a command that measures a threshold on synthetic text (about a cent), and `facts.supersession_thresholds` registers one.
+- Pinned questions: `gbrain questions pin|list|status|refresh|unpin` and MCP `questions_*`. Answers live in their own private tables with per-sentence evidence, never in search results, exports or git. A sentence whose evidence changed is flagged stale when you read it, and `context_pack` gains optional `pinned_questions` and `withheld` fields. A pin made over MCP stays inactive until the owner activates it. The dream cycle's `standing_questions` phase refreshes active pins under `cycle.standing_questions.budget_usd` (default $1.00 per run). Guide: `docs/guides/pinned-questions.md`.
+- Pinned questions replace `dream.auto_think`. On upgrade, its questions become inactive pins with their budget, cooldown, model and commit setting, so nothing starts spending; `gbrain questions pin --id <id>` turns one on. `gbrain config get|set dream.auto_think.*` names where each key went.
+- Opt-in retrieval settings, each off by default: `search.evidence_date_header` (each delivered evidence block starts with its observation date), `search.entity_anchoring` (a current-state question that names one entity puts that entity's page and the pages about it first), `search.temporal_fact_reserve` (a question about when things happened reserves part of the token budget for dated facts) and `facts.candidate_fusion interleave` (a keyword arm for supersession candidates).
+- `GOOGLE_GENERATIVE_AI_BASE_URL` (or `provider_base_urls.google`) routes Gemini chat, expansion and embeddings through a proxy.
+- Fixes:
+  - `put_pages` accepts a byte-identical repeated slug as one write; differing repeats are refused page by page instead of failing the batch. Slow fenced code no longer stalls a batch.
+  - `query` skips the image arm on brains with no image embeddings.
+  - `query` returning whole pages with a `token_budget` sizes its hit list to the budget instead of stopping at the default row count with budget unused.
+  - `gbrain extract-conversation-facts` reads plain `user:` / `assistant:` transcripts, and exits 0 on partial success with a summary of the pages that failed.
+- Migration v235 adds the pinned-question tables.
+
 ## [0.60.163.0] - 2026-10-11
 
 **A managed brain's Git durability is now a recorded owner setting, and the managed-worktree refusals name the command to run instead of a dead end.**
