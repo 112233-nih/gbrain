@@ -19,6 +19,20 @@ identifiers and attribution are available in the pre-removal Git revision
 - `test/decide/turn-context-s6.serial.test.ts`: "a provider slower than the server budget never nulls the reflex block" times the server's budgeted assembly (the handler the 400 ms `TURN_CONTEXT_SERVER_BUDGET_MS` races) instead of the client's round trip, which also counts connection setup and runner scheduling. The test now holds the event loop for 200 ms before the request reaches the server. The old round-trip check fails on every run with that stall; the server-span check passes.
 - `test/decide/search-slots.serial.test.ts` (#6483): "S3 evidence gate > fails open on timeout" holds decide's clock through the new `__setDecideClockForTests` seam in `src/core/ai/decide/index.ts`, so only the transport's abort ends the stage. The test stalls the egress page check by 150 ms; without the held clock that stall reproduces `skipped: 'late'` on every run. `runDecide` counting pre-send work such as the egress check against `decide.timeout_ms` is intended behaviour, not a product bug.
 
+## [0.60.171.0] - 2026-10-11
+
+**The vendored Postgres driver fixes a latent bug where a cancelled query could leave a pipelined query with the wrong result, and it now retires any connection whose answers fall out of step.** No current gbrain code path reaches the bug; this is a driver fix plus a permanent tripwire, and it does not explain the open connector-holds flake (#6482).
+
+### Things to watch
+
+- **A new warn line.** `[gbrain] warn code=pg_connection_desync pool=<read|direct> message=<type> connection=<id> sql=<KEYWORD_table>` means a statement's answer arrived on a connection with no statement waiting for it. The connection is retired, statements queued on it fail with `CONNECTION_DESYNC`, and the pool reconnects. The line never carries SQL text or parameters. Notices, `LISTEN` notifications and parameter changes never trigger it.
+
+### Itemized changes
+
+- `vendor/postgres` (ESM, CommonJS, workerd) and `patches/postgres@3.4.9.patch`: a query cancelled after it was written keeps its place in the answer order and rejects with `57014`, and no server cancel is sent for it while other statements are pipelined behind it, so the cancel can't land on one of them; a cancelled prepared query is not retried. The 3.4.9 upstream release and upstream master carry the same code.
+- The driver's `ondesync` option reports a desynced connection; `PoolIncidentCounter` logs it once per trip and counts it as `getPoolDiagnostics().desyncDiscards` (`desync_discards` in `/health?deep=1`).
+- `test/e2e/postgres-driver-cancel-pipeline.test.ts` (direct and PgBouncer transaction mode, prepared and unprepared) and `test/e2e/postgres-driver-desync-tripwire.test.ts` fail on the old driver and pass on this one.
+
 ## [0.60.170.0] - 2026-10-11
 
 **Fixes the OpenClaw native startup lane that failed master three times; no product change.**

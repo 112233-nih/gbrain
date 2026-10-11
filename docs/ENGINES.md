@@ -747,6 +747,20 @@ engine; `/health?deep=1` reports them as `stuck_discards`. Retry the failed
 call; if the line repeats, run `gbrain doctor --json` and report the warn lines
 with the operations that preceded them.
 
+<a id="pg-connection-desync"></a>**`pg_connection_desync`** (warn). A statement's
+answer (columns, rows, a completion, a parse or bind acknowledgement, or a
+statement error) arrived on a pooled connection with no statement waiting for
+it, so the client and the server no longer agreed on which answer belonged to
+which statement. The vendored driver retired that connection, statements
+queued on it failed with a connection error, and the pool reconnected on its
+own. The line names the pool, the message type, the driver's connection id and
+the last statement written on it by first keyword and table, never its text or
+parameters. Notices, notifications and parameter changes never trigger it.
+`getPoolDiagnostics().desyncDiscards` counts retirements per engine;
+`/health?deep=1` reports them as `desync_discards`.
+Retry the failed call; if the line repeats, run `gbrain doctor --json` and
+report the warn lines.
+
 <a id="pg-statement-build-failed"></a>**`pg_statement_build_failed`** (warn). A
 statement could not be built from its parameters (`error=UNDEFINED_VALUE`: a
 parameter was `undefined`; `error=MAX_PARAMETERS_EXCEEDED`: more than 65534
@@ -785,7 +799,7 @@ probe does not return in time, when `inflight_oldest_ms` is past the read
 pool's in-flight budget, or when an earlier deep probe is still pending (one
 deep probe per engine at a time). Its body carries the pool block:
 `{ checked_out, max, waiters, inflight_oldest_ms, completed, poisoned_discards,
-stuck_discards, build_failures }`. It is cheap enough for a two-minute cron. The
+stuck_discards, build_failures, desync_discards }`. It is cheap enough for a two-minute cron. The
 same pool numbers ride the persistence consumer's heartbeat row, so
 `gbrain sources writer status --json` shows `pool.inflight_oldest_ms` for the
 owner process.

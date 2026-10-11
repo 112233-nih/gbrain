@@ -313,7 +313,10 @@ export interface PoolHealthHooks {
   onstuck?: (info: StuckConnectionInfo) => void;
   /** #6383: a statement failed to build (`UNDEFINED_VALUE`, `MAX_PARAMETERS_EXCEEDED`) and was rejected alone. */
   onbuilderror?: (code: string, statement: string) => void;
+  /** An answer arrived on a connection with no statement waiting for it; the driver retired the connection. */
+  ondesync?: (info: DesyncConnectionInfo) => void;
 }
+export interface DesyncConnectionInfo { message: string; connection: number; statement: string }
 
 const DEFAULT_STUCK_GRACE_MS = 30_000;
 
@@ -351,6 +354,7 @@ export function poolHealthOptions(hooks: PoolHealthHooks | undefined, statementT
     onpoisoned: hooks?.onpoisoned,
     onstuck: hooks?.onstuck,
     onbuilderror: hooks?.onbuilderror,
+    ondesync: hooks?.ondesync,
     inflight_timeout: resolveInflightTimeoutSeconds(statementTimeout),
   };
 }
