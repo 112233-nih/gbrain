@@ -1082,7 +1082,7 @@
           "getOntology: (entitySlug: string, opts?: OntologyReadOpts) => Promise<OntologyValue[]>",
           "getPage: (slug: string, opts?: PageSnapshotOptions) => Promise<Page | null>",
           "getPageTimestamps: (slugs: string[]) => Promise<Map<string, Date>>",
-          "getPoolDiagnostics: () => { tracked: PoolGaugeSnapshot; poolMax: number | null; poisonedDiscards: number; stuckDiscards: number; buildFailures: number; pool: DriverPoolStats | null; prepare: boolean | null; } | null",
+          "getPoolDiagnostics: () => { tracked: PoolGaugeSnapshot; poolMax: number | null; poisonedDiscards: number; stuckDiscards: number; buildFailures: number; desyncDiscards: number; pool: DriverPoolStats | null; prepare: boolean | null; } | null",
           "getRawData: (slug: string, source?: string, opts?: PageReadScope & { includeDeleted?: boolean; }) => Promise<RawData[]>",
           "getRecentSalience: (opts: SalienceOpts) => Promise<SalienceResult[]>",
           "getSalienceScores: (refs: Array<{ slug: string; source_id: string; }>, opts?: PageReadPolicy) => Promise<Map<string, number>>",
