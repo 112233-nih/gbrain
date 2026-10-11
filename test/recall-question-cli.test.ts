@@ -125,12 +125,12 @@ describe('gbrain recall --question on a thin client', () => {
     expect(r.calls[0]!.arguments).toMatchObject({ question: QUESTION });
     expect(r.calls[0]!.arguments!.entity).toBeUndefined();
     expect(r.stdout).toContain('(relevance 1.25)');
-  }, 30_000);
+  });
 
   test('an older server that answers without facts_order is reported as not ranked', async () => {
     const r = await thinCall(['--question', QUESTION], { protocol_version: 1, total: 1,
       facts: [{ fact_id: '8', fact: 'The team offsite moved to Denver', kind: 'fact', entity_slug: null, provenance: 'test' }] });
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain('did not rank facts by the question');
-  }, 30_000);
+  });
 });
