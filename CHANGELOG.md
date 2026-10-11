@@ -10,6 +10,20 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [Unreleased]
+
+**The vendored Postgres driver fixes a latent bug where a cancelled query could leave a pipelined query with the wrong result, and it now retires any connection whose answers fall out of step.** No current gbrain code path reaches the bug; this is a driver fix plus a permanent tripwire, and it does not explain the open connector-holds flake (#6482).
+
+### Things to watch
+
+- **A new warn line.** `[gbrain] warn code=pg_connection_desync pool=<read|direct> message=<type> connection=<id> sql=<KEYWORD_table>` means a statement's answer arrived on a connection with no statement waiting for it. The connection is retired, statements queued on it fail with `CONNECTION_DESYNC`, and the pool reconnects. The line never carries SQL text or parameters. Notices, `LISTEN` notifications and parameter changes never trigger it.
+
+### Itemized changes
+
+- `vendor/postgres` (ESM, CommonJS, workerd) and `patches/postgres@3.4.9.patch`: a query cancelled after it was written keeps its place in the answer order and rejects with `57014`; a cancelled prepared query is not retried. The 3.4.9 upstream release and upstream master carry the same code.
+- The driver's `ondesync` option reports a desynced connection; `PoolIncidentCounter` logs it once per trip and counts it as `getPoolDiagnostics().desyncDiscards` (`desync_discards` in `/health?deep=1`).
+- `test/e2e/postgres-driver-cancel-pipeline.test.ts` (direct and PgBouncer transaction mode, prepared and unprepared) and `test/e2e/postgres-driver-desync-tripwire.test.ts` fail on the old driver and pass on this one.
+
 ## [0.60.167.0] - 2026-10-11
 
 **Wave 14 PR4: the Google connector, open loops, contacts, calendar, Windows and polish.** Gmail loops now find the person page wherever it lives in the brain, extraction runs under a daily spend cap and your own label exclusions, contacts land next to your people pages, and three Windows reports (parked tests, console windows, backups) get native coverage on CI.
