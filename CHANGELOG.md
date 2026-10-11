@@ -10,6 +10,20 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [0.60.175.0] - 2026-10-11
+
+**CI test shards are balanced again, and the nightly run stops failing its shard-timing check.** CI splits each test lane across several machines using the recorded run time of every test file. A test file with no recorded time is packed blind, and 11.1% of E2E files had none, past the 10% bound the nightly enforces. This release re-measures every lane from green master runs. No product behaviour changes.
+
+### Itemized changes
+
+| Lane | Files with no recorded time, before | After | Bound | Source run |
+|---|---|---|---|---|
+| Unit | 150 of 3197 (4.7%) | 21 of 3197 (0.7%) | 5% | Test 38154037814 |
+| Serial | 12 of 387 (3.1%) | 2 of 387 (0.5%) | 10% | Test 38154037814 |
+| E2E | 62 of 557 (11.1%) | 6 of 557 (1.1%) | 10% | E2E 38154063181 (full profile) |
+
+- `scripts/test-weights.json`, `scripts/serial-weights.json` and `scripts/e2e-weights.json`, plus their `.metadata.json` provenance files, are re-mined with `bun run weights:mine` from master runs whose test jobs all passed. `GITHUB_EVENT_NAME=schedule bun scripts/check-weight-coverage.ts` now reports OK with no dead entries.
+
 ## [0.60.174.0] - 2026-10-11
 
 **gbrain now knows every name an account goes by, tells your agent how many records match, and says why a write or a rerank failed.**
