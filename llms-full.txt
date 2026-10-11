@@ -3944,7 +3944,7 @@ final document.
 is stateless, so dedupe is per authenticated client and session, and
 `degraded` and `safety` notices ride every affected call. At most 2
 `coaching` notices per session. Notices that describe one call's result
-(`empty_retrieval`, `unknown_param`, `listing_truncated`, `delta_incomplete`)
+(`empty_retrieval`, `unknown_param`, `listing_truncated`, `delta_incomplete`, `facts_unembedded`)
 are never deduped.
 
 **Degraded retry hint.** A `degraded` notice whose fix has `actor: provider`
@@ -5794,6 +5794,33 @@ the operations that preceded them. A pool created with `max: 1` keeps the
 driver's documented single-connection idiom (`BEGIN` as an ordinary query)
 for unreserved statements.
 
+<a id="schema-lock-blocked"></a>**`schema_lock_blocked`** (error, retryable).
+A schema step waited its `lock_timeout` for a table lock another session holds
+and stopped instead of hanging (#5227). `gbrain init` and `upgrade` replay
+`schema.sql` on the reserved DDL backend; every `ALTER TABLE` there takes an
+ACCESS EXCLUSIVE lock even as a no-op, so one open transaction in another
+client (idle in transaction, a stuck job) used to park the whole command in
+`wait_event_type=Lock` with no output. The replay runs under a session-level
+`lock_timeout` on that backend (`GBRAIN_SCHEMA_LOCK_TIMEOUT_SECONDS`, default
+60; the value found before is restored on release, so a pooled backend never
+leaks it), a transaction-wrapped migration binds the same wait with
+`SET LOCAL lock_timeout`, and a `transaction: false` migration sets and
+restores it on its own reserved backend. Handler migrations and the
+post-migration `verifySchema` run outside the bound: they issue their own
+statements (`CREATE INDEX CONCURRENTLY` cannot run in a transaction) and stay
+as they were. While the wait is active a separate one-backend connection
+samples `pg_blocking_pids()` of the waiting backend once, so the refusal names
+the blocking sessions by pid, `application_name`, state and transaction age;
+after the cancel the blocker may already be gone, and the message says when the
+sample came late. Query text is never read or shown. `detail` names the step
+(`replay`, `migration v<N>`). The RLS block skips tables whose
+`relrowsecurity` is already set, so a re-run on a live brain no longer takes
+ACCESS EXCLUSIVE on them. `init` retries a blocked step a few times with a
+short backoff (`init-schema-retry.ts`); a lock that never clears is a bounded
+failure, not a hang. Fix: let the named session finish or, with the user's
+agreement, end it on the database host with `SELECT pg_terminate_backend(<pid>)`,
+then rerun the same command. Test: `test/e2e/init-schema-lock-blocked.test.ts`.
+
 <a id="pg-connection-stuck"></a>**`pg_connection_stuck`** (warn). A pooled
 statement waited past the pool's `statement_timeout` plus a grace with nothing
 coming back from the server, so the vendored driver retired that connection:
@@ -5816,6 +5843,20 @@ text or parameters. `getPoolDiagnostics().stuckDiscards` counts retirements per
 engine; `/health?deep=1` reports them as `stuck_discards`. Retry the failed
 call; if the line repeats, run `gbrain doctor --json` and report the warn lines
 with the operations that preceded them.
+
+<a id="pg-connection-desync"></a>**`pg_connection_desync`** (warn). A statement's
+answer (columns, rows, a completion, a parse or bind acknowledgement, or a
+statement error) arrived on a pooled connection with no statement waiting for
+it, so the client and the server no longer agreed on which answer belonged to
+which statement. The vendored driver retired that connection, statements
+queued on it failed with a connection error, and the pool reconnected on its
+own. The line names the pool, the message type, the driver's connection id and
+the last statement written on it by first keyword and table, never its text or
+parameters. Notices, notifications and parameter changes never trigger it.
+`getPoolDiagnostics().desyncDiscards` counts retirements per engine;
+`/health?deep=1` reports them as `desync_discards`.
+Retry the failed call; if the line repeats, run `gbrain doctor --json` and
+report the warn lines.
 
 <a id="pg-statement-build-failed"></a>**`pg_statement_build_failed`** (warn). A
 statement could not be built from its parameters (`error=UNDEFINED_VALUE`: a
@@ -5855,7 +5896,7 @@ probe does not return in time, when `inflight_oldest_ms` is past the read
 pool's in-flight budget, or when an earlier deep probe is still pending (one
 deep probe per engine at a time). Its body carries the pool block:
 `{ checked_out, max, waiters, inflight_oldest_ms, completed, poisoned_discards,
-stuck_discards, build_failures }`. It is cheap enough for a two-minute cron. The
+stuck_discards, build_failures, desync_discards }`. It is cheap enough for a two-minute cron. The
 same pool numbers ride the persistence consumer's heartbeat row, so
 `gbrain sources writer status --json` shows `pool.inflight_oldest_ms` for the
 owner process.
@@ -8503,7 +8544,7 @@ have no per-client row: they serve the server-resolved surface directly.
 
 ## The verbs
 
-### recall(query?, entity?, budget_tokens?, budget_policy?, source_id?, since?, session_id?, limit?, …) — read
+### recall(query?, question?, entity?, budget_tokens?, budget_policy?, source_id?, since?, session_id?, limit?, …) — read
 
 Retrieve saved facts and (with `query`) budget-packed page snippets.
 
@@ -8516,6 +8557,21 @@ Retrieve saved facts and (with `query`) budget-packed page snippets.
   composes with `entity` and `session_id` in the same query, before the
   per-arm limit. An unparseable value is rejected with `invalid_params`.
 - `limit` is a PER-ARM cap (facts and search results each).
+- `question`: optional string (at most 2,000 characters). The FACTS arm then
+  returns active facts ranked by relevance to the question instead of newest
+  first: cosine to the question's embedding plus whole-word term share, plus
+  0.1 when the fact carries a writer-supplied date. Facts below the admission
+  rule are not returned, so an empty `facts[]` is a valid answer. `entity`,
+  `session_id`, `since` and `grep` filter before ranking. `question` does not
+  search pages; `query` does, and both may be passed. `supersessions: true` or
+  `include_expired: true` with `question` is `invalid_params` (ranking covers
+  active facts only); the error's `fix.mcp` is the call without them. One query
+  embedding per call, no model call. Without an embedding provider, with
+  embeddings turned off, or when the embed fails, facts rank by term share and
+  `facts_degraded.reason` says why. A server without question ranking ignores
+  the parameter (or rejects it under `mcp.strict_params=reject`); clients detect
+  support by `facts_order: "relevance"` in the response or `question` in the
+  live tool schema, not by `protocol_version`.
 - `budget_tokens`: SERVER-side packing — by default facts pack first and search
   results take the remainder. A positive finite numeric budget is floored;
   other values leave the arrays unbudgeted. Costs are `ceil(fact.length/4)` or
@@ -8556,8 +8612,16 @@ Response — an additive SUPERSET of the plain facts envelope on EVERY call
 | `total` | int | count of facts returned |
 | `results[]` | array | search arm only: `slug`, `title`, `chunk`, `evidence`, `create_safety`, `provenance` (origin page slug), `source_id` (additive since #4830: the source the hit came from; on a federated read each hit names its own source, and a hit that carries none is labeled only when the read's scope is a single source, never a blind `default`) |
 | `search_degraded` | string? | present when keyword-only fallback fired |
+| `facts_order` | string | `relevance` (question passed) or `newest` |
+| `facts[].relevance` | number? | question calls only: the ranking score (about 0 to 2.1); not a probability and not comparable across calls |
+| `facts_degraded` | object? | question calls only: `reason` (`keyword_only_no_embedding_provider`, `keyword_only_embedding_disabled`, `embed_timeout`, `embed_unavailable`, `no_query_terms`, `facts_embedding_column_missing`) and `unembedded` (facts in scope without a comparable embedding; the `facts_unembedded` notice carries the `gbrain embed --stale --facts` preview) |
 | `budget_tokens` / `budget_used` / `dropped_count` | int? | present for a positive finite numeric budget, including when its floor is zero |
 | `budget_packing` | object? | present only when a valid `budget_policy` is supplied; effective policy and per-arm accounting |
+
+A call that passes `query` without `question` and without `entity`,
+`session_id`, `since` or `supersessions` returns its facts newest first, as v1
+always has, and carries a `recall_hint` notice (kind `info`) whose `fix.mcp` is
+the same call with `question` set to the query.
 
 `budget_packing` contains `policy` (effective `facts_first | query_first`),
 `applied` (whether the requested budget policy applied), `reason`, and `facts` /
@@ -9221,7 +9285,7 @@ Published so harness authors place calls by cost, not by learning at timeout:
 | `entity` | zero-LLM, **p99 < 100ms** | CI-gated on a 20K-page corpus (below). Safe per entity-bearing message. |
 | `context_pack` | zero-LLM, sub-second | Fan-out capped at 8 entities. Session boundaries, not per-message. Push path passes a wall-clock deadline and returns a PARTIAL pack (`degraded_reason`) rather than overrun. |
 | `delta` | zero-LLM, sub-second | O(changes). Heartbeats — pull path only (there is no push heartbeat); session cursors expire after 7 idle days. |
-| `recall` | zero-LLM (keyword) to one embedding call (when `query` is passed) | Sub-second typical; the `query` arm adds one embedding round-trip. |
+| `recall` | zero-LLM (keyword) to one embedding call (when `query` or `question` is passed; a `query` and a `question` with the same text share one) | Sub-second typical; the `query` arm adds one embedding round-trip. |
 | `remember` / `forget` | write, sub-second | One durable write; `remember` adds one embedding call for dedup when a provider is configured. |
 | `synthesize` | **EXPENSIVE / SLOW** | LLM calls, seconds-to-minutes, costs money. Never place on a hot or ambient path. |
 
@@ -9774,6 +9838,7 @@ Source: https://raw.githubusercontent.com/garrytan/gbrain/master/docs/guides/tro
 | [A write was refused with a named reason](#write-refused) | the reason's recovery in [write refusal reasons](write-refusals.md) | as the refusal's `fix` | as the refusal's `fix` | the refusal's `verify` |
 | [Managed sync blocked with `checkpoint_validation_timeout`](#checkpoint-validation-timeout) | `gbrain repair request-indexes --apply` when an index is missing or INVALID, then the printed `gbrain sync --source <id> --no-pull --retry-failed …` | brain host | none | `gbrain doctor --only persistence_request_indexes --json` |
 | [Doctor warns `persistence_session_timeouts` (`session_timeouts_not_applied`)](#session-timeouts-not-applied) | `ALTER ROLE <gbrain role> SET statement_timeout = '5min'` on the database, or accept it: preparation reads carry their own bound | brain host | none (a role default; `destructive` only in that it changes a server setting) | `gbrain doctor --only persistence_session_timeouts --json` |
+| `gbrain init` or `gbrain upgrade` stops with `schema_lock_blocked` naming a pid (or, before #5227, sat in `wait_event_type=Lock` with no output) | let the named session finish, or with the user's agreement end it on the database host: `SELECT pg_terminate_backend(<pid>)`; then rerun the same command ([ENGINES.md](../ENGINES.md#schema-lock-blocked)) | brain host, after the user agrees | `destructive` when it ends another session | the rerun completes; `gbrain doctor --json` shows the schema at head |
 | [`queue_capacity`, `persistence_capacity` or `persistence_request_growth`](#write-capacity) | run the printed `gbrain config set persistence.limits.<limit> <value>` | brain host | none | `gbrain doctor --only persistence_capacity,persistence_request_growth --json` |
 | [`dream_paid_loop`, or dream keeps skipping one transcript](#dream-paid-loop) | fix the cause, then `gbrain dream reset-key --list` and `gbrain dream reset-key '<key>'` | agent, after the user agrees | `paid` (the key is retried) | `gbrain doctor --only dream_paid_loop --json` |
 | [Search answers look keyword-only on a large Postgres brain](#hybrid-search-returns-only-keyword-hits) | read doctor's `vector_plan`; run the index command it prints | brain host | none | `gbrain doctor --only vector_plan --json` |
@@ -9835,6 +9900,8 @@ Turning the `preparation_deadlines` switch off (`gbrain config set persistence.p
 `bootstrap_push_health` and `gbrain bootstrap status` report only the push record of the workspace named by this machine's bootstrap receipt; another workspace's stale or failed push is listed as such (a warn naming that workspace), never as this workspace's state. `reranker_health` auth warnings are audit-log history (`details.live_probe_performed: false`), not a live check of the key. These warns can appear while every other check reads green; each one names a check that did not run.
 
 <a id="git-convergence"></a>**`gbrain doctor` warns or fails `git_convergence`, or `bootstrap_push_health` warns that a workspace is ahead?** A Git checkout the brain syncs from (a source's `local_path` or `sync.repo_path`) has commits its upstream does not have, or uncommitted changes, so the system of record on the remote is behind the brain (#5063). Commits not on the upstream warn after 6 hours and fail after 24; uncommitted changes older than 6 hours warn. Doctor compares with the local `@{u}` ref and never fetches, so it is only as fresh as the last fetch; checkouts without an upstream and connector sources are skipped. Commit and push the checkout (`gbrain sources push --path <root>` for a bootstrap workspace, `git push` otherwise). `bootstrap_push_health` no longer reports `ok` on a recent successful push while the workspace still has commits not on origin.
+
+<a id="tracked-ownership-marker"></a>**`gbrain doctor` warns `tracked_ownership_marker`, or `gbrain sources push` / `bootstrap verify` refuses a `.gbrain-owner*.json` or `.gbrain-bootstrap.lock/` path?** An ownership marker (`.gbrain-owner.json`, the `.gbrain-owner-<hash>.json` reservation beside a root, a `.gbrain-owner.json.<uuid>.tmp` staging file) or the bootstrap lock directory was committed to a source checkout (#5186). These files are this machine's claim on the checkout, never brain content, and must not reach a remote. Since this fix gbrain appends their patterns to the checkout's `.git/info/exclude` whenever it stamps or adopts a root, the bootstrap `.gitignore` template lists them, and the push deny list refuses a tracked one while an untracked one is excluded from the commit (`excludedUntracked`). None of that un-tracks a file already in the index: run the `git -C <root> rm --cached <paths>` the check prints (the files stay on disk, gbrain keeps reading them), commit, push, then `gbrain doctor --only tracked_ownership_marker --json`. A root stamped before this fix gains the exclude rule on its next stamp or transfer; until then the deny list is the backstop, and `bootstrap verify`'s `deny_globs` treats a merely-on-disk marker as fine. If a marker already reached a remote, rotate it the same way you would any published credential: the token alone is not remote authority (the reservation that proves ownership lives outside the root), but treat the history as exposed.
 
 **`brain_score` shows a low "timeline density (entity and event pages)"?** The 15-point timeline component grades only linkable pages whose type's active-pack primitive is `entity` or `temporal` (people, companies, meetings, emails, events…); reference documents such as notes, writing and guides have no events and are not graded, so do not stamp "page created" rows onto them. Types the pack does not declare are still graded. Raise the score by giving those entity and event pages real timeline entries (`gbrain extract timeline`).
 

@@ -1,4 +1,5 @@
-import { assertManagedFilesystemWrite, managedFilesystemRootFor } from './persistence/filesystem-guard.ts';
+import { assertManagedFilesystemWrite, isManagedFilesystemPath, managedFilesystemRootFor } from './persistence/filesystem-guard.ts';
+import { OWNERSHIP_MARKER_GLOBS } from './persistence/root-metadata.ts';
 import { OperationError } from './ops/contract.ts';
 /**
  * workspace-push.ts — the `gbrain sources push` core: scan-gated
@@ -57,7 +58,7 @@ import {
 } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { createHash, randomBytes } from 'crypto';
-import { execFileSync } from 'child_process';
+import { execFileSync } from './spawn.ts';
 import { GIT_ENV, GIT_ENV_AUTH, GIT_SSRF_SUBCOMMAND_FLAGS, detectDefaultBranch, divergenceSafePull } from './git-remote.ts';
 import { loadConfigFileOnly } from './config.ts';
 import { ensureGbrainHome } from './gbrain-home.ts';
@@ -160,9 +161,13 @@ export interface WorkspacePushOpts {
   holdLockMs?: number;
 }
 
-/** Deny-glob backstop list [G6]. Matched with secret-scan's glob dialect. */
+/**
+ * Deny-glob backstop list [G6]. Matched with secret-scan's glob dialect.
+ * #5186: ownership markers (`OWNERSHIP_MARKER_GLOBS`) and the bootstrap lock
+ * are denied like credentials; the ownership token never reaches a remote.
+ */
 export const PUSH_DENY_GLOBS: readonly string[] = [
-  '*.pglite', '.env*', '*.pem', '*.key', '.gbrain/**',
+  '*.pglite', '.env*', '*.pem', '*.key', '.gbrain/**', ...OWNERSHIP_MARKER_GLOBS, '.gbrain-bootstrap.lock/**',
 ];
 
 /** Files larger than this are neither scanned nor considered text candidates. */
@@ -626,6 +631,32 @@ export function formatBlockedSecrets(findings: readonly PushSecretFinding[]): st
     `Docs: ${first.docs}`,
   );
   return lines;
+}
+
+/**
+ * #5799: a recorded push status that no longer describes a live legacy push.
+ * On a managed canonical worktree the legacy push is fenced
+ * (`writer_coordinator_required`) and the coordinator's git effect publishes
+ * page writes without ever writing push-status, so the refusal record (or a
+ * success from before the worktree was claimed) would feed the FAILING
+ * banner and the staleness note forever. True for a refusal record (its
+ * `code`, or the `reason` prefix an older record carries) and for any record
+ * whose root is a managed worktree now. A root whose marker cannot be read
+ * is not assumed managed.
+ */
+export function isSupersededPushStatus(entry: Pick<PushStatusEntry, 'code' | 'reason' | 'repoRoot'>): boolean {
+  if (entry.code === 'writer_coordinator_required' || entry.reason?.startsWith('writer_coordinator_required:')) return true;
+  if (entry.repoRoot === undefined) return false;
+  try {
+    return isManagedFilesystemPath(entry.repoRoot);
+  } catch {
+    return false;
+  }
+}
+
+/** The recorded statuses that still describe a live legacy push (#5799); the status surfaces read these. */
+export function livePushStatuses(entries: readonly PushStatusEntry[]): PushStatusEntry[] {
+  return entries.filter((e) => !isSupersededPushStatus(e));
 }
 
 export function summarizePushStatuses(entries: PushStatusEntry[]): {

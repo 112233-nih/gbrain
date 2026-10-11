@@ -1447,6 +1447,7 @@ export const KNOWN_CONFIG_KEYS: readonly string[] = [
   'models.brainstorm.judge',
   'models.eval.longmemeval', 'models.eval.cross_modal.slot_a', 'models.eval.cross_modal.slot_b', 'models.eval.cross_modal.slot_c', // #5872 D12 probe judge slots
   'facts.extraction_model',
+  'recall.question_admission', // recall `question` admission rule: reserve (default) | facts_arm (facts/question-recall.ts)
   // Brain-wide kill switch for fact extraction, read by
   // src/core/facts/extract.ts:isFactsExtractionEnabled and honored by
   // sweep.ts, operations.ts and transcripts/ingest-facts.ts. That function's
@@ -1458,6 +1459,12 @@ export const KNOWN_CONFIG_KEYS: readonly string[] = [
   // google-source email pages (default ON for google sources; deterministic
   // thread detection is unaffected). `gbrain config set loops.extraction_enabled false`.
   'loops.extraction_enabled',
+  // #5445: brain-wide Gmail labels (names or ids, comma/JSON list) whose threads
+  // never enter paid loop extraction; a source's g_loops_exclude_labels wins.
+  'loops.extraction_exclude_labels',
+  // W14 P4.6b: USD per UTC day that loops_extract jobs may spend, brain-wide
+  // (default 2.00; 0 = no paid loop extraction). Validated in google/loops-spend.ts.
+  'loops.extraction_max_usd_per_day',
   // #2113: output-token cap for the per-turn facts extractor (default 4000).
   'facts.extraction_max_tokens',
   // Automatic facts drain caps (src/core/facts/drain.ts FACTS_DRAIN_KEYS).
