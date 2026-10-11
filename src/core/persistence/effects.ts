@@ -2,7 +2,7 @@ import { withAIAttribution } from '../ai/invocation-guard.ts';
 import { randomUUID } from 'node:crypto';
 import { targetedWithdrawalEffect, upgradeWithdrawalEffect } from './effect-targets.ts';
 import { existsSync, statSync } from 'node:fs';
-import { basename, join, relative, sep } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import type { BrainEngine } from '../engine.ts';
 import { PERSISTENCE_PROTOCOL_PREDICATE } from './protocol.ts';
 import type { GBrainConfig } from '../config.ts';
@@ -37,7 +37,7 @@ import { EFFECT_FAULT_POINTS, faultPoint } from './fault-points.ts';
 import { dispatchFactsBackstopEffect } from './effect-facts.ts';
 import { runLinksEffect } from './effect-links.ts';
 import { PARK_AFTER_FAILURES, type EffectRecovery, type GitCommitNote, type PersistenceEffect, type SkippedTarget } from './effect-model.ts';
-import { SYNC_SKIP_FILES } from '../sync.ts';
+import { isSyncMetafile } from '../sync.ts';
 import { recoveryStagingFile } from './staging.ts';
 import { selectEffectRecoveries } from './effect-recovery-scan.ts';
 import { nativeFileTarget } from './native-file-target.ts';
@@ -145,7 +145,7 @@ async function recordSkippedTarget(engine: BrainEngine, effect: PersistenceEffec
  * so its legacy page and file diverge; a scan never publishes either one to the other.
  */
 function isMetafilePage(snapshot: PageSnapshot): boolean {
-  return !!snapshot.page.source_path && (SYNC_SKIP_FILES as readonly string[]).includes(basename(snapshot.page.source_path));
+  return !!snapshot.page.source_path && isSyncMetafile(snapshot.page.source_path);
 }
 
 function isFileDatabaseDrift(error: unknown): boolean {
