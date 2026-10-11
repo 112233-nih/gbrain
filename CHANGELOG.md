@@ -10,7 +10,7 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
-## [0.60.166.0] - 2026-10-11
+## [0.60.167.0] - 2026-10-11
 
 **Wave 14 PR4: the Google connector, open loops, contacts, calendar, Windows and polish.** Gmail loops now find the person page wherever it lives in the brain, extraction runs under a daily spend cap and your own label exclusions, contacts land next to your people pages, and three Windows reports (parked tests, console windows, backups) get native coverage on CI.
 
@@ -49,6 +49,15 @@ identifiers and attribution are available in the pre-removal Git revision
 ### For contributors
 
 - New tests: `test/loops-counterparty-null-entity.test.ts` (+ Postgres arm), `test/loops-exclusion.test.ts`, `test/loops-extract-spend-cap.test.ts`, `test/db-lock-token-predicate.test.ts` (+ Postgres arm, in the PgBouncer matrix), `test/backup-archive-roundtrip-5312.test.ts`, `test/spawn-windows-hide.test.ts`, `test/scripts/windows-hide-guard.test.ts`, `test/windows-hidden-console.test.ts`. The `add_link` per-endpoint source parameters were deferred (the composite-key path is not cleanly scoped yet).
+
+## [0.60.166.0] - 2026-10-11
+
+**Fixes a flaky managed-sync governor test that turned master red after v0.60.165.0.**
+
+### Itemized changes
+
+- `test/sync-drain-no-admission.test.ts` "a pass that commits keeps the governor quiet" failed when the event loop stalled 60 ms or more at pass start (or one 25 ms timer fired late), so the governor's 10 ms interval woke first and stopped the pass before the first commit. The drain now takes an injected clock (`DrainInput.clock`, test seam, default `Date.now`), and the test advances it 25 ms per committed page while the governor keeps ticking on real timers. The assertion is unchanged. Two forced probes are now part of the test: an 80 ms synchronous loop stall at pass start (failed the old test 5/5) and an 85 ms real delay before the first page (failed it 3/3). A new control test shows the same governor still stops `no_admission` once the clock passes the window before a commit. The file's two hung-pass tests only wait for a stop, so a late timer cannot fail them.
+
 ## [0.60.165.0] - 2026-10-11
 
 **Managed sync stops instead of hanging, a database publish that never finishes is cancelled and retried, and managed brains write meeting timelines and extracted entities through the coordinator.**
