@@ -10,6 +10,15 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [0.60.170.0] - 2026-10-11
+
+**Fixes the OpenClaw native startup lane that failed master three times; no product change.**
+
+### Itemized changes
+
+- `test/openclaw-context-engine-native.serial.test.ts` lost gateway output: it raced `reader.read()` against a one-second timer, and a read the timer beat stayed queued on the reader, so the next chunk the gateway wrote (after a quiet second of plugin loading, `[gateway] ready` itself) resolved that abandoned read and was dropped. The test now drains stdout and stderr with one pump per stream from spawn (`test/helpers/stream-text.ts`) and polls the collected text; `test/stream-text.test.ts` pins both the pump and the losing pattern with a child that is silent for 1.5 s before its ready line. The startup window is unchanged at 60 s.
+- The same test's gateway config sets `update.checkOnStart: false` and `models.catalogRefresh.enabled: false`, so the pinned gateway makes no request to `telemetry.openclaw.ai` or `catalog.openclaw.ai` at startup (verified under `strace`: no outbound connect); the test asserts neither notice appears.
+
 ## [0.60.169.0] - 2026-10-11
 
 **`recall` can rank saved facts by a question.** Pass `question` and recall returns the facts most relevant to it, each with a `relevance` score, instead of the newest ones. Facts below the match threshold are left out, so an empty list means nothing saved matches.
