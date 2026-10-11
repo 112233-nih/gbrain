@@ -35,11 +35,26 @@ describe('in-pass governor: a pass that admits nothing', () => {
     expect(readDrainStep()).toBeNull();
   });
 
+  // The drain's clock advances 25 ms per committed page against a 60 ms window, so the governor's verdict no longer depends on
+  // event-loop scheduling. The governor still ticks on real timers between pages; the 80 ms loop stall at pass start and the
+  // first page's 85 ms real wait each outlast the window on purpose: either alone stopped the pass before the clock seam.
   test('a pass that commits keeps the governor quiet', async () => {
-    const result = await runDrain({ governMs: 10, noProgressMs: 60, probe: empty, pass: async (_signal, onProgress) => {
-      for (let i = 1; i <= 6; i++) { await new Promise(r => setTimeout(r, 25)); onProgress({ phase: 'managed_sync.page_committed', bankedFiles: i, total: 6 }); }
+    let now = 0;
+    const result = await runDrain({ governMs: 10, noProgressMs: 60, probe: empty, clock: () => now, pass: async (_signal, onProgress) => {
+      const blockedUntil = performance.now() + 80; while (performance.now() < blockedUntil) { /* the event loop stalls 80 ms at pass start */ }
+      for (let i = 1; i <= 6; i++) { now += 25; await new Promise(r => setTimeout(r, i === 1 ? 85 : 25)); onProgress({ phase: 'managed_sync.page_committed', bankedFiles: i, total: 6 }); }
       return { status: 'synced', fromCommit: 'a', toCommit: 'b', added: 6, modified: 0, deleted: 0, renamed: 0, chunksCreated: 0, embedded: 0, pagesAffected: [], managedCursor: { index: 6, total: 6 } };
     } });
     expect(result.drain).toMatchObject({ outcome: 'synced', written: 6 });
+  });
+
+  test('the same governor stops the pass once the clock passes the window before a commit', async () => {
+    let now = 0;
+    const result = await runDrain({ governMs: 10, noProgressMs: 60, probe: empty, clock: () => now, pass: async (_signal, onProgress) => {
+      now += 25; onProgress({ phase: 'managed_sync.page_committed', bankedFiles: 1, total: 6 });
+      now += 61;
+      return new Promise<SyncResult>(() => undefined);
+    } });
+    expect(result.drain).toMatchObject({ outcome: 'blocked', stop_reason: 'drain_stalled', written: 1, stall: { cause: 'no_admission', in_pass: true } });
   });
 });
