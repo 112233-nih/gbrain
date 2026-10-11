@@ -10,6 +10,15 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [0.60.172.0] - 2026-10-11
+
+**Two decide timing tests stop failing on slow runners.** Each one measured wall-clock time that included work outside the budget under test. Both budgets are unchanged.
+
+### Itemized changes
+
+- `test/decide/turn-context-s6.serial.test.ts`: "a provider slower than the server budget never nulls the reflex block" times the server's budgeted assembly (the handler the 400 ms `TURN_CONTEXT_SERVER_BUDGET_MS` races) instead of the client's round trip, which also counts connection setup and runner scheduling. The test now holds the event loop for 200 ms before the request reaches the server. The old round-trip check fails on every run with that stall; the server-span check passes.
+- `test/decide/search-slots.serial.test.ts` (#6483): "S3 evidence gate > fails open on timeout" holds decide's clock through the new `__setDecideClockForTests` seam in `src/core/ai/decide/index.ts`, so only the transport's abort ends the stage. The test stalls the egress page check by 150 ms; without the held clock that stall reproduces `skipped: 'late'` on every run. `runDecide` counting pre-send work such as the egress check against `decide.timeout_ms` is intended behaviour, not a product bug.
+
 ## [0.60.171.0] - 2026-10-11
 
 **The vendored Postgres driver fixes a latent bug where a cancelled query could leave a pipelined query with the wrong result, and it now retires any connection whose answers fall out of step.** No current gbrain code path reaches the bug; this is a driver fix plus a permanent tripwire, and it does not explain the open connector-holds flake (#6482).
