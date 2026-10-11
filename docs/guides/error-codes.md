@@ -774,7 +774,7 @@ More: [docs/guides/ambient-recall.md#replay-after-a-degraded-wake](../../docs/gu
 |---|---|---|---|---|---|---|
 | A managed sync drain stopped `blocked` because its head write made no progress (no committed receipt and no step advance) for the whole stall window. | A renewed lease is not progress: the detector keys on the head claim's phase and step. With a live owner on this host the drain prints `stalled <N>s on <step>` from the allowance (budget plus 30 s) and keeps going; it stops only when `persistence.preparation_ceiling_ms` passes without the root being released, or when that owner's heartbeat row reads wedged (`cause: owner_wedged_here`, with the owner's kind, pid and nonce and `retry_after_ms` to the ceiling, after which the owner frees the root and the next pass holds the entry). A lapsed claim (`owner_missing`) stops at once unless this host owns the checkout and a live full consumer can reclaim it, which gets one more window. `drain.stall.cause` names which. | Inspect the writer with gbrain sources writer status --source <id> --json (read-only: the owner process, its step and what it waits on, and the next action). Before the ceiling (`next.safe_to_loop` true) rerun next.command after retry_after_ms; past it, or with a wedged owner, restart the named owner process on the brain host and rerun the same sync. Run: gbrain sources writer status --source '{source_id}' --json | host_admin | `gbrain doctor --only managed_sync_not_moving --json` | 1 | no |
 
-Reasons: `owner_wedged_here`, `owner_missing`, `preparation_overdue`, `publication_overdue`, `no_progress`.
+Reasons: `owner_wedged_here`, `owner_missing`, `preparation_overdue`, `publication_overdue`, `no_progress`, `no_admission`.
 
 More: [docs/guides/write-refusals.md#drain-stalled](../../docs/guides/write-refusals.md#drain-stalled)
 
@@ -1652,6 +1652,18 @@ More: [docs/guides/repair.md#legacy-jobs-active](../../docs/guides/repair.md#leg
 |---|---|---|---|---|---|---|
 | Another process holds the lock this command needs. | A temporary condition (a lock, a pending write, a rate limit); the same request can succeed later. | Wait briefly, then retry the same request (writes: reuse the same request_id). | agent | `repeat the read that failed` | 1 | yes |
 
+### loops_extraction_skipped
+
+<a id="loops_extraction_skipped"></a>
+
+| Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
+|---|---|---|---|---|---|---|
+| A Google sweep or the managed catch-up queued no paid loop extraction; the sync summary's `skipped_reason` says why. Nothing failed and the email pages still imported. | Extraction is gated before any model call: a kill switch, a missing chat provider, the day's spend cap (`loops.extraction_max_usd_per_day`, default $2.00; `spend_cap_zero` means the user set it to 0), or an exclusion label (`g_loops_exclude_labels` / `loops.extraction_exclude_labels`) that did not resolve against the account's labels, which fails closed until a sweep resolves it. | Read the reason. `daily_spend_cap` clears at the next UTC day or when the user raises `loops.extraction_max_usd_per_day`; `excluded_label_unresolved` names the label token to fix in `gbrain sources status <id>` or `gbrain config get loops.extraction_exclude_labels`; the threads are extracted on their next touch or by `gbrain sync --source <id> --full`. Run: gbrain sync status --source '{source_id}' --json | agent | `gbrain config get loops.extraction_max_usd_per_day` | 1 | no |
+
+Reasons: `no_candidates`, `extraction_disabled`, `chat_unavailable`, `enqueue_failed`, `daily_spend_cap`, `spend_cap_zero`, `excluded_label`, `excluded_label_unresolved`.
+
+More: [docs/guides/open-loops.md#two-detectors](../../docs/guides/open-loops.md#two-detectors)
+
 ### maintenance_backpressure
 
 <a id="maintenance_backpressure"></a>
@@ -1671,6 +1683,14 @@ More: [docs/guides/write-refusals.md#maintenance_backpressure](../../docs/guides
 | A source-scoped dream cycle skipped its brain-wide phases because another cycle (usually autopilot maintenance) holds the shared gbrain-cycle lease; its source phases still ran. | Brain-wide phases (synthesize, patterns, embed, purge and the other mixed or global phases) must not run twice at once, so a cycle that cannot take gbrain-cycle runs only the phases its own source lease covers. | Nothing is lost: the holder runs those phases itself. To run one now, wait until the lease is released, then re-run `gbrain dream --phase <phase>` (LLM-backed phases spend; ask the user first). Run: gbrain status --section locks --json | agent | `repeat the read that failed` | 1 | yes |
 
 More: [docs/guides/cron-schedule.md#dream-beside-autopilot](../../docs/guides/cron-schedule.md#dream-beside-autopilot)
+
+### managed_failure_unsettled
+
+<a id="managed_failure_unsettled"></a>
+
+| Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
+|---|---|---|---|---|---|---|
+| The recorded managed sync failure is not settled by the imported state, so it was not acknowledged. | Acknowledging removes a failure record only when the file it failed on is already imported unchanged (or deleted in both the commit and the brain); anything else would hide content that never reached the brain. | Resume or retry the sync the failure names (gbrain sync status --source <id> --json shows it), then acknowledge again if the record remains. | agent | `repeat the read that failed` | 1 | no |
 
 ### managed_pull_skipped
 
@@ -2630,7 +2650,7 @@ More: [docs/guides/shared-brain-skills.md#troubleshoot-leave-and-recover](../../
 
 | Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
 |---|---|---|---|---|---|---|
-| The source changed during the operation; nothing was committed. | The request itself was wrong or no longer matches the brain; nothing was changed. | Correct the request using the message above, then retry. | agent | `repeat the read that failed` | 1 | no |
+| The source changed during the operation; nothing was committed. | Covers a replaced, archived or re-bound source and a canonical file that differs from the page's database copy (detail file_database_drift). A page that records no file of its own reconciles against the file at its slug path only with gbrain sources reconcile <source> <slug> --preview --adopt-slug-path. | Correct the request using the message above, then retry. | agent | `repeat the read that failed` | 1 | no |
 
 ### source_id_taken
 
@@ -3134,7 +3154,7 @@ More: [docs/guides/write-refusals.md#write_outcome_unknown](../../docs/guides/wr
 
 | Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
 |---|---|---|---|---|---|---|
-| Another activation probe is running. | A temporary condition (a lock, a pending write, a rate limit); the same request can succeed later. | Wait briefly, then retry the same request (writes: reuse the same request_id). | agent | `repeat the read that failed` | 1 | yes |
+| A writer lock could not be taken: another process holds it (busy), or this process cannot open the lock file at all. | Busy clears when the holder finishes. A process that cannot open the lock file (a sandbox, an unwritable lock directory) fails the same way on every retry, so its write stays queued with blocked_reason writer_lock_unavailable until an owner process that can take the lock publishes it; the OS error is kept in the owner-only detail. | For a queued write, wait for the owner (gbrain sources writer status --json names it) or run the write from a process that can open the lock directory; retrying from the same sandboxed process changes nothing. | agent | `repeat the read that failed` | 1 | yes |
 
 ### writer_manifest_mismatch
 

@@ -1458,6 +1458,12 @@ export const KNOWN_CONFIG_KEYS: readonly string[] = [
   // google-source email pages (default ON for google sources; deterministic
   // thread detection is unaffected). `gbrain config set loops.extraction_enabled false`.
   'loops.extraction_enabled',
+  // #5445: brain-wide Gmail labels (names or ids, comma/JSON list) whose threads
+  // never enter paid loop extraction; a source's g_loops_exclude_labels wins.
+  'loops.extraction_exclude_labels',
+  // W14 P4.6b: USD per UTC day that loops_extract jobs may spend, brain-wide
+  // (default 2.00; 0 = no paid loop extraction). Validated in google/loops-spend.ts.
+  'loops.extraction_max_usd_per_day',
   // #2113: output-token cap for the per-turn facts extractor (default 4000).
   'facts.extraction_max_tokens',
   // Automatic facts drain caps (src/core/facts/drain.ts FACTS_DRAIN_KEYS).
@@ -1742,6 +1748,7 @@ export const KNOWN_CONFIG_KEYS: readonly string[] = [
   'persistence.limits.brain_recovery_bytes', 'persistence.limits.worktree_recovery_bytes',
   'persistence.receipt_retention_days', 'persistence.unbound_write', 'persistence.max_claim_ms', // #5254: persistence/unbound-source.ts; #6176: persistence/claim-phase.ts
   'persistence.sync_preparation_ms', 'persistence.maintenance_preparation_ms', 'persistence.preparation_ceiling_ms', 'persistence.max_preparation_attempts', 'persistence.preparation_deadlines', // #6278: persistence/preparation-budget.ts, switches.ts
+  'persistence.publication_ceiling_ms', // #6405: persistence/sync-drain.ts (in-pass publication ceiling)
   'persistence.single_consumer', // #6317: persistence/switches.ts, consumer-election.ts (one full consumer per host; off by default)
   // shared-skills migration inventory bounds (src/core/shared-skills/inventory-limits.ts)
   'shared_skills.inventory.max_files', 'shared_skills.inventory.max_total_bytes', 'shared_skills.inventory.max_file_bytes', 'shared_skills.inventory.max_entries',
