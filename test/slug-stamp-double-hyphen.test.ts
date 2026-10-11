@@ -20,6 +20,7 @@ import { PGLiteEngine } from '../src/core/pglite-engine.ts';
 import type { OperationContext } from '../src/core/ops/contract.ts';
 import { claimWorktree } from '../src/core/persistence/ownership.ts';
 import { submitPageMutation } from '../src/core/persistence/page-mutations.ts';
+import { readReconcileState } from '../src/core/persistence/reconcile-state.ts';
 import { disposePersistenceConsumer } from '../src/core/persistence/service.ts';
 import { resolveRepairScope, type RepairResult } from '../src/core/repair/core.ts';
 import { repairRunner } from '../src/core/repair/registry.ts';
@@ -96,6 +97,8 @@ for (const kind of backends) describe(`repair frontmatter stamps a legacy unstam
       writeFileSync(join(root, 'notes', 'a--b.md'), legacy);
       git(root, 'add', '-A'); git(root, 'commit', '-qm', 'legacy unstamped render');
 
+      // Before the stamp, a reconcile preview of the page names the repair instead of 'cannot be parsed losslessly'.
+      await expect(readReconcileState(engine, id, 'notes/a--b')).rejects.toMatchObject({ code: 'source_changed', detail: 'slug_rule_mismatch', suggestion: expect.stringContaining(`gbrain repair frontmatter --source ${id} --only notes/a--b.md`) });
       const runner = await repairRunner(engine, { apply: false, noEmbed: true, logger: quiet });
       const preview = await runner.run('frontmatter', await resolveRepairScope(engine, id), { explicit: true, sourceFlag: id });
       expect(preview).toMatchObject({ mode: 'dry_run', affected: 1 });
@@ -118,5 +121,4 @@ for (const kind of backends) describe(`repair frontmatter stamps a legacy unstam
     }
   }), 180_000);
 
-  test.todo('P1.7 (#5966) stack hunk: sources reconcile --preview of a legacy unstamped -- file refuses with detail slug_rule_mismatch naming the repair command (reconcile-state.ts is wave-13 owned; see ~/.capy/work/w14/pr1/stack-hunks)', () => {});
 });
