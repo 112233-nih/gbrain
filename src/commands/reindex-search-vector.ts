@@ -1,7 +1,7 @@
 /**
  * `gbrain reindex-search-vector` — recreate FTS trigger functions,
  * backfill existing rows and replace the facts keyword index
- * (`idx_facts_fts`, migration v236) under the language configured via
+ * (`idx_facts_fts`, migration v237) under the language configured via
  * GBRAIN_FTS_LANGUAGE.
  *
  * Why this command exists: schema migration v123 (configurable_fts_language)

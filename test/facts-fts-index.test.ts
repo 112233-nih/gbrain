@@ -13,7 +13,7 @@ import type { BrainEngine } from '../src/core/engine.ts';
 import { PGLiteEngine } from '../src/core/pglite-engine.ts';
 import { factsFtsDocument, factsFtsIndexSql, getFtsLanguage } from '../src/core/fts-language.ts';
 import { ensureFactsFtsIndex, type FactsFtsSwapStep } from '../src/core/facts/fts-index.ts';
-import { v236 } from '../src/core/schema-migrations/v236-facts-question-recall-indexes.ts';
+import { v237 } from '../src/core/schema-migrations/v237-facts-question-recall-indexes.ts';
 import { isolatedPersistencePostgres } from './helpers/persistence-postgres.ts';
 import { testBackends } from './helpers/test-backends.ts';
 
@@ -58,12 +58,12 @@ for (const kind of testBackends()) {
     };
     const dropAll = async () => { for (const name of NAMES) await engine.executeRaw(`DROP INDEX IF EXISTS ${name}`); };
     const createAs = (name: string, lang: string) => engine.executeRaw(factsFtsIndexSql(name, lang));
-    const ensure = (onStep?: (step: FactsFtsSwapStep) => Promise<void>) => ensureFactsFtsIndex(engine, { lang: LANG, version: 236, onStep });
+    const ensure = (onStep?: (step: FactsFtsSwapStep) => Promise<void>) => ensureFactsFtsIndex(engine, { lang: LANG, version: 237, onStep });
 
     beforeEach(async () => { await dropAll(); });
 
     test('the migration leaves the three indexes valid and no swap leftovers; a rerun changes nothing', async () => {
-      await v236.handler!(engine);
+      await v237.handler!(engine);
       expect(await states()).toEqual({ idx_facts_fts: `valid:${LANG}`, idx_facts_fts_next: 'missing', idx_facts_fts_old: 'missing' });
       const others = await engine.executeRaw<{ valid: boolean }>(
         `SELECT i.indisvalid AS valid FROM pg_index i WHERE i.indexrelid IN (to_regclass('idx_facts_unembedded'), to_regclass('idx_facts_embedding_model'))`);
@@ -149,7 +149,7 @@ for (const kind of testBackends()) {
         executeRaw: async (sql: string, params?: unknown[]) => { reserved.push(sql); return conn.executeRaw(sql, params); },
       } as never))) as BrainEngine['withReservedConnection'];
       engine.runMigration = async (version: number, sql: string) => { ddl.push(sql); return run(version, sql); };
-      try { await v236.handler!(engine); } finally { engine.withReservedConnection = reserve; engine.runMigration = run; }
+      try { await v237.handler!(engine); } finally { engine.withReservedConnection = reserve; engine.runMigration = run; }
       expect(reserved.map(sql => sql.trim().split(/\s+/).slice(0, 8).join(' '))).toEqual([
         'CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_facts_fts_next ON',
         'CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_facts_unembedded ON',

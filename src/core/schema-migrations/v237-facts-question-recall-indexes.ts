@@ -5,8 +5,8 @@ import { buildIndexOnline, migrationNotice } from './helpers.ts';
 
 // Applied by src/core/migrate.ts on the next initSchema(); see docs/ENGINES.md
 // ("Canonical schema sources") for when schema.sql or a TS fragment also changes.
-export const v236: Migration = {
-  version: 236,
+export const v237: Migration = {
+  version: 237,
   name: 'facts_question_recall_indexes',
   // recall `question` (src/core/search/fact-relevance.ts) on a large brain.
   //
@@ -33,10 +33,10 @@ export const v236: Migration = {
   idempotent: true,
   sql: '',
   handler: async (engine) => {
-    await ensureFactsFtsIndex(engine, { lang: getFtsLanguage(), version: 236, notice: migrationNotice });
-    await buildIndexOnline(engine, 236, { name: 'idx_facts_unembedded', table: 'facts', sql: `CREATE INDEX IF NOT EXISTS idx_facts_unembedded ON facts (source_id)
+    await ensureFactsFtsIndex(engine, { lang: getFtsLanguage(), version: 237, notice: migrationNotice });
+    await buildIndexOnline(engine, 237, { name: 'idx_facts_unembedded', table: 'facts', sql: `CREATE INDEX IF NOT EXISTS idx_facts_unembedded ON facts (source_id)
       WHERE expired_at IS NULL AND (embedding IS NULL OR embedded_text_hash IS DISTINCT FROM md5(fact))` }, { notice: migrationNotice });
-    await buildIndexOnline(engine, 236, { name: 'idx_facts_embedding_model', table: 'facts',
+    await buildIndexOnline(engine, 237, { name: 'idx_facts_embedding_model', table: 'facts',
       sql: 'CREATE INDEX IF NOT EXISTS idx_facts_embedding_model ON facts (source_id, embedding_model) WHERE expired_at IS NULL' }, { notice: migrationNotice });
   },
 };
