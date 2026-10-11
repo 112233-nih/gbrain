@@ -2,8 +2,8 @@
   "golden": {
     "exitCode": 0,
     "stderr": "",
-    "stdoutBytes": 230690,
-    "stdoutSha256": "3eebc1ab64c848e89077be85f11d14631c9401a8c47ecf34b40dabb1b9ef4cc7",
+    "stdoutBytes": 230678,
+    "stdoutSha256": "db7234af3b149673d60b8a8e1759aa419dd1bbca92a10d07dfeb494d8a298510",
     "toolNames": [
       "remember",
       "entity",
@@ -1097,7 +1097,7 @@
         "scope": "write"
       },
       {
-        "description": "Cheap hybrid search, no LLM expansion, top 20: exact tokens, names, field values. NOT proof of coverage; match: \"keyword\" pages every keyword match and takes OR across quoted names or codes (\"A\" OR \"B\" OR …): one call lists every page matching any. Name lists: entity names. Concepts or landscape: `query`; lists: list_pages; personal: get_recent_salience. return_unit: sections or conversations. fields: \"full\" adds diagnostics.",
+        "description": "Cheap hybrid search, no LLM expansion, top 20: exact tokens, names, field values. NOT proof of coverage; match: \"keyword\" pages every keyword match and takes OR across quoted names or codes (\"A\" OR \"B\" OR …): one call lists every match. Name lists: entity names. Concepts or landscape: `query`; lists: list_pages; personal: get_recent_salience. return_unit: sections or conversations. fields: \"full\" adds diagnostics.",
         "idempotent": true,
         "local_only": false,
         "mutating": false,

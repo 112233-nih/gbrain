@@ -448,6 +448,21 @@ export const BEHAVIOR_NOTICE_ID = `${BEHAVIOR_NOTICE_CODE}@${BEHAVIOR_NOTICE_SIN
  * all of them), grouped by release; null when none apply. `remote` (HTTP)
  * names only that a chain is configured; entries and providers stay on the host.
  */
+/**
+ * The releases a disclosure covers: listed when there are a few, a range past
+ * that, so the header does not crowd the changes out of the rendered 2,000
+ * characters as releases accumulate.
+ */
+export function releaseSpan(versions: string[]): string {
+  if (versions.length > RELEASE_LIST_MAX) {
+    const sorted = [...versions].sort(compareReleases);
+    return `v${sorted[0]} through v${sorted.at(-1)} (${versions.length} releases)`;
+  }
+  const releases = versions.map(v => `v${v}`);
+  return releases.length > 1 ? `${releases.slice(0, -1).join(', ')} and ${releases.at(-1)}` : releases[0]!;
+}
+const RELEASE_LIST_MAX = 4;
+
 export function behaviorChangesNotice(chain: ChainDisclosure | null, opts: { remote?: boolean; after?: string } = {}): Notice | null {
   const byRelease = new Map<string, string[]>();
   let namesChain = false;
@@ -459,10 +474,9 @@ export function behaviorChangesNotice(chain: ChainDisclosure | null, opts: { rem
     byRelease.set(change.since, [...(byRelease.get(change.since) ?? []), text]);
   }
   if (byRelease.size === 0) return null;
-  const releases = [...byRelease.keys()].map(v => `v${v}`);
   const count = [...byRelease.values()].reduce((n, texts) => n + texts.length, 0);
   let n = 0;
-  const why = `gbrain ${releases.length > 1 ? `${releases.slice(0, -1).join(', ')} and ${releases.at(-1)}` : releases[0]} changed ${count} behavior${count === 1 ? '' : 's'} on this brain. All stay on; this is a one-time disclosure, not a request for consent. ` +
+  const why = `gbrain ${releaseSpan([...byRelease.keys()])} changed ${count} behavior${count === 1 ? '' : 's'} on this brain. All stay on; this is a one-time disclosure, not a request for consent. ` +
     [...byRelease].map(([since, texts]) => (byRelease.size > 1 ? `v${since}: ` : '') + texts.map(t => `(${++n}) ${t}`).join(' ')).join(' ') +
     ' gbrain doctor --only behavior_changes shows this again.';
   const fix: Action = chain && namesChain && !opts.remote
