@@ -10,6 +10,15 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [0.60.173.0] - 2026-10-11
+
+**Two memory tests stop failing on the scheduled full E2E run, which keeps real provider keys.** Both asserted the keyless branch (`degraded_dedup: true` on `writeSingleFact`, `facts_degraded.reason: keyword_only_no_embedding_provider` on `recall`) while reading the gateway's key state from the process environment, so the nightly lane, which runs with `GBRAIN_TEST_KEEP_PROVIDER_KEYS=1` and an `OPENAI_API_KEY`, embedded for real and reported the keyed result. No product behaviour changes; both branches are now pinned on every lane.
+
+### Itemized changes
+
+- `test/write-single-dedup.test.ts`: the gateway is configured keyless (`env: {}`) before each test, so a provider key in the environment cannot turn the degraded branch on; a new case installs a stubbed embed transport and asserts the keyed branch (`degraded_dedup: false`, the text embedded once per write, an exact repeat still `duplicate`). Forced probe: `GBRAIN_TEST_KEEP_PROVIDER_KEYS=1 bun test test/write-single-dedup.test.ts` fails on the previous file (1 of 6) and passes now (7 of 7).
+- `test/recall-question.test.ts`: the `keyless()` helper configures a keyless gateway instead of resetting it, so the keyword-only ranking assertions hold with provider keys present; the same probe fails before (2 of 54, both engines) and passes after.
+
 ## [0.60.172.0] - 2026-10-11
 
 **Two decide timing tests stop failing on slow runners.** Each one measured wall-clock time that included work outside the budget under test. Both budgets are unchanged.
