@@ -1,5 +1,5 @@
 diff --git a/cjs/src/connection.js b/vendor/postgres/cjs/src/connection.js
-index 07f67167..f4afd61d 100644
+index 07f67167..1d6ea0a5 100644
 --- a/cjs/src/connection.js
 +++ b/vendor/postgres/cjs/src/connection.js
 @@ -20,6 +20,7 @@ const Sync = b().S().end()
@@ -324,7 +324,7 @@ index 07f67167..f4afd61d 100644
  
      if (initial) {
        if (target_session_attrs) {
-@@ -564,23 +703,33 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -564,23 +703,36 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
          return fetchArrayTypes()
        }
  
@@ -343,10 +343,13 @@ index 07f67167..f4afd61d 100644
 +    // GBrain: the stock loop skipped a query cancelled while it waited behind another one, so the answer the
 +    // server still sent for it was read for the next query (the next query resolved with another statement's
 +    // rows, and the cancelled one never settled). The cancelled query stays current and absorbs its own answer.
++    // A server cancel targets the backend, not a statement, so it is only sent when nothing is pipelined behind.
 +    if (sent.length) {
 +      query = sent.shift()
 +      query.active = true
-+      query.cancelled && Connection(options).cancel(query.state, query.cancelled.resolve, query.cancelled.reject)
++      query.cancelled && (sent.length
++        ? query.cancelled.resolve()
++        : Connection(options).cancel(query.state, query.cancelled.resolve, query.cancelled.reject))
 +    }
 +
 +    flushRetries()
@@ -364,7 +367,7 @@ index 07f67167..f4afd61d 100644
          : connection.reserved()
        : ending
          ? terminate()
-@@ -630,7 +779,11 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -630,7 +782,11 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
        !query.statement.types[i] && (query.statement.types[i] = x.readUInt32BE(7 + i * 4))
  
      query.prepare && (statements[query.signature] = query.statement)
@@ -376,7 +379,7 @@ index 07f67167..f4afd61d 100644
    }
  
    function RowDescription(x) {
-@@ -767,14 +920,21 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -767,14 +923,21 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
  
    async function fetchArrayTypes() {
      needsTypes = false
@@ -406,7 +409,7 @@ index 07f67167..f4afd61d 100644
      types.forEach(({ oid, typarray }) => addArrayType(oid, typarray))
    }
  
-@@ -821,7 +981,16 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -821,7 +984,16 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
    function retry(q, error) {
      delete statements[q.signature]
      q.retried = error
@@ -859,7 +862,7 @@ index 8438f5da..c444310f 100644
        const out = xs[index++]
  
 diff --git a/src/connection.js b/vendor/postgres/src/connection.js
-index 1b1cccde..814037bc 100644
+index 1b1cccde..37824bf4 100644
 --- a/src/connection.js
 +++ b/vendor/postgres/src/connection.js
 @@ -20,6 +20,7 @@ const Sync = b().S().end()
@@ -1184,7 +1187,7 @@ index 1b1cccde..814037bc 100644
  
      if (initial) {
        if (target_session_attrs) {
-@@ -564,23 +703,33 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -564,23 +703,36 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
          return fetchArrayTypes()
        }
  
@@ -1203,10 +1206,13 @@ index 1b1cccde..814037bc 100644
 +    // GBrain: the stock loop skipped a query cancelled while it waited behind another one, so the answer the
 +    // server still sent for it was read for the next query (the next query resolved with another statement's
 +    // rows, and the cancelled one never settled). The cancelled query stays current and absorbs its own answer.
++    // A server cancel targets the backend, not a statement, so it is only sent when nothing is pipelined behind.
 +    if (sent.length) {
 +      query = sent.shift()
 +      query.active = true
-+      query.cancelled && Connection(options).cancel(query.state, query.cancelled.resolve, query.cancelled.reject)
++      query.cancelled && (sent.length
++        ? query.cancelled.resolve()
++        : Connection(options).cancel(query.state, query.cancelled.resolve, query.cancelled.reject))
 +    }
 +
 +    flushRetries()
@@ -1224,7 +1230,7 @@ index 1b1cccde..814037bc 100644
          : connection.reserved()
        : ending
          ? terminate()
-@@ -630,7 +779,11 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -630,7 +782,11 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
        !query.statement.types[i] && (query.statement.types[i] = x.readUInt32BE(7 + i * 4))
  
      query.prepare && (statements[query.signature] = query.statement)
@@ -1236,7 +1242,7 @@ index 1b1cccde..814037bc 100644
    }
  
    function RowDescription(x) {
-@@ -767,14 +920,21 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -767,14 +923,21 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
  
    async function fetchArrayTypes() {
      needsTypes = false
@@ -1266,7 +1272,7 @@ index 1b1cccde..814037bc 100644
      types.forEach(({ oid, typarray }) => addArrayType(oid, typarray))
    }
  
-@@ -821,7 +981,16 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+@@ -821,7 +984,16 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
    function retry(q, error) {
      delete statements[q.signature]
      q.retried = error

@@ -3,7 +3,8 @@
  * had already been written to the server. The stock ReadyForQuery loop skipped it, so the answer the server still
  * sent for it was read for the next query: the next query resolved with the cancelled statement's rows (a bare
  * count resolved to []) and the cancelled query never settled. The cancelled query now stays current, absorbs its
- * own answer and rejects as cancelled (57014); every later query reads its own rows. Runs direct and, when
+ * own answer and rejects as cancelled (57014); every later query reads its own rows. q3 sleeps, so a server cancel
+ * sent for q2 while q3 is pipelined behind it would land on q3; none is sent. Runs direct and, when
  * the CI PgBouncer fixture is configured (GBRAIN_PGBOUNCER_URL + GBRAIN_PGBOUNCER_DIRECT_URL), through PgBouncer
  * in transaction mode against a database of its own.
  */
@@ -49,7 +50,7 @@ describe.skipIf(targets.length === 0)('vendored driver: a query cancelled while 
             const run = async (q: Pick<postgres.Sql, 'unsafe'>): Promise<Record<string, Outcome>> => {
               const q1 = q.unsafe('SELECT pg_sleep(0.2) AS slept').execute();
               const q2 = q.unsafe(second).execute();
-              const q3 = q.unsafe(`SELECT count(*)::int AS n FROM ${table}`).execute();
+              const q3 = q.unsafe(`SELECT count(*)::int AS n FROM ${table}, pg_sleep(0.15)`).execute();
               await new Promise(resolve => setTimeout(resolve, 50));
               expect((q2 as unknown as { active: boolean }).active).toBe(false);
               const cancelled = q2.cancel();

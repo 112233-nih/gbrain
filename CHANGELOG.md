@@ -20,7 +20,7 @@ identifiers and attribution are available in the pre-removal Git revision
 
 ### Itemized changes
 
-- `vendor/postgres` (ESM, CommonJS, workerd) and `patches/postgres@3.4.9.patch`: a query cancelled after it was written keeps its place in the answer order and rejects with `57014`; a cancelled prepared query is not retried. The 3.4.9 upstream release and upstream master carry the same code.
+- `vendor/postgres` (ESM, CommonJS, workerd) and `patches/postgres@3.4.9.patch`: a query cancelled after it was written keeps its place in the answer order and rejects with `57014`, and no server cancel is sent for it while other statements are pipelined behind it, so the cancel can't land on one of them; a cancelled prepared query is not retried. The 3.4.9 upstream release and upstream master carry the same code.
 - The driver's `ondesync` option reports a desynced connection; `PoolIncidentCounter` logs it once per trip and counts it as `getPoolDiagnostics().desyncDiscards` (`desync_discards` in `/health?deep=1`).
 - `test/e2e/postgres-driver-cancel-pipeline.test.ts` (direct and PgBouncer transaction mode, prepared and unprepared) and `test/e2e/postgres-driver-desync-tripwire.test.ts` fail on the old driver and pass on this one.
 

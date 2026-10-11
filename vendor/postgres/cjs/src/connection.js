@@ -714,10 +714,13 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     // GBrain: the stock loop skipped a query cancelled while it waited behind another one, so the answer the
     // server still sent for it was read for the next query (the next query resolved with another statement's
     // rows, and the cancelled one never settled). The cancelled query stays current and absorbs its own answer.
+    // A server cancel targets the backend, not a statement, so it is only sent when nothing is pipelined behind.
     if (sent.length) {
       query = sent.shift()
       query.active = true
-      query.cancelled && Connection(options).cancel(query.state, query.cancelled.resolve, query.cancelled.reject)
+      query.cancelled && (sent.length
+        ? query.cancelled.resolve()
+        : Connection(options).cancel(query.state, query.cancelled.resolve, query.cancelled.reject))
     }
 
     flushRetries()
