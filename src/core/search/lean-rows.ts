@@ -31,7 +31,7 @@ const KEPT_FIELDS: ReadonlySet<string> = new Set([
   'id', 'slug', 'title', 'type', 'chunk_text', 'score', 'effective_date', 'effective_date_source', 'source_id', 'chunk_id',
   'evidence', 'create_safety',
   'injection_suspected', 'injection_p', 'unverified', 'content_flag', 'status', 'superseded', 'superseded_by',
-  'message_id', 'thread_id', 'source_subject', 'relational', 'matched_alias',
+  'message_id', 'thread_id', 'source_subject', 'relational', 'matched_alias', 'result_type', 'fact_id', 'page_slug', 'follow_up',
   // `match: "keyword"`: an enumerated page whose text did not fit the evidence budget.
   'evidence_omitted',
   // #5575 A6: every row says how much it deserves influence.

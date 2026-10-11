@@ -64,12 +64,7 @@ export async function captureOffPath(engine: BrainEngine): Promise<Record<string
         { remote: true, transport: 'stdio', sourceId: 'default' });
       // Agent contract v1 notices (extra prefixed blocks + _meta.gbrain_notices, e.g. degraded_recall on this
       // keyless corpus) are additive and pinned in test/mcp-notice-channels.test.ts; the off path compares the rest.
-      // Cat 40 Hard F2's keyword count line and fields and F4's row-date line are additive too
-      // (pinned in test/search-keyword-paging.test.ts and test/search-date-labels.test.ts).
-      const content = res.content.filter(c => !/^\[gbrain (notice |search\] |dates\] )/.test(c.text));
-      const { gbrain_notices: _notices, ...meta } = res._meta ?? {};
-      if (meta.retrieval) meta.retrieval = withoutCounts(meta.retrieval as Record<string, unknown>);
-      out[`mcp-${name}`] = JSON.stringify({ ...res, content, ...(res._meta ? { _meta: meta } : {}) });
+      out[`mcp-${name}`] = offPathMcpBytes(res);
     }
   });
   const prompts: string[] = [];
@@ -82,6 +77,22 @@ export async function captureOffPath(engine: BrainEngine): Promise<Record<string
   });
   out['think-prompt'] = prompts[0];
   return out;
+}
+
+/**
+ * One MCP result as the off path compares it: notice blocks and
+ * `_meta.gbrain_notices` removed. Which call carries a once-per-process
+ * notice depends on what ran earlier in the process (dedupe ledger, queued
+ * hop and drain notices), so a `_meta` holding only notices is dropped
+ * rather than left as `{}`.
+ */
+export function offPathMcpBytes(res: { content: { type: string; text: string }[]; _meta?: Record<string, unknown> }): string {
+  // Cat 40 Hard F2's keyword count line and fields and F4's row-date line are additive too
+  // (pinned in test/search-keyword-paging.test.ts and test/search-date-labels.test.ts).
+  const content = res.content.filter(c => !/^\[gbrain (notice |search\] |dates\] )/.test(c.text));
+  const { gbrain_notices: _notices, ...meta } = res._meta ?? {};
+  if (meta.retrieval) meta.retrieval = withoutCounts(meta.retrieval as Record<string, unknown>);
+  return JSON.stringify({ ...res, content, ...(res._meta ? { _meta: Object.keys(meta).length > 0 ? meta : undefined } : {}) });
 }
 
 const leanRetrieval = (meta: Record<string, unknown>) => ({ ...meta, rows: 'lean' });

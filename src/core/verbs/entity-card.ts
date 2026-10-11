@@ -379,7 +379,7 @@ async function assembleCard(
   const visibility = remote ? (['world'] as ('private' | 'world')[]) : undefined;
   // Facts saved about this entity may sit under a sibling page or the bare subject slug (siblings.ts).
   const factSlugs = await factEntitySlugs(engine, sourceId, pageSlug, { excludePrivate }).catch(() => [pageSlug]);
-  const { privatePagesFilterFragment, privateLinkOriginFilterFragment } = await import('../search/private-visibility.ts');
+  const { privatePagesFilterFragment, privateLinkOriginFilterFragment, privateProvenanceFilterFragment } = await import('../search/private-visibility.ts');
   const inboundPrivacy = excludePrivate
     ? ` AND ${privatePagesFilterFragment('f')} AND ${privateLinkOriginFilterFragment('l')}`
     : '';
@@ -393,8 +393,11 @@ async function assembleCard(
   // slug; engine.getBacklinkCounts counts inbound from ALL sources. We run
   // a both-sides-scoped query here (f.source_id = t.source_id = this source),
   // mentions excluded (matching the backlink-count convention). Outgoing edges
-  // (getLinks) are the entity's OWN declared links — from-side scoped — so they
-  // stay as-is. The referrer must also be live and, for an untrusted caller,
+  // (getLinks) are the entity's OWN declared links — from-side scoped for the
+  // trusted local caller; an untrusted caller reads them through the engine's
+  // all-endpoints branch (`sourceIds`), so an edge the source policy admitted
+  // into another source (#4680) never shows that source's slug on the card.
+  // The referrer must also be live and, for an untrusted caller,
   // readable: the same private-page and private-origin predicates get_backlinks
   // applies, so a private or derived page never surfaces its slug, its
   // links.context sentence, or a count.
@@ -406,7 +409,7 @@ async function assembleCard(
       )
       .then(rs => rs.map(r => r.alias_norm))
       .catch(() => [] as string[]),
-    engine.getLinks(pageSlug, { sourceId, excludePrivate, temporal: { status: 'all' } }).catch(() => []),
+    engine.getLinks(pageSlug, { ...(remote ? { sourceIds: [sourceId] } : { sourceId }), excludePrivate, temporal: { status: 'all' } }).catch(() => []),
     engine
       .executeRaw<{ from_slug: string; link_type: string; context: string | null }>(
         `SELECT f.slug AS from_slug, l.link_type, l.context${TEMPORAL_LINK_SELECT_SQL}
@@ -437,6 +440,7 @@ async function assembleCard(
       activeOnly: true,
       limit: FACT_FETCH_CAP,
       ...(visibility ? { visibility } : {}),
+      excludePrivate,
       eligibility,
     })))
       .then(lists => lists.flat().sort((a, b) => factTime(b) - factTime(a)).slice(0, FACT_FETCH_CAP))
@@ -451,7 +455,7 @@ async function assembleCard(
         `SELECT COUNT(*) AS n
            FROM facts
           WHERE source_id = $1 AND entity_slug = ANY($2::text[])
-            AND expired_at IS NULL${remote ? ` AND visibility = 'world'` : ''}`,
+            AND expired_at IS NULL${remote ? ` AND visibility = 'world'` : ''}${excludePrivate ? ` AND ${privateProvenanceFilterFragment('facts')}` : ''}`,
         [sourceId, factSlugs],
       )
       .then(rs => Number(rs[0]?.n ?? 0))

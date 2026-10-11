@@ -19,6 +19,7 @@ import { assertPhysicalRoot, claimPhysicalRoot, preparePhysicalRootTransfer, rea
 import { readPhysicalRootStamp } from './physical-root-record.ts';
 import { canonicalFilesystemPath, nativeFilesystemPath } from './root-registry.ts';
 import { assertWriterAdminState } from './admin-intent.ts';
+import { readGraduationRow } from './graduation-schema.ts';
 import { assertWriterAdminUnlocked } from './admin-lock.ts';
 import { inspectPhysicalRootRecovery, repairPhysicalRoot, type PhysicalRootRecovery } from './physical-root-recovery.ts';
 
@@ -37,7 +38,10 @@ export interface WorktreeBinding {
   state: 'active' | 'draining' | 'recovering';
   local_path: string | null;
   coordination_path: string | null;
+  /** #5182 per-host Git-durability opt-in: null until an operator records one. */
+  git_durability: GitDurabilitySetting;
 }
+export type GitDurabilitySetting = 'enabled' | 'disabled' | null;
 export function containsPath(root: string, path: string): boolean {
   const rel = relative(root, path);
   return !isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${sep}`);
@@ -46,10 +50,25 @@ export async function managedPersistenceEnabled(engine: SqlEngine): Promise<bool
   const [row] = await engine.executeRaw<{ enabled: boolean }>('SELECT enabled FROM persistence_brain WHERE singleton=1');
   return row?.enabled === true;
 }
+/**
+ * #6331: the verify-step doctor of an engine graduation runs on the fenced target before cutover sets
+ * `persistence_brain.enabled`. It judges writer ownership from the source's flag, which the parent passes in
+ * GBRAIN_GRADUATION_SOURCE_PERSISTENCE, honored only while the target's graduation row is this run's `verifying` target.
+ */
+export async function graduationVerifyInheritsPersistence(engine: BrainEngine): Promise<boolean> {
+  const runId = process.env.GBRAIN_GRADUATION_RUN;
+  if (process.env.GBRAIN_GRADUATION_SOURCE_PERSISTENCE !== 'enabled' || !runId) return false;
+  const row = await readGraduationRow(engine);
+  return row?.role === 'target' && row.state === 'verifying' && row.run_id === runId;
+}
+/** Whether health checks treat the brain as writer-owned: the brain's own flag, or a graduation verify inheriting the source's. */
+export async function persistenceEnabledForHealth(engine: BrainEngine): Promise<boolean> {
+  return await managedPersistenceEnabled(engine) || await graduationVerifyInheritsPersistence(engine);
+}
 export async function getWorktreeBinding(engine: SqlEngine, sourceId: string, hostId: string | null = localHostId()): Promise<WorktreeBinding | null> {
   const [row] = await engine.executeRaw<WorktreeBinding>(`SELECT s.source_id,s.source_incarnation,s.worktree_id,s.relative_path,
     s.topology_generation::text AS topology_generation,w.owner_host_id,w.owner_epoch::text AS owner_epoch,w.state,
-    h.local_path,h.coordination_path FROM persistence_source_bindings s
+    h.local_path,h.coordination_path,h.git_durability FROM persistence_source_bindings s
     JOIN persistence_worktrees w ON w.id=s.worktree_id
     LEFT JOIN persistence_host_bindings h ON h.worktree_id=w.id AND h.host_id=$2::uuid
     WHERE s.source_id=$1`, [sourceId, hostId]);

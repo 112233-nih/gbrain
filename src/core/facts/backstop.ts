@@ -50,6 +50,7 @@ import { isAvailable } from '../ai/gateway.ts';
 import { withAIInvocationPreflight } from '../ai/invocation-guard.ts';
 import { decideSingleFact } from './single-prepare.ts';
 import { cosineVerdict, dedupCapturedFacts, withCaptureDrops } from './capture-dedup.ts';
+import { readSupersessionThreshold } from './supersession-threshold.ts';
 import { assertAmbientCaptureAdmissible, type FactsBackstopSource } from './capture-sources.ts';
 import { appendContextNote, type InferredVia } from './subject-infer.ts';
 import { inferenceNote, inferMissingSubjects } from './subject-infer-write.ts';
@@ -168,6 +169,8 @@ export type FactsBackstopResult =
       skipped_reason?: import('./extract.ts').ExtractFailureReason;
       /** #5575 B3: rows the write gate flagged, held or rejected (unmanaged path). */
       write_gate?: GateTally;
+      /** Entity groups held because the page's facts fence does not parse cleanly (nothing written). */
+      fence_refused?: number;
     };
 
 /** One pipeline run's input: the turn text plus its page provenance and observation date. */
@@ -529,6 +532,8 @@ export async function runFactsPipeline(
   write_requests?: WriteReceipt[];
   /** #5575 B3: rows the write gate flagged, held or rejected (unmanaged path). */
   write_gate?: GateTally;
+  /** Entity groups held because the page's facts fence does not parse cleanly (nothing written). */
+  fence_refused?: number;
 }> {
   return runPipelineWithBody({
     turnText,
@@ -550,7 +555,7 @@ async function runPipeline(
   parsedPage: ParsedPageInput,
   ctx: FactsBackstopCtx,
   abortSignal?: AbortSignal,
-): Promise<{ inserted: number; duplicate: number; superseded: number; fact_ids: number[]; entity_slugs: string[]; skipped_reason?: import('./extract.ts').ExtractFailureReason; write_gate?: GateTally }> {
+): Promise<{ inserted: number; duplicate: number; superseded: number; fact_ids: number[]; entity_slugs: string[]; skipped_reason?: import('./extract.ts').ExtractFailureReason; write_gate?: GateTally; fence_refused?: number }> {
   return runPipelineWithBody(
     {
       turnText: parsedPage.compiled_truth,
@@ -597,7 +602,7 @@ async function runPipelineWithBody(
   input: PipelineInput,
   ctx: FactsBackstopCtx,
   abortSignal?: AbortSignal,
-): Promise<{ inserted: number; duplicate: number; superseded: number; fact_ids: number[]; entity_slugs: string[]; skipped_reason?: import('./extract.ts').ExtractFailureReason; write_gate?: GateTally }> {
+): Promise<{ inserted: number; duplicate: number; superseded: number; fact_ids: number[]; entity_slugs: string[]; skipped_reason?: import('./extract.ts').ExtractFailureReason; write_gate?: GateTally; fence_refused?: number }> {
   // #4210: outside a withBudgetTracker scope (extract_facts op, sweep,
   // put_page backstop, checkpoint harvest, file/code import) the gateway's
   // chat/embed calls were budget no-ops — real spend, zero audit rows.
@@ -660,7 +665,7 @@ async function runPipelineBodyInner(
   input: PipelineInput,
   ctx: FactsBackstopCtx,
   abortSignal?: AbortSignal,
-): Promise<{ inserted: number; duplicate: number; superseded: number; fact_ids: number[]; entity_slugs: string[]; skipped_reason?: import('./extract.ts').ExtractFailureReason; write_gate?: GateTally }> {
+): Promise<{ inserted: number; duplicate: number; superseded: number; fact_ids: number[]; entity_slugs: string[]; skipped_reason?: import('./extract.ts').ExtractFailureReason; write_gate?: GateTally; fence_refused?: number }> {
   const { extractFactsFromTurnWithOutcome, FactsExtractionError } = await import('./extract.ts');
   const { resolveEntitySlugWithSource } = await import('../entities/resolve.ts');
   const { cosineSimilarity } = await import('./classify.ts');
@@ -749,6 +754,7 @@ async function runPipelineBodyInner(
   const { insertDerivedFact, write_gate } = writer;
   // Cathedral 5: slugs whose fence-write actually inserted a fact this run.
   const fencedSlugs = new Set<string>();
+  let fenceRefused = 0;
 
   // Phase 1: per-fact filter + dedup. Surviving facts (no dedup hit)
   // get grouped by entity_slug for the fence-write phase below.
@@ -778,8 +784,8 @@ async function runPipelineBodyInner(
 
     // Dedup against DB candidates (correct per Codex Q7: fence rows
     // have no embeddings; FS lock + sync invariant means DB == fence
-    // at write time). cosineVerdict: 0.95 for explicit lanes; capture lanes never drop by cosine (#5888).
-    const exact = resolvedSlug ? await decideSingleFact(ctx.engine, ctx.sourceId, { entity_slug: resolvedSlug, fact: f.fact, kind: f.kind ?? 'fact', visibility, attributed_to: f.attributed_to ?? null }, null) : null;
+    // at write time). cosineVerdict: the model's calibrated threshold for explicit lanes; capture lanes never drop by cosine (#5888).
+    const exact = await decideSingleFact(ctx.engine, ctx.sourceId, { entity_slug: resolvedSlug, fact: f.fact, kind: f.kind ?? 'fact', visibility, attributed_to: f.attributed_to ?? null }, null);
     let matchedExistingId: number | null = exact?.candidate?.id ?? null;
     if (matchedExistingId === null && resolvedSlug && f.embedding && !f.entity_inferred) {
       const candidates = await ctx.engine.findCandidateDuplicates(
@@ -794,7 +800,7 @@ async function runPipelineBodyInner(
         const s = cosineSimilarity(f.embedding, c.embedding);
         if (!top || s > top.score) top = { id: c.id, score: s, fact: c.fact };
       }
-      if (top && cosineVerdict(ctx.source, top.score, f.fact, top.fact) === 'duplicate') {
+      if (top && cosineVerdict(ctx.source, top.score, f.fact, top.fact, (await readSupersessionThreshold(ctx.engine, f.embedding_model, f.embedding.length)).threshold) === 'duplicate') {
         matchedExistingId = top.id;
       }
     }
@@ -937,6 +943,7 @@ async function runPipelineBodyInner(
       // every fact in this entity group as not-inserted (no fact_id
       // returned). Do NOT fall through to legacy DB-only — that
       // would write rows to a DB index whose fence is broken.
+      if (result.fenceRefusal) fenceRefused++;
       continue;
     }
     if (result.stubGuardBlocked || result.targetUnresolvable) {
@@ -1005,5 +1012,5 @@ async function runPipelineBodyInner(
     if (result.inserted > 0) fencedSlugs.add(slug);
   }
 
-  return { ...counts, entity_slugs: [...fencedSlugs], write_gate };
+  return { ...counts, entity_slugs: [...fencedSlugs], write_gate, ...(fenceRefused ? { fence_refused: fenceRefused } : {}) };
 }

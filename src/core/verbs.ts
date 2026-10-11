@@ -62,27 +62,31 @@ const remember: Operation = {
   name: 'remember',
   idempotent: true,
   outputRedaction: 'no_stored_text',
-  description: 'MEMORY VERB (v1): save facts with provenance. Set `entity` to the subject or entity recall misses it. Branch on `status` (inserted|duplicate|superseded); write_pending: poll get_write_request.',
+  description: 'MEMORY VERB (v1): save facts with provenance. Set `entity` (the subject) or recall misses it. Branch on `status` (inserted|duplicate|superseded); write_pending: poll get_write_request.',
   params: {
     ...AGENT_CONTENT_PARAMS,
     fact: { type: 'string', description: 'One claim.' },
     items: {
       type: 'array',
-      description: '≤20 facts: [{fact, provenance}]',
+      description: '≤20 of {fact,entity,provenance,kind,ttl,visibility}',
       items: { type: 'object' },
     },
     provenance: {
       type: 'string',
       // Required for a single fact (the handler refuses with provenance_required); with items it may be given per item.
-      description: 'Fact source (max 500 chars).',
+      description: 'Source (≤500 chars).',
     },
     ttl: {
       type: 'string',
-      description: '"30d", "12h" or ISO 8601 time; omit = never.',
+      description: '"30d", "12h", ISO; omit = never.',
+    },
+    valid_from: {
+      type: 'string',
+      description: 'When true (ISO).',
     },
     entity: {
       type: 'string',
-      description: 'Subject (name or slug).',
+      description: 'Name or slug.',
     },
     infer_entity: {
       type: 'boolean',
@@ -95,7 +99,7 @@ const remember: Operation = {
     visibility: {
       type: 'string',
       enum: ['world', 'private'],
-      description: 'world (default) or private (local CLI only).',
+      description: 'world (default) or private (local CLI).',
     },
     replaces: { type: 'string', description: 'fact_id this fact replaces (same entity, or none).', fullSurfaceOnly: true },
   },
@@ -156,6 +160,13 @@ const remember: Operation = {
         'invalid_params',
         `visibility "${visibility}" is not valid.`,
         'Use "world" (default — agents can recall it) or "private" (local CLI reads only).',
+      );
+    }
+    if (p.valid_from !== undefined && (typeof p.valid_from !== 'string' || !Number.isFinite(Date.parse(p.valid_from)))) {
+      throw verbError(
+        'invalid_params',
+        'valid_from must be an ISO 8601 date or time.',
+        'Pass when the fact was said or became true, e.g. valid_from: "2026-03-01", or omit it.',
       );
     }
     if (p.content_origin !== undefined && !CONTENT_ORIGIN_PARAM.enum!.includes(p.content_origin as string)) {
@@ -533,6 +544,7 @@ export const RESPONSE_SCHEMAS: Record<VerbName, Record<string, unknown>> = {
             evidence: { type: 'string', enum: EVIDENCE_ENUM },
             create_safety: { type: 'string', enum: CREATE_SAFETY_ENUM },
             provenance: { type: 'string', description: 'Origin page slug.' },
+            source_id: { type: 'string', description: 'The source the hit came from (#4830; absent only when a federated read cannot name one).' },
           },
         },
       },
@@ -827,6 +839,31 @@ export const RESPONSE_SCHEMAS: Record<VerbName, Record<string, unknown>> = {
       budget_tokens: { type: 'integer', description: 'Present when budget_tokens was passed.' },
       budget_used: { type: 'integer' },
       dropped_count: { type: 'integer' },
+      // C4 pinned questions — additive optional, owner-capable callers only; outside `text` and the budget.
+      pinned_questions: {
+        type: 'array',
+        description: 'Fresh sentences of pinned answers scoped to a packed entity (owner-capable callers only).',
+        items: {
+          type: 'object',
+          required: ['id', 'question', 'answer', 'freshness'],
+          properties: {
+            id: { type: 'string' },
+            question: { type: 'string' },
+            answer: { type: 'array', items: { type: 'string' } },
+            freshness: { type: 'string', enum: ['fresh', 'stale'] },
+          },
+        },
+      },
+      withheld: {
+        type: 'object',
+        required: ['stale_sentences', 'question_ids', 'refresh_command'],
+        description: 'Pinned-answer sentences left out because their evidence changed or is unreadable.',
+        properties: {
+          stale_sentences: { type: 'integer' },
+          question_ids: { type: 'array', items: { type: 'string' } },
+          refresh_command: { type: 'string' },
+        },
+      },
     },
   },
   delta: {

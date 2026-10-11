@@ -33,9 +33,11 @@ import { withEnv } from './helpers/with-env.ts';
  * its source (document, event or fallback date, never contractual validity).
  * Master merge (#5575 trust labels on every row, which raised master's own
  * ceilings 2540 -> 2756): search 3129 -> 3408 (3245 measured), query
- * 2916 -> 3195 (3042).
+ * 2916 -> 3195 (3042). Master merge (19358c1d9 re-pinned master's query
+ * ceiling to 3303 for per-row fact trust tiers): query 3195 -> 3669 (3494
+ * measured); search unchanged (3245).
  */
-const CEILINGS = { search: 3408, query: 3195 };
+const CEILINGS = { search: 3408, query: 3669 };
 /**
  * The keyless fixture also gets the operator contract's degraded_recall
  * notice (F3) on every HTTP call. It is bounded on its own so the ceilings

@@ -22,6 +22,7 @@ const Sync = b().S().end()
     , SSLRequest = b().i32(8).i32(80877103).end(8)
     , ExecuteUnnamed = Buffer.concat([b().E().str(b.N).i32(0).end(), Sync])
     , DescribeUnnamed = b().D().str('S').str(b.N).end()
+    , Unbuildable = b().Q().str('postgres.js: query could not be built' + b.N).end()
     , noop = () => { /* noop */ }
 
 const retryRoutines = new Set([
@@ -51,7 +52,7 @@ const errorFields = {
   82  : 'routine'            // R
 }
 
-function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose = noop } = {}) {
+function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose = noop, onstuck = noop } = {}) {
   const {
     sslnegotiation,
     ssl,
@@ -77,6 +78,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       , idleTimer = timer(end, options.idle_timeout)
       , lifeTimer = timer(end, options.max_lifetime)
       , connectTimer = timer(connectTimedOut, options.connect_timeout)
+      , inflightTimer = timer(inflightTimedOut, options.inflight_timeout)
 
   let socket = null
     , cancelMessage
@@ -100,6 +102,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     , rows = 0
     , serverSignature = null
     , nextWriteTimer = null
+    , lastWritten = null
+    , deferredRetries = []
     , terminated = false
     , incomings = null
     , results = null
@@ -110,11 +114,13 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     , ended = null
     , nonce = null
     , query = null
+    , queryStart = 0
     , final = null
 
   const connection = {
     queue: queues.closed,
     idleTimer,
+    inflightSince: 0,
     connect(query) {
       initial = query
       reconnect()
@@ -174,9 +180,10 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       q.state = backend
       query
         ? sent.push(q)
-        : (query = q, query.active = true)
+        : (query = q, query.active = true, armInflight())
 
       build(q)
+      lastWritten = q
       const mayPipeline = !q.options.onexecute || q.options.onexecute(connection)
       return write(toBuffer(q))
         && !q.describeFirst
@@ -184,9 +191,57 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
         && sent.length < max_pipeline
         && mayPipeline
     } catch (error) {
-      sent.length === 0 && write(Sync)
-      errored(error)
+      // GBrain (#6383), the approach of porsager/postgres#1236: q already has its place in the queue of
+      // queries awaiting an answer, but nothing of it was written. The stock catch rejected the connection's
+      // current query with q's error and left q waiting, so every later answer went to the wrong query.
+      // Send a query the server is sure to refuse in q's place: q gets an answer of its own, every later
+      // answer stays with its query, and a transaction q was part of is aborted instead of committing
+      // without it. q is then rejected with its own error, as a retried query is (ReadyForQuery). It is no
+      // longer described first or a cursor, since either would make the server's error send a Sync of its
+      // own and shift the next answer.
+      q.retried = error
+      q.describeFirst = false
+      q.cursorFn = null
+      options.onbuilderror && reportBuildError(q, error)
+      write(Unbuildable)
       return true
+    }
+  }
+
+  function reportBuildError(q, error) {
+    try {
+      options.onbuilderror(error && error.code ? error.code : 'BUILD_FAILED', statementText(q))
+    } catch (_) {}
+  }
+
+  // The statement's text with $n placeholders, never its parameter values.
+  function statementText(q) {
+    const strings = Array.isArray(q.strings) ? q.strings : [String(q.strings)]
+    return String(q.string || strings.reduce((a, s, i) => a + '$' + i + s)).replace(/\s+/g, ' ').trim().slice(0, 200)
+  }
+
+  // GBrain (#6383): the head statement's clock. It starts when a statement becomes the head, restarts on every
+  // byte the server sends and stops at ReadyForQuery. A statement that outlives options.inflight_timeout with
+  // nothing coming back (a desynced connection, a pooler that swallowed a CancelRequest, a dead peer) has no
+  // server-side timeout left to save it: the connection is retired instead of holding its queue forever.
+  function armInflight() {
+    queryStart = connection.inflightSince = performance.now()
+    inflightTimer.start()
+  }
+
+  function inflightTimedOut() {
+    if (!query)
+      return
+    const stuck = { age_ms: Math.round(performance.now() - queryStart), queued: sent.length, statement: statementText(query) }
+    const s = socket
+    error(Errors.connection('CONNECTION_STUCK', options, socket))
+    query = null
+    connection.inflightSince = 0
+    onstuck(connection, stuck)
+    terminate()
+    if (s && !s.destroyed) {
+      const t = setTimeout(() => s.destroyed || s.destroy(), 1000)
+      t.unref && t.unref()
     }
   }
 
@@ -312,6 +367,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   }
 
   function data(x) {
+    query && inflightTimer.start()
     if (incomings) {
       incomings.push(x)
       remaining -= x.length
@@ -400,6 +456,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     errored(err)
     while (sent.length)
       queryError(sent.shift(), err)
+    while (deferredRetries.length)
+      queryError(deferredRetries.shift(), err)
   }
 
   function errored(err) {
@@ -464,6 +522,8 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     idleTimer.cancel()
     lifeTimer.cancel()
     connectTimer.cancel()
+    inflightTimer.cancel()
+    connection.inflightSince = 0
 
     socket.removeAllListeners()
     socket = null
@@ -568,7 +628,10 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
 
   function ReadyForQuery(x) {
     connection.status = x[5]
+    query && query === lastWritten && (lastWritten = null)
+    connection.inflightSince = 0
     if (query) {
+      options.shared.completed++
       if (errorResponse) {
         // GBrain: a failed statement describes again next time instead of trusting shared parameter types.
         query.sharedTypes && options.shared_types.delete(query.typesKey)
@@ -587,6 +650,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     query = results = errorResponse = null
     result = new Result()
     connectTimer.cancel()
+    inflightTimer.cancel()
 
     if (initial) {
       if (target_session_attrs) {
@@ -612,8 +676,10 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     while (sent.length && (query = sent.shift()) && (query.active = true, query.cancelled))
       Connection(options).cancel(query.state, query.cancelled.resolve, query.cancelled.reject)
 
+    flushRetries()
+
     if (query)
-      return // Consider opening if able and sent.length < 50
+      return armInflight() // Consider opening if able and sent.length < 50
 
     connection.reserved
       ? !connection.reserved.release && x[5] === 73 // I
@@ -673,6 +739,7 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
     query.typesKey && query.statement.types.every(t => t > 0 && t < 16384)
       && options.shared_types.set(query.typesKey, query.statement.types.slice())
     query.describeFirst && !query.onlyDescribe && (write(prepared(query)), query.describeFirst = false)
+    flushRetries()
   }
 
   function RowDescription(x) {
@@ -870,7 +937,16 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
   function retry(q, error) {
     delete statements[q.signature]
     q.retried = error
-    execute(q)
+    deferredRetries.push(q)
+    flushRetries()
+  }
+
+  // GBrain: a describe-first or cursor query writes its next messages only when the server answers its first
+  // ones. A retry written in that gap lands between them on the wire, and every later response is then read
+  // for the wrong query (rows built with another statement's columns). Retries wait for that query.
+  function flushRetries() {
+    while (deferredRetries.length && !(lastWritten && (lastWritten.describeFirst || lastWritten.cursorFn)))
+      execute(deferredRetries.shift())
   }
 
   function NotificationResponse(x) {

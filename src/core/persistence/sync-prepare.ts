@@ -17,7 +17,7 @@ import { resolveSlugForPath, slugifyPath, isCodeFilePath } from '../sync.ts';
 import { SOURCE_CONFIG_OBJECT_SQL } from '../source-config-sql.ts';
 import { sameCanonicalImport } from '../page-state/import-guard.ts';
 import { assertPageRevision } from '../page-state/types.ts';
-import { sealPageTextProjection } from '../page-state/projections.ts';
+import { sealImportedPage, sealPageTextProjection } from '../page-state/projections.ts';
 import { pipelined, transactionMemo } from '../page-state/transactions.ts';
 import { prepareCanonicalProjections } from './canonical-projections.ts';
 import { digest, sha256 } from './digest.ts';
@@ -298,7 +298,13 @@ async function resolveSyncOrigin(engine: BrainEngine, row: WriteRequest, p: Sync
  * `boundedReads`: a relation lock held elsewhere ends the statement on the server at the budget (plan 1.4),
  * so the member is released without a zombie statement pinning a connection until the ceiling.
  */
-export async function prepareManagedSyncMutation(unbounded: BrainEngine, row: WriteRequest, _config: GBrainConfig, clock?: ClaimPhaseClock): Promise<PreparedMutation> {
+/**
+ * `screening.unsaved`: a waiver screen of a frozen entry the cursor does not yet name (a waiver run's head and followers).
+ * Its validation also accepts this run's cursor with nothing pending; the waiver transaction then requires exactly that
+ * cursor (run, index, nothing pending) under its lock.
+ */
+export async function prepareManagedSyncMutation(unbounded: BrainEngine, row: WriteRequest, _config: GBrainConfig, clock?: ClaimPhaseClock,
+  screening?: { unsaved: true }): Promise<PreparedMutation> {
   const engine = boundedReads(unbounded, clock);
   const p = row.intent as SyncIntent | null;
   if (!p || !['managed_sync_import', 'managed_sync_delete', 'managed_sync_checkpoint'].includes(p.kind)) throw syncPublicationRefusal('invalid_params', 'Unsupported internal sync intent.', row, p,
@@ -353,7 +359,7 @@ export async function prepareManagedSyncMutation(unbounded: BrainEngine, row: Wr
       async () => { if (await earlierGroupMemberFailed(tx, row)) throw syncPublicationRefusal('revision_conflict', 'An earlier page of this sync did not commit.', row, p, `Request ${row.request_id} follows a page of the same bulk group that did not commit, so this page must not publish after it.`); },
       async () => {
         const cursor = await shared;
-        if (cursor && (cursor.run_id !== p.runId || (cursor.request_id !== row.request_id && !cursor.group?.includes(row.request_id)))) throw syncPublicationRefusal('revision_conflict', 'The accepted sync cursor changed before publication.', row, p,
+        if (cursor && (cursor.run_id !== p.runId || (cursor.request_id !== row.request_id && !cursor.group?.includes(row.request_id) && !(screening?.unsaved && cursor.request_id == null)))) throw syncPublicationRefusal('revision_conflict', 'The accepted sync cursor changed before publication.', row, p,
           `Another sync run of ${row.source_id} replaced the cursor this request belongs to.`);
       },
       async () => { if (p.kind !== 'managed_sync_checkpoint') await assertKnowledgePublicationAllowed(tx, row, p.path === null ? undefined : { root, path: join(root, p.path) }); },
@@ -412,7 +418,7 @@ export async function prepareManagedSyncMutation(unbounded: BrainEngine, row: Wr
   const source = { sourceId: row.source_id };
   enterClaimStep(clock, 'page_snapshot', undefined, 'db');
   const snapshot = await engine.readPageSnapshot(row.slug, { ...source, includeDeleted: true });
-  assertPageRevision(snapshot, p.expected_revision === null ? {} : { expectedRevision: p.expected_revision });
+  assertPageRevision(snapshot, { expectedRevision: p.expected_revision }); // null asserts the admitted-absent page is still absent (#5385)
   const recordedOrigin = moved?.slug === row.slug ? moved.sourcePath : p.sourcePath!;
   const foreignOrigin = snapshot?.page.source_path != null && !sameSyncOrigin(snapshot.page.source_path, recordedOrigin, originScope, snapshot.page.slug);
   if ((snapshot?.page.id ?? null) !== row.page_id || (p.unownedDeletion ? !foreignOrigin : foreignOrigin)) {
@@ -566,7 +572,7 @@ export async function prepareManagedSyncMutation(unbounded: BrainEngine, row: Wr
         applied = movedImport;
       }
       // A moved page is versioned from its own (rename source) read.
-      await applied.apply(tx, renamed ? undefined : preimage);
+      const installed = await applied.apply(tx, renamed ? undefined : preimage);
       // Hash no-ops still repair a missing physical origin under the same guard (a page write records it itself).
       if (applied.noop) await tx.executeRaw('UPDATE pages SET source_path=$3 WHERE source_id=$1 AND slug=$2 AND source_path IS DISTINCT FROM $3', [row.source_id, row.slug, p.sourcePath]);
       // #5984: the one read of the page after its last page write (the projections
@@ -578,7 +584,11 @@ export async function prepareManagedSyncMutation(unbounded: BrainEngine, row: Wr
       // The projections, the text seal, the hold and the provenance touch separate rows; their pipelines run together.
       await pipelined(tx, [
         async () => { if (!applied.noop || p.companyApproval) await project(tx, final?.page.id); },
-        async () => { if (!applied.noop && live) await sealPageTextProjection(tx, row.slug, row.source_id, live); },
+        async () => {
+          if (applied.noop) return;
+          if (installed?.chunkerSeal !== undefined) await sealImportedPage(tx, row.slug, row.source_id, live, installed.chunkerSeal, installed.pageId);
+          else if (live) await sealPageTextProjection(tx, row.slug, row.source_id, live);
+        },
         () => releaseHold(tx),
         async () => { if (final) await recordSyncImportProvenance(tx, { source_id: row.source_id, incarnation: row.source_incarnation, page_id: Number(final.page.id), origin: p.sourcePath!,
           raw_sha256: sha256(p.content!), ...(p.blobOid ? { blob_oid: p.blobOid } : {}), gbrain_version: VERSION, ...(recovery?.length ? { recovery } : {}) }); },

@@ -17,14 +17,13 @@ import type { FenceIssueWire } from './fence-repair/tier1.ts';
 import type { FenceFix } from './fence-repair/types.ts';
 import { classifyStoredType } from './schema-pack/type-usage.ts';
 import { prepareFenceAwareMarkdownChunks } from './markdown-chunks.ts';
-import { prepareCodeChunks, installCodeChunkEdges } from './code-chunks.ts';
+import { prepareCodeChunks, installCodeChunkEdges, mapCodeEdges } from './code-chunks.ts';
 import { detectCodeLanguage, CHUNKER_VERSION, GRAMMAR_REVISIONS, type SupportedCodeLanguage } from './chunkers/code.ts';
 import { sanitizeRemoteBody } from './remote-body.ts';
 import { installPageEmbeddings, installPageProjection, preparePageProjection, projectionBelowSafeFence, queuePageProjection, readProjectionSnapshot, resealSafeChunks,
   sealPageTextProjection, stampEmbeddingInputs, type ProjectionSnapshot } from './page-state/projections.ts';
 import { sanitizeText } from './batch-rows.ts';
 import { hasProtectedBody, safeChunksFilter } from './search/safe-chunks.ts';
-import { findChunkForOffset } from './chunkers/edge-extractor.ts';
 import { planEmbeddingReuse } from './embed-reuse.ts';
 import { reuseStoredChunkVectors } from './import-chunk-reuse.ts';
 import { extractCodeRefs, imageOfCandidates } from './link-extraction.ts';
@@ -315,6 +314,8 @@ export async function importFromContent(
      * and reindex leave it unset so the guard stays armed.
      */
     allowEmptyOverwrite?: boolean;
+    /** With no writeGate, the tier that decides whether a preserved `quarantine_override` is kept (owner tier only; present but unreadable strips it). */
+    overrideTier?: unknown;
     /** #5575: the caller's trust tier and origin for this write; absent skips the write gate (owner paths). */
     writeGate?: WriteGateInput;
     beforeCommit?: (tx: BrainEngine, slug: string) => Promise<void>;
@@ -758,6 +759,7 @@ export async function importFromContent(
       () => writePageAliases(tx, slug, sourceId ?? 'default', parsed, opts.activePack, mentionPolicy),
     ]);
     const pageId = written && written.deleted_at == null ? written.id : undefined;
+    const deferSeal = opts.coordinated === true && pageId !== undefined;
     await pipelined(tx, [
       async () => {
         // Tag reconciliation (A14): frontmatter tags carry tag_source='frontmatter'.
@@ -776,7 +778,7 @@ export async function importFromContent(
           const embeddingColumn = await stampEmbeddingInputs(tx, fresh, null,
             { title: parsed.title, tier: effectiveCRMode === 'title' ? 'title' : 'none', corpusGeneration });
           await tx.upsertChunks(slug, kept.size ? fresh.filter((_, i) => !kept.has(i)) : fresh, { ...txOpts, ...(embeddingColumn ? { embeddingColumn } : {}), sealChunkerVersion: MARKDOWN_CHUNKER_VERSION,
-            ...(pageId !== undefined ? { pageId: Number(pageId) } : {}) });
+            ...(pageId !== undefined ? { pageId: Number(pageId) } : {}), ...(deferSeal ? { deferSeal: true as const } : {}) });
           // v0.41.31: stamp embedding provenance when this import actually
           // embedded (not --no-embed), so a later model/dims swap is detectable
           // as stale via embed --stale. The deferred/backfill + per-slug embed
@@ -790,7 +792,7 @@ export async function importFromContent(
         } else {
           // Seal only the completed, full-body sanitized replacement (the upsert above seals its own); a
           // body-only write or a failed transaction must never certify old stored fragments.
-          await tx.executeRaw('UPDATE pages SET chunker_version = $1 WHERE source_id = $2 AND slug = $3', [MARKDOWN_CHUNKER_VERSION, txOpts.sourceId, slug]);
+          if (!deferSeal) await tx.executeRaw('UPDATE pages SET chunker_version = $1 WHERE source_id = $2 AND slug = $3', [MARKDOWN_CHUNKER_VERSION, txOpts.sourceId, slug]);
         }
       },
     ]);
@@ -840,7 +842,7 @@ export async function importFromContent(
       // guard. Deferred provider results cannot replace newer text or chunks.
       persistedProjection = await readProjectionSnapshot(tx, slug, txOpts.sourceId);
     }
-    return { pageId: written && written.deleted_at == null ? written.id : undefined, sealed: !opts.coordinated && !opts.beforeCommit };
+    return { pageId, sealed: !opts.coordinated && !opts.beforeCommit, ...(deferSeal ? { chunkerSeal: MARKDOWN_CHUNKER_VERSION } : {}) };
   };
   if (opts.prepare) return opts.prepare({
     slug, parsedPage, observedRevision: (existing as (typeof existing & { knowledge_revision?: string }) | null)?.knowledge_revision ?? null,
@@ -1410,32 +1412,7 @@ export async function importCodeFile(
         };
       });
 
-      const edgeInputs: import('./types.ts').CodeEdgeInput[] = [];
-      for (const e of extractedEdges) {
-        const idx = findChunkForOffset(e.callSiteByteOffset, storageContent, rangeList);
-        if (idx == null) continue;
-        const from = rangeList[idx]!;
-        if (!from.id || !from.symbol_name_qualified) continue;
-        edgeInputs.push({
-          from_chunk_id: from.id,
-          to_chunk_id: null,
-          from_symbol_qualified: from.symbol_name_qualified,
-          to_symbol_qualified: e.toSymbol,
-          edge_type: e.edgeType, ...(e.memberCall ? { edge_metadata: { member_call: true } } : {}),
-          // Stamp the source: getCallersOf/getCalleesOf add
-          // `AND source_id = <scoped>` whenever a worktree pin / --source is
-          // in play, and a NULL here never matches that filter — so every
-          // scoped call-graph query silently returned 0 rows on
-          // multi-source brains even though the edges existed. The fallback
-          // is 'default', NOT null: an unscoped import lands its pages under
-          // the schema default (pages.source_id DEFAULT 'default'), so a
-          // NULL-stamped edge would be invisible to the matching scoped
-          // query getCallersOf(sym, { sourceId: 'default' }) — the same bug
-          // through the other door.
-          source_id: edgeSourceId,
-        });
-      }
-
+      const edgeInputs = mapCodeEdges(extractedEdges, storageContent, rangeList, edgeSourceId);
       if (edgeInputs.length > 0) {
         await engine.addCodeEdges(edgeInputs);
       }

@@ -5,6 +5,9 @@ import { cosineSimilarity } from './classify.ts';
 import { FACT_WITHDRAWN_MESSAGE, FACT_WITHDRAWN_SUGGESTION, isFactWithdrawn } from './withdrawal.ts';
 import { assertFactNotPurged } from './withdrawal.ts';
 import { cosineVerdict } from './capture-dedup.ts';
+import { interleaveFusion } from '../search/fusion-lists.ts';
+import { readSupersessionThreshold } from './supersession-threshold.ts';
+import { privateProvenanceFilterFragment } from '../search/private-visibility.ts';
 
 export type FactCandidate = FactRow & { source_markdown_slug: string | null; row_num: number | null };
 export interface FactDecision { status: 'inserted' | 'duplicate' | 'superseded'; candidate: FactCandidate | null; }
@@ -30,21 +33,49 @@ export async function assertFactNotWithdrawn(engine: BrainEngine, sourceId: stri
     throw verbError('invalid_params', FACT_WITHDRAWN_MESSAGE, FACT_WITHDRAWN_SUGGESTION);
   }
 }
+export const CANDIDATE_FUSION_KEY = 'facts.candidate_fusion';
+export type CandidateFusion = 'rrf_free' | 'interleave';
+/** Candidates the supersession decision scores; the cap bounds the blast radius. */
+export const SUPERSESSION_CANDIDATE_K = 5;
+
+/** `facts.candidate_fusion`: `rrf_free` (default) is the single cosine arm; unknown values read as the default. */
+export async function readCandidateFusion(engine: BrainEngine): Promise<CandidateFusion> {
+  try {
+    const raw = (await engine.getConfig(CANDIDATE_FUSION_KEY))?.trim();
+    return raw === 'interleave' ? 'interleave' : 'rrf_free';
+  } catch {
+    return 'rrf_free';
+  }
+}
+
+/**
+ * The supersession candidate set for one claim: the cosine arm's top k, or
+ * under `interleave` the cosine and keyword arms merged round-robin by fact id
+ * and cut to the same k, so the decision still scores at most k rows.
+ */
+export async function listSupersessionCandidates(engine: BrainEngine, sourceId: string, entitySlug: string, fact: string, embedding: Float32Array, embeddingModel?: string | null, fusion?: CandidateFusion, attributedTo?: FactAttribution | null): Promise<FactRow[]> {
+  const k = SUPERSESSION_CANDIDATE_K;
+  const cosine = await engine.findCandidateDuplicates(sourceId, entitySlug, fact, { embedding, embeddingModel, k, attributedTo });
+  if ((fusion ?? await readCandidateFusion(engine)) !== 'interleave') return cosine;
+  const keyword = await engine.findCandidateDuplicates(sourceId, entitySlug, fact, { embedding, embeddingModel, k, arm: 'keyword', attributedTo });
+  return interleaveFusion([cosine, keyword], row => row.id, k);
+}
+
 /**
  * SQL-only, so publication can verify the semantic decision under its guard.
  * `lane` is the writer's `facts.source`: capture lanes never drop by cosine (#5888).
  */
-export async function decideSingleFact(engine: BrainEngine, sourceId: string, input: SingleFactIntent, embedding: Float32Array | null, embeddingModel?: string | null, lane?: string | null): Promise<FactDecision> {
+export async function decideSingleFact(engine: BrainEngine, sourceId: string, input: SingleFactIntent, embedding: Float32Array | null, embeddingModel?: string | null, lane?: string | null, opts: { excludePrivate?: boolean } = {}): Promise<FactDecision> {
   const [exact] = await engine.executeRaw<FactCandidate>(`SELECT * FROM facts WHERE source_id=$1
     AND entity_slug IS NOT DISTINCT FROM $2 AND visibility=$3 AND expired_at IS NULL
     AND (valid_until IS NULL OR valid_until>now()) AND gbrain_fact_fingerprint(fact)=gbrain_fact_fingerprint($4)
-    AND ($5::text IS NULL OR attributed_to IS NULL OR attributed_to=$5)
+    AND ($5::text IS NULL OR attributed_to IS NULL OR attributed_to=$5)${opts.excludePrivate ? ` AND ${privateProvenanceFilterFragment('facts')}` : ''}
     ORDER BY id LIMIT 1`, [sourceId, input.entity_slug, input.visibility, input.fact, input.attributed_to ?? null]);
   if (exact) return { status: 'duplicate', candidate: { ...exact, id: Number(exact.id) } };
   if (embedding && input.entity_slug) {
-    const candidates = await engine.findCandidateDuplicates(sourceId, input.entity_slug, input.fact, { embedding, embeddingModel, k: 5, attributedTo: input.attributed_to ?? null });
+    const candidates = await listSupersessionCandidates(engine, sourceId, input.entity_slug, input.fact, embedding, embeddingModel, undefined, input.attributed_to ?? null);
     const metadata = await engine.executeRaw<{ id: number; source_markdown_slug: string | null; row_num: number | null; trust_tier: FactRow['trust_tier'] }>(
-      'SELECT id,source_markdown_slug,row_num,trust_tier FROM facts WHERE source_id=$1 AND id=ANY($2::int[])',
+      `SELECT id,source_markdown_slug,row_num,trust_tier FROM facts WHERE source_id=$1 AND id=ANY($2::int[])${opts.excludePrivate ? ` AND ${privateProvenanceFilterFragment('facts')}` : ''}`,
       [sourceId, candidates.map(c => c.id)]);
     let candidate: FactCandidate | null = null;
     let score = -1;
@@ -60,7 +91,7 @@ export async function decideSingleFact(engine: BrainEngine, sourceId: string, in
       const next = cosineSimilarity(embedding, c.embedding);
       if (next > score) { score = next; candidate = c; }
     }
-    if (candidate && cosineVerdict(lane, score, input.fact, candidate.fact) === 'duplicate') return {
+    if (candidate && cosineVerdict(lane, score, input.fact, candidate.fact, (await readSupersessionThreshold(engine, embeddingModel, embedding.length)).threshold) === 'duplicate') return {
       status: candidate.kind === input.kind ? 'superseded' : 'duplicate', candidate,
     };
   }
@@ -74,14 +105,14 @@ export async function decideSingleFact(engine: BrainEngine, sourceId: string, in
  * duplicate. `lock` takes the target row lock inside the publishing transaction.
  */
 export async function decideReplacement(engine: BrainEngine, sourceId: string, input: SingleFactIntent, targetId: number,
-  opts: { pageSlug: string; remote: boolean; lock?: boolean }): Promise<FactDecision> {
+  opts: { pageSlug: string; remote: boolean; lock?: boolean; excludePrivate?: boolean }): Promise<FactDecision> {
   const notFound = () => verbError('not_found', `No fact with id "${targetId}" to replace.`,
     'Pass the fact_id of an active fact from recall (facts[].fact_id) about the same entity, or omit replaces to save a new fact.');
   const [target] = await engine.executeRaw<FactCandidate & { withdrawn: boolean }>(`SELECT f.*,
       EXISTS (SELECT 1 FROM fact_withdrawals w WHERE w.source_id=f.source_id AND w.visibility=f.visibility
         AND w.fact_hash IN (gbrain_fact_fingerprint(f.fact),gbrain_fact_fingerprint_v1(f.fact))
         AND (w.subject='*' OR w.subject=COALESCE(f.entity_slug,'*'))) AS withdrawn
-    FROM facts f WHERE f.id=$1 AND f.source_id=$2${opts.lock ? ' FOR UPDATE OF f' : ''}`, [targetId, sourceId]);
+    FROM facts f WHERE f.id=$1 AND f.source_id=$2${opts.excludePrivate ? ` AND ${privateProvenanceFilterFragment('f')}` : ''}${opts.lock ? ' FOR UPDATE OF f' : ''}`, [targetId, sourceId]);
   if (!target || (opts.remote && target.visibility !== 'world')) throw notFound();
   if (target.visibility !== input.visibility) throw notFound();
   const candidate: FactCandidate = { ...target, id: Number(target.id) };
@@ -106,7 +137,7 @@ export async function decideReplacement(engine: BrainEngine, sourceId: string, i
     throw verbError('invalid_params', `replaces_cross_page: fact #${targetId} lives on page ${candidate.source_markdown_slug}.`,
       'Forget the old fact, then remember the new one.');
   }
-  const exact = await decideSingleFact(engine, sourceId, input, null);
+  const exact = await decideSingleFact(engine, sourceId, input, null, undefined, undefined, { excludePrivate: opts.excludePrivate });
   if (exact.status === 'duplicate') {
     if (exact.candidate!.id === candidate.id) return { status: 'duplicate', candidate };
     throw verbError('invalid_params', `replaces_duplicate: an active fact (#${exact.candidate!.id}) already states this claim.`,

@@ -58,6 +58,8 @@ export async function runRememberBatch(ctx: OperationContext, p: Record<string, 
     throw verbError('invalid_params', 'replaces names one fact, so it cannot apply to a whole batch.',
       'Put replaces on the item it belongs to: items: [{ "fact": "...", "replaces": "<fact_id>" }].');
   }
+  // #6280: an unusable request_id refuses the batch before any write (F6 accepts a UUID or a printable client id).
+  if (p.request_id !== undefined) parseWriteRequestId(p.request_id);
   const shared: Record<string, unknown> = {};
   for (const key of ['provenance', 'source_id', 'kind', 'ttl', 'visibility', 'infer_entity']) if (p[key] !== undefined) shared[key] = p[key];
   const normalized = items.map((raw, index) => {
@@ -78,8 +80,8 @@ export async function runRememberBatch(ctx: OperationContext, p: Record<string, 
     }
   }
   if (ctx.dryRun) return { dry_run: true, action: 'remember', items: normalized.length, protocol_version: 1 };
-  // F6: child ids derive from the root string the client sent (as before the upgrade), so an accepted batch replays to the same receipts.
-  const rootId = typeof p.request_id === 'string' && p.request_id ? p.request_id : randomUUID();
+  // F6: child ids derive from the root string the client sent, so an accepted batch replays to the same receipts.
+  const rootId = typeof p.request_id === 'string' ? p.request_id : randomUUID();
   const requestId = parseWriteRequestId(rootId)!;
   const clientRequestId = clientRequestIdOf(rootId);
   const results: BatchItemResult[] = [];

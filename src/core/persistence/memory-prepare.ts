@@ -16,6 +16,7 @@ import type { WriteRequest } from './model.ts';
 import { appendContextNote, type InferredVia } from '../facts/subject-infer.ts';
 import { inferenceNote } from '../facts/subject-infer-write.ts';
 import { normalizeTargetFences } from '../fence-repair/import-step.ts';
+import { refuseUnparsedRewrite } from '../fence-repair/refusal.ts';
 import { requestChannelTrust } from '../trust/channel.ts';
 import { gateField, gateInput, heldOutcome, loadWriteGateConfig } from '../trust/gate-outcomes.ts';
 import { decideFactWrite, recordFlaggedRow, recordWriteGateHold } from '../write-gate-store.ts';
@@ -25,6 +26,7 @@ import { storedTrustTier } from '../trust/tier.ts';
 import { pageFencesNormalized } from '../fence-repair/report.ts';
 import { fenceAppendPendingTier, withPendingFenceRows } from '../eligibility/fence-overlay.ts';
 import { withPageTierKept } from '../trust/fence-append.ts';
+import { privateProvenanceFilterFragment, resolveExcludePrivatePages } from '../search/private-visibility.ts';
 
 function receiptFix(row: WriteRequest): Action {
   return row.principal_kind === 'local_cli'
@@ -58,10 +60,10 @@ function outcome(id: number, status: 'inserted' | 'duplicate' | 'superseded', en
 }
 
 /** The newest active fact in this source and visibility that states the same normalized claim without an entity. */
-async function activeUnlinkedCopy(engine: BrainEngine, sourceId: string, input: SingleFactIntent): Promise<number | null> {
+async function activeUnlinkedCopy(engine: BrainEngine, sourceId: string, input: SingleFactIntent, excludePrivate: boolean): Promise<number | null> {
   const [row] = await engine.executeRaw<{ id: number }>(`SELECT id FROM facts
     WHERE source_id=$1 AND visibility=$2 AND entity_slug IS NULL AND expired_at IS NULL
-      AND (valid_until IS NULL OR valid_until > now()) AND gbrain_fact_fingerprint(fact)=gbrain_fact_fingerprint($3)
+      AND (valid_until IS NULL OR valid_until > now()) AND gbrain_fact_fingerprint(fact)=gbrain_fact_fingerprint($3)${excludePrivate ? ` AND ${privateProvenanceFilterFragment('facts')}` : ''}
     ORDER BY id DESC LIMIT 1`, [sourceId, input.visibility, input.fact]);
   return row ? Number(row.id) : null;
 }
@@ -91,18 +93,19 @@ export async function prepareMemoryMutation(engine: BrainEngine, row: WriteReque
   const dedupEmbedding = p.entity_inferred ? null : embedding;
   // `replaces`: the caller names the fact this one replaces (checked; the cosine rule does not apply).
   const replaces = p.replaces !== undefined && p.replaces !== null ? Number(p.replaces) : null;
+  const excludePrivate = await resolveExcludePrivatePages(engine, row.authority.remote === true);
   const replace = (e: BrainEngine, target: number, lock: boolean) =>
-    decideReplacement(e, row.source_id, input, target, { pageSlug: row.slug, remote: row.authority.remote === true, lock });
+    decideReplacement(e, row.source_id, input, target, { pageSlug: row.slug, remote: row.authority.remote === true, lock, excludePrivate });
   const decide = async (e: BrainEngine, lock = false) => {
     if (replaces !== null) return replace(e, replaces, lock);
     // The same claim saved earlier without an entity is this fact unlinked: linking it supersedes that copy,
     // so no subjectless duplicate is left whose forget would withdraw the claim from every entity.
-    const unlinked = input.entity_slug === null ? null : await activeUnlinkedCopy(e, row.source_id, input);
+    const unlinked = input.entity_slug === null ? null : await activeUnlinkedCopy(e, row.source_id, input, excludePrivate);
     if (unlinked !== null) {
       const linked = await replace(e, unlinked, lock).catch(() => null);
       if (linked) return linked;
     }
-    return decideSingleFact(e, row.source_id, input, dedupEmbedding, embedding_model);
+    return decideSingleFact(e, row.source_id, input, dedupEmbedding, embedding_model, undefined, { excludePrivate });
   };
   const decision = await decide(engine);
   // #5575 I3: a lower-tier write never supersedes; it is inserted contested and the owner decides (re-checked under lock by validate).
@@ -145,9 +148,10 @@ export async function prepareMemoryMutation(engine: BrainEngine, row: WriteReque
     const target = await normalizeTargetFences(engine, { sourceId: row.source_id, slug: row.slug, kind: 'facts', page: snapshot.page });
     if (target.fixes.length) fencesNormalized = { fences_normalized: pageFencesNormalized({ sourceId: row.source_id, slug: row.slug, fixes: target.fixes,
       writer: row.principal_kind, path: snapshot.page.source_path ?? null, remote: row.authority.remote }) };
-    const appended = upsertFactRow(target.page.compiled_truth, { claim: input.fact, kind: input.kind, visibility: input.visibility,
-      confidence: 1, notability: 'medium', validFrom: formatFenceDate(validFrom),
-      validUntil: validUntil ? formatFenceDate(validUntil) : undefined, source: fact.source, context });
+    // #6385 R12: an entity fence that does not parse cleanly refuses typed instead of losing the rows it skipped.
+    const appended = refuseUnparsedRewrite(target.page, row.slug, row.source_id, () => upsertFactRow(target.page.compiled_truth, {
+      claim: input.fact, kind: input.kind, visibility: input.visibility, confidence: 1, notability: 'medium', validFrom: formatFenceDate(validFrom),
+      validUntil: validUntil ? formatFenceDate(validUntil) : undefined, source: fact.source, context }));
     rowNum = appended.rowNum;
     let body = appended.body;
     const old = decision.candidate;

@@ -166,7 +166,7 @@ Response — an additive SUPERSET of the plain facts envelope on EVERY call
 | `protocol_version` | int | always present (every verb, every call) |
 | `facts[]` | array | the base fact fields, PLUS per fact: `fact_id` (opaque STRING — the value `forget` accepts; the numeric `id` remains alongside it for compatibility) and `provenance` (the stored source attribution) |
 | `total` | int | count of facts returned |
-| `results[]` | array | search arm only: `slug`, `title`, `chunk`, `evidence`, `create_safety`, `provenance` (origin page slug) |
+| `results[]` | array | search arm only: `slug`, `title`, `chunk`, `evidence`, `create_safety`, `provenance` (origin page slug), `source_id` (additive since #4830: the source the hit came from; on a federated read each hit names its own source, and a hit that carries none is labeled only when the read's scope is a single source, never a blind `default`) |
 | `search_degraded` | string? | present when keyword-only fallback fired |
 | `budget_tokens` / `budget_used` / `dropped_count` | int? | present for a positive finite numeric budget, including when its floor is zero |
 | `budget_packing` | object? | present only when a valid `budget_policy` is supplied; effective policy and per-arm accounting |
@@ -236,7 +236,7 @@ matched. **create_safety** (enum): `exists` (a page for this already exists)
 signal). The derivation of both is implementation-defined and may improve;
 the values are frozen.
 
-### remember(fact, provenance, ttl?, entity?, kind?, visibility?, request_id?) — write
+### remember(fact, provenance, ttl?, entity?, kind?, visibility?, valid_from?, request_id?) — write
 
 Save ONE fact with mandatory attribution.
 
@@ -245,6 +245,7 @@ Save ONE fact with mandatory attribution.
   Empty ⇒ `provenance_required` error with a fix.
 - `entity`: set whenever the fact is about a specific person/company/project —
   entity-scoped recall will not find unattributed facts.
+- `valid_from` (ISO 8601): when the fact became true. Omitted ⇒ write time.
 - `infer_entity` (additive, boolean, default `true`): when `entity` is omitted,
   the server may link the fact to the one entity page its text names exactly
   (zero LLM; a second competing name, a bare first name or an ambiguous match
@@ -282,9 +283,8 @@ and `replaces` set to its id.
 
 #### remember replaces (additive)
 
-`replaces` (string): the `fact_id` of the fact this new fact replaces. It is a
-caller-directed replacement: it says the old fact is no longer the current one,
-not that the two texts mean the same. Zero model calls; the cosine rule does
+`replaces` (string): the `fact_id` this fact replaces, caller-directed: the
+old fact is no longer current (the texts need not mean the same). Zero model calls; the cosine rule does
 not apply. The target must be an active fact in the same source, with the same
 visibility (world only for remote callers, else `not_found`) and the same
 entity, on the same entity page. A target saved without an entity may be
@@ -595,7 +595,11 @@ A pending write is a protocol `unavailable` error with a populated suggestion,
 `protocol_version: 1`, and optional `write_request` and `write_error` fields.
 It never returns a success `status` or `expired` value. `write_error` carries
 the detailed concurrency reason without changing the frozen protocol error
-enum. A committed receipt retains the original memory-verb success fields.
+enum. Its values branch three ways on revisions: `revision_required` (the page
+exists and the write named no `expected_revision`: read it and resend),
+`revision_conflict` (the named revision is stale: re-read and merge) and
+`revision_backfill_pending` (resume the revision backfill). A committed receipt
+retains the original memory-verb success fields.
 Compaction may remove diagnostics, but must preserve those frozen result fields.
 
 The optional caller-chosen `request_id` identifies one write intent; reuse it
@@ -698,6 +702,7 @@ Refusals name the edit and never include protected text:
 | `edit_protected_span` | `edit_index=<i>` | The text touches a takes or facts section; use the scoped operations. |
 | `edit_invalid` | `edit_index=<i>` when one edit is malformed | Pass 1 to 50 `{old_text, new_text}` objects with non-empty `old_text`. |
 | `revision_conflict` | `current_revision=<uuid>` | Read the page again, rebuild the edits, resend. |
+| `revision_required` | — | The page exists and the call named no `expected_revision` (`put_page`; additive since #5385, formerly reported as `revision_conflict`). Read the page, then resend with its revision, or `force: true` for an intentional overwrite. |
 
 ```json
 → get_page {"slug": "projects/example", "include_content": true}
@@ -731,7 +736,7 @@ lockstep, and is honored ONLY for trusted-local callers (`remote === false`); a
 remote caller never widens (fail-closed).
 
 Response: `{ protocol_version, entities, cards[], open_threads[], facts[], text,
-degraded_reason?, budget_tokens?, budget_used?, dropped_count?, core? }`. `text` is the
+degraded_reason?, budget_tokens?, budget_used?, dropped_count?, core?, pinned_questions?, withheld? }`. `text` is the
 envelope-wrapped injectable block, rendered from the packed sets within `budget_tokens`.
 
 `entities` scopes cards and threads, not the hot facts (the session's recent

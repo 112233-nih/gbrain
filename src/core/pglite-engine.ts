@@ -7,6 +7,7 @@ import type { GetVersionsOpts, PageVersionRows } from './page-state/version-type
 import { assertPageRevision } from './page-state/types.ts';
 import { lockUnheldPageKeys, withHeldPageKeys, type HeldPageKeys } from './page-state/guards.ts';
 import { readPageSnapshot as readCanonicalPageSnapshot } from './page-state/snapshot.ts';
+import { readPageSnapshotsBatch } from './page-snapshot-batch.ts';
 import { createPageVersion } from './page-state/versions.ts';
 import { moveSlugBindings, recordRenameAlias } from './page-state/rename-alias.ts';
 import { composablePgliteTransaction, transactionMemo } from './page-state/transactions.ts';
@@ -52,7 +53,8 @@ import type {
   NewFact, FactListOpts, FactsHealth,
   SourceRow,
 } from './engine.ts';
-import { DREAM_VERDICT_TTL_SECONDS, clampSearchLimit } from './engine.ts';
+import { DREAM_VERDICT_TTL_SECONDS, clampSearchLimit, type TransactionOptions } from './engine.ts';
+import { transactionAborted } from './postgres-engine/transaction-abort.ts';
 import { searchLimitCap } from './search/eval-pool-depth.ts';
 // Engine-path imports stay static unless a call site carries an explicit
 // engine-dynamic-import-ok justification. The gateway is the only current
@@ -130,7 +132,7 @@ import {
 import { hasCJK } from './cjk.ts';
 import * as factsImpl from './engine-sql/facts.ts';
 import * as takesImpl from './engine-sql/takes.ts';
-import { PgliteCheckpointGuard, writesWal } from './pglite-engine/checkpoint-guard.ts';
+import { PgliteCheckpointGuard, guardedHandle, writesWal } from './pglite-engine/checkpoint-guard.ts';
 import { pgliteExecutor } from './engine-sql/dialect-pglite.ts';
 import type { SqlExecutor } from './engine-sql/executor.ts';
 import { scopedRead, unscopedExecutor } from './engine-sql/brands.ts';
@@ -138,6 +140,7 @@ import * as codeEdgesImpl from './engine-sql/code-edges.ts';
 import { getEdgesByChunk as getEdgesByChunkPglite, type PgliteCodeEdgesDeps } from './pglite-engine/code-edges.ts';
 import * as salienceImpl from './engine-sql/salience.ts';
 import * as healthImpl from './engine-sql/health.ts';
+import { resolveEntityTypes } from './schema-pack/entity-types.ts';
 import * as pagesImpl from './engine-sql/pages.ts';
 import * as tagsImpl from './engine-sql/tags.ts';
 import * as linksImpl from './engine-sql/links.ts';
@@ -762,7 +765,7 @@ export class PGLiteEngine implements BrainEngine {
    * returns the tx handle) runs migrated domain SQL inside its transaction.
    */
   private get engineSql(): SqlExecutor {
-    return pgliteExecutor(this.db);
+    return pgliteExecutor(this._pageTransaction || this._dbWork === null ? this.db : guardedHandle(this.db, this._checkpointGuard ??= new PgliteCheckpointGuard()));
   }
 
   // Lifecycle
@@ -1169,7 +1172,8 @@ export class PGLiteEngine implements BrainEngine {
     return fn(conn);
   }
 
-  async transaction<T>(fn: (engine: BrainEngine) => Promise<T>): Promise<T> {
+  async transaction<T>(fn: (engine: BrainEngine) => Promise<T>, opts?: TransactionOptions): Promise<T> {
+    if (opts?.signal?.aborted) throw transactionAborted(opts.signal);
     const run = (db = this.db) => withHeldPageKeys(this._pageTransaction ? this._heldPageKeys : null, held => db.transaction(async handle => {
       const tx = composablePgliteTransaction(this._statements?.attach(handle, true) ?? handle);
       const txEngine = Object.create(this) as PGLiteEngine;
@@ -1184,8 +1188,8 @@ export class PGLiteEngine implements BrainEngine {
     return this._dbWork.admit(db => guard.runOutermost(sql => db.query(sql), () => run(db)));
   }
 
-  async transactionDirect<T>(fn: (engine: BrainEngine) => Promise<T>): Promise<T> {
-    return this.transaction(fn);
+  async transactionDirect<T>(fn: (engine: BrainEngine) => Promise<T>, opts?: TransactionOptions): Promise<T> {
+    return this.transaction(fn, opts);
   }
 
   // Pages CRUD
@@ -1195,6 +1199,10 @@ export class PGLiteEngine implements BrainEngine {
 
   async readPageSnapshot(slug: string, opts?: PageSnapshotOptions): Promise<PageSnapshot | null> {
     return readCanonicalPageSnapshot(this.executeRaw.bind(this), slug, opts);
+  }
+
+  async readPageSnapshotsBatch(refs: ReadonlyArray<{ slug: string; sourceId: string }>, opts?: { maxBytes?: number; includeDeleted?: boolean; absentIsNull?: boolean }) {
+    return readPageSnapshotsBatch(this.executeRaw.bind(this), refs, opts);
   }
 
   async lockPageKeys(keys: readonly PageKey[]): Promise<void> {
@@ -1213,6 +1221,7 @@ export class PGLiteEngine implements BrainEngine {
   ): Promise<{ slug: string; id: number } | null> {
     return pagesImpl.findDuplicatePage(scopedRead(this.engineSql), sourceId, opts);
   }
+  async findDuplicatePages(sourceId: string, inputs: Parameters<typeof pagesImpl.findDuplicatePages>[2]) { return pagesImpl.findDuplicatePages(scopedRead(this.engineSql), sourceId, inputs); }
 
   private _pageTransaction = false;
 
@@ -1771,13 +1780,13 @@ export class PGLiteEngine implements BrainEngine {
   // Chunks SQL lives once in ./engine-sql/chunks.ts (refactor wave 1, W1-extended).
   // The engine keeps the retry + transaction wrapper, the RLS scope
   // transaction and the source-scope / active-column resolution.
-  async upsertChunks(slug: string, chunks: ChunkInput[], opts?: { sourceId?: string; embeddingColumn?: ResolvedColumn; expectedRevision?: string; sealChunkerVersion?: number; pageId?: number } & BatchOpts): Promise<void> {
+  async upsertChunks(slug: string, chunks: ChunkInput[], opts?: { sourceId?: string; embeddingColumn?: ResolvedColumn; expectedRevision?: string; sealChunkerVersion?: number; pageId?: number; deferSeal?: true } & BatchOpts): Promise<void> {
     if (this._chunkWritesInTransaction) return this._upsertChunksOnce(slug, chunks, opts);
     return this.batchRetry(opts?.auditSite ?? 'upsertChunks', opts?.signal,
       () => this.transaction(tx => (tx as PGLiteEngine)._upsertChunksOnce(slug, chunks, opts)), chunks.length);
   }
 
-  private async _upsertChunksOnce(slug: string, chunks: ChunkInput[], opts?: { sourceId?: string; embeddingColumn?: ResolvedColumn; expectedRevision?: string; sealChunkerVersion?: number; pageId?: number }): Promise<void> {
+  private async _upsertChunksOnce(slug: string, chunks: ChunkInput[], opts?: { sourceId?: string; embeddingColumn?: ResolvedColumn; expectedRevision?: string; sealChunkerVersion?: number; pageId?: number; deferSeal?: true }): Promise<void> {
     return chunksImpl.upsertChunksOnce(this.engineSql, {
       lockPageKeys: (keys) => this.lockPageKeys(keys),
       readPageSnapshot: (pageSlug, snapshotOpts) => this.readPageSnapshot(pageSlug, snapshotOpts),
@@ -2445,7 +2454,7 @@ export class PGLiteEngine implements BrainEngine {
 
   async listSupersessions(
     source_id: string,
-    opts?: { since?: Date; limit?: number; visibility?: ('private' | 'world')[]; eligibility?: import('./engine.ts').FactListOpts['eligibility'] },
+    opts?: { since?: Date; limit?: number; visibility?: ('private' | 'world')[]; eligibility?: import('./engine.ts').FactListOpts['eligibility']; excludePrivate?: boolean },
   ): Promise<FactRow[]> {
     return factsImpl.listSupersessions(unscopedExecutor(this.engineSql, 'facts: unscoped on master (EO4 inventory)'), source_id, opts);
   }
@@ -2458,7 +2467,7 @@ export class PGLiteEngine implements BrainEngine {
     source_id: string,
     entitySlug: string,
     factText: string,
-    opts?: { k?: number; embedding?: Float32Array; embeddingModel?: string | null; attributedTo?: import('./engine.ts').FactAttribution | null },
+    opts?: { k?: number; embedding?: Float32Array; embeddingModel?: string | null; arm?: 'keyword'; attributedTo?: import('./engine.ts').FactAttribution | null },
   ): Promise<FactRow[]> {
     return factsImpl.findCandidateDuplicates(unscopedExecutor(this.engineSql, 'facts: unscoped on master (EO4 inventory)'), source_id, entitySlug, factText, opts);
   }
@@ -2696,6 +2705,7 @@ export class PGLiteEngine implements BrainEngine {
       embeddingColumn: async () => (await resolveActiveEmbeddingColumnFromEngine(this, { fallbackToLegacy: true })).name,
       countStalePagesForExtraction: (o) => this.countStalePagesForExtraction(o),
       getConfig: (key) => this.getConfig(key),
+      entityTypes: (scope) => resolveEntityTypes(this, scope),
     }));
   }
 

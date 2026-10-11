@@ -1337,6 +1337,13 @@
           "list"
         ]
       },
+      "questions": {
+        "hasSwitchCase": true,
+        "phase": "post-connect",
+        "preConnectRules": [],
+        "thinClient": "refuse",
+        "thinClientRoutedSubcommands": []
+      },
       "recall": {
         "hasSwitchCase": true,
         "phase": "post-connect",
@@ -1616,6 +1623,25 @@
           }
         ],
         "thinClient": "refuse",
+        "thinClientRoutedSubcommands": []
+      },
+      "setup": {
+        "hasSwitchCase": false,
+        "phase": "pre-connect",
+        "preConnectRules": [
+          {
+            "condition": "command === 'setup'",
+            "connectsEngine": false,
+            "refusesThinClient": false,
+            "routesThinClient": false,
+            "terminates": true,
+            "thinClientCheck": false,
+            "unconditionalFor": [
+              "setup"
+            ]
+          }
+        ],
+        "thinClient": "none",
         "thinClientRoutedSubcommands": []
       },
       "skillify": {

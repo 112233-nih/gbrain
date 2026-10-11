@@ -903,6 +903,11 @@ const COLUMN_EXEMPTIONS = new Set<string>([
   // the schema blob carries a comment, no CREATE TABLE column and no index
   // reads it, so there is no forward reference for the bootstrap to trip on.
   'content_chunks.embedding_pending_since',
+  // #6202 oauth_clients.registered_via (migration oauth_client_registered_via):
+  // migration-only like min_trust, so fresh and upgraded catalogs keep the same
+  // column order; no blob statement or index reads it, and the DCR insert falls
+  // back to the unmarked insert while the column is missing.
+  'oauth_clients.registered_via',
   // T7 — search_telemetry rank-1 drift columns (migration v111). search_telemetry
   // is created entirely by migration v57 (not in the schema blob), so the v57+v111
   // chain handles fresh + upgrade; no CREATE INDEX references these columns, so
@@ -1068,7 +1073,7 @@ const COLUMN_EXEMPTIONS = new Set<string>([
   // v178/v198/v217: migration-created on PGLite, no index references the
   // column, and every reader treats a missing value as 0 attempts.
   'persistence_requests.preparation_attempts',
-  // Cat 40 Hard F6 (migration v231) — the client's original request_id. Same
+  // Cat 40 Hard F6 (migration v236) — the client's original request_id. Same
   // posture as v178/v198: persistence_requests is migration-created on PGLite,
   // no index references the column, and every reader treats NULL as "sent a UUID or nothing".
   'persistence_requests.client_request_id',

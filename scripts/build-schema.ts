@@ -28,6 +28,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { SOURCE_INGESTION_RECEIPTS_SCHEMA_SQL } from '../src/core/company-brain/receipt-schema.ts';
+import { FTS_INPUT_FUNCTION_SQL } from '../src/core/fts-language.ts';
 import { FACT_WITHDRAWAL_SCHEMA_STATEMENTS } from '../src/core/facts/withdrawal-schema.ts';
 import { GRANT_AUDIT_SCHEMA_SQL } from '../src/core/grants/schema.ts';
 import { LEASE_TOKEN_SCHEMA_SQL } from '../src/core/lease-schema.ts';
@@ -40,8 +41,9 @@ import { WORKTREE_REFRESH_SCHEMA_SQL } from '../src/core/persistence/worktree-re
 import { SHARED_SKILLS_SCHEMA_SQL } from '../src/core/shared-skills/schema-all.ts';
 import { DECIDE_SCHEMA_SQL } from '../src/core/ai/decide/schema.ts';
 import { FACT_RELINK_SCHEMA_SQL } from '../src/core/facts/relink-schema.ts';
+import { PINNED_QUESTIONS_SCHEMA_SQL } from '../src/core/questions/schema.ts';
 import { CORE_EDIT_NOTICES_SCHEMA_SQL } from '../src/core/core-memory-schema.ts';
-import { MEMORY_PURGE_SCHEMA_SQL } from '../src/core/facts/purge-schema.ts';
+import { FACT_PURGE_LOOKUP_INDEX_SQL, MEMORY_PURGE_SCHEMA_SQL } from '../src/core/facts/purge-schema.ts';
 import { WRITE_GATE_SCHEMA_SQL } from '../src/core/write-gate-schema.ts';
 
 const REPO = resolve(import.meta.dir, '..');
@@ -73,6 +75,7 @@ export interface Fragment {
 const persistenceSql = (statements: readonly string[]) => `${statements.join(';\n')};`;
 
 export const FRAGMENTS: readonly Fragment[] = [
+  { source: 'src/core/fts-language.ts', expr: 'FTS_INPUT_FUNCTION_SQL', postgres: FTS_INPUT_FUNCTION_SQL, pglite: FTS_INPUT_FUNCTION_SQL },
   { source: 'src/core/grants/schema.ts', expr: 'GRANT_AUDIT_SCHEMA_SQL', postgres: GRANT_AUDIT_SCHEMA_SQL, pglite: GRANT_AUDIT_SCHEMA_SQL },
   {
     source: 'src/core/facts/withdrawal-schema.ts',
@@ -102,7 +105,9 @@ export const FRAGMENTS: readonly Fragment[] = [
   { source: 'src/core/link-temporal-schema.ts', expr: 'LINK_TEMPORAL_SCHEMA_SQL', postgres: LINK_TEMPORAL_SCHEMA_SQL, pglite: LINK_TEMPORAL_SCHEMA_SQL },
   { source: 'src/core/core-memory-schema.ts', expr: 'CORE_EDIT_NOTICES_SCHEMA_SQL', postgres: CORE_EDIT_NOTICES_SCHEMA_SQL, pglite: CORE_EDIT_NOTICES_SCHEMA_SQL },
   { source: 'src/core/facts/purge-schema.ts', expr: 'MEMORY_PURGE_SCHEMA_SQL', postgres: MEMORY_PURGE_SCHEMA_SQL, pglite: MEMORY_PURGE_SCHEMA_SQL },
+  { source: 'src/core/facts/purge-schema.ts', expr: 'FACT_PURGE_LOOKUP_INDEX_SQL', postgres: FACT_PURGE_LOOKUP_INDEX_SQL, pglite: FACT_PURGE_LOOKUP_INDEX_SQL },
   { source: 'src/core/write-gate-schema.ts', expr: 'WRITE_GATE_SCHEMA_SQL', postgres: WRITE_GATE_SCHEMA_SQL, pglite: WRITE_GATE_SCHEMA_SQL },
+  { source: 'src/core/questions/schema.ts', expr: 'PINNED_QUESTIONS_SCHEMA_SQL', postgres: PINNED_QUESTIONS_SCHEMA_SQL, pglite: PINNED_QUESTIONS_SCHEMA_SQL },
 ];
 
 const fragmentLabel = (f: Fragment) => `${f.source} (${f.expr})`;
