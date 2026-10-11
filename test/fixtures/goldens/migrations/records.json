@@ -33,7 +33,7 @@
       "chunkSearchVectorTriggerFnSql": "93ed4e29aa058949621b4198fe1ec317218f4b9ec0db0626ec6dc7001032047d",
       "clampOAuthTokenTtls": "b1e94ea8f5b3c3870a56b0f6d00d0a274c2e9dcad912b828848aec250732645f",
       "dropInvalidConcurrentIndex": "6864d844b7dfb2fbecdd0fb9c73e06248473376feb794b3fe58f036c70d2d44c",
-      "factsFtsIndexSql": "2bfacc9979a0962b592b2edd3541508259e21f42156fb94d042566461925286c",
+      "ensureFactsFtsIndex": "95e723314ac30cea2db48e0e167c554ef1fa06df80cae765faa2a080a3a655c2",
       "getFtsLanguage": "0d790b4c4af1f67a2a1bbd59470beb13f434917b381931baf8404a41c5d903db",
       "grantFromRow": "2d0603bb0f964d7e45e04aa76bac54cd4f6f63c91a8d9f028b60b4792bc1695e",
       "hnswMaxDimsForType": "a187cdcc520f813b7c39da97ce53da58509232ed9f851627ef41abfe1b68bd26",
@@ -3554,10 +3554,14 @@
         "handler": {
           "form": "arrow",
           "helpers": [
-            "factsFtsIndexSql",
-            "getFtsLanguage"
+            "buildIndexOnline",
+            "dropInvalidConcurrentIndex",
+            "ensureFactsFtsIndex",
+            "getFtsLanguage",
+            "migrationNotice",
+            "quietMigrationNotices"
           ],
-          "sha256": "264dd41685abb98743d788ee00d1c0467d29c85989c95156bd54ea0dd0421a08"
+          "sha256": "06353dd185ebc55facdacec7b361e3f0bc36994192547d72861c1cf64cf5a87a"
         },
         "idempotent": true,
         "name": "facts_question_recall_indexes",

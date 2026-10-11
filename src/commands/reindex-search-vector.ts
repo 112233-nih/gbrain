@@ -1,6 +1,6 @@
 /**
  * `gbrain reindex-search-vector` — recreate FTS trigger functions,
- * backfill existing rows and rebuild the facts keyword index
+ * backfill existing rows and replace the facts keyword index
  * (`idx_facts_fts`, migration v236) under the language configured via
  * GBRAIN_FTS_LANGUAGE.
  *
@@ -47,8 +47,9 @@
  */
 
 import type { BrainEngine } from '../core/engine.ts';
-import { getFtsLanguage, factsFtsIndexSql, FTS_REINDEX_MARKER_KEY, pageSearchVectorTriggerFnSql, chunkSearchVectorTriggerFnSql } from '../core/fts-language.ts';
+import { getFtsLanguage, FTS_REINDEX_MARKER_KEY, pageSearchVectorTriggerFnSql, chunkSearchVectorTriggerFnSql } from '../core/fts-language.ts';
 import { checkpointKey } from '../core/backfill-base.ts';
+import { ensureFactsFtsIndex } from '../core/facts/fts-index.ts';
 import { consentGate } from '../core/consent-cli.ts';
 import type { ConsentEnv } from '../core/consent.ts';
 import { createProgress } from '../core/progress.ts';
@@ -194,8 +195,8 @@ export async function runReindexSearchVector(
   await backfillChunkVectors(engine, { lang, checkpoint: CHECKPOINT_NAME.content_chunks, tick: n => progress.tick(n) });
   progress.finish();
 
-  // The facts keyword index is an expression index under a literal language: rebuild it (no row rewrite).
-  for (const sql of factsFtsIndexSql(lang)) await engine.executeRaw(sql);
+  // The facts keyword index is an expression index under a literal language: build the new one beside it and swap (no row rewrite, no gap).
+  await ensureFactsFtsIndex(engine, { lang, version: 0, notice: line => process.stderr.write(line) });
 
   // Both backfills returned: the index is whole again under `lang`.
   await engine.unsetConfig(checkpointKey(CHECKPOINT_NAME.pages));

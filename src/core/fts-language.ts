@@ -113,20 +113,17 @@ export function applyFtsLanguagePolicy(sql: string): string {
  * The facts keyword document: fact text plus the entity slug's words, under
  * a literal text search configuration so `idx_facts_fts` can serve it (an
  * expression index matches only the same literal configuration, never a
- * bound parameter). The migration, `gbrain reindex-search-vector` and the
- * question-recall keyword arm all build it here.
+ * bound parameter). The index (facts/fts-index.ts) and the question-recall
+ * keyword arm both build it here.
  */
 export function factsFtsDocument(alias: string | null, lang: string = getFtsLanguage()): string {
   const col = (c: string) => alias ? `${alias}.${c}` : c;
   return `to_tsvector('${lang}'::regconfig, ${col('fact')} || ' ' || replace(COALESCE(${col('entity_slug')}, ''), '-', ' '))`;
 }
 
-/** Recreate `idx_facts_fts` (GIN over active facts) under `lang`; an index build, no row rewrite. */
-export function factsFtsIndexSql(lang: string = getFtsLanguage()): string[] {
-  return [
-    'DROP INDEX IF EXISTS idx_facts_fts',
-    `CREATE INDEX idx_facts_fts ON facts USING gin (${factsFtsDocument(null, lang)}) WHERE expired_at IS NULL`,
-  ];
+/** The facts keyword GIN index over active facts under `lang`, named `name` (facts/fts-index.ts builds and swaps it). */
+export function factsFtsIndexSql(name: string, lang: string): string {
+  return `CREATE INDEX IF NOT EXISTS ${name} ON facts USING gin (${factsFtsDocument(null, lang)}) WHERE expired_at IS NULL`;
 }
 
 const CJK_CLASS = `[${CJK_SLUG_CHARS}]`;
