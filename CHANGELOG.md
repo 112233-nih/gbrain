@@ -10,6 +10,14 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [Unreleased]
+
+**Fixes a flaky managed-sync governor test that turned master red after v0.60.165.0.**
+
+### Itemized changes
+
+- `test/sync-drain-no-admission.test.ts` "a pass that commits keeps the governor quiet" failed when one 25 ms timer fired late on a loaded runner and outlasted the 60 ms no-progress window. The drain now takes an injected clock (`DrainInput.clock`, test seam, default `Date.now`), and the test advances it 25 ms per committed page while the governor keeps ticking on real timers. The assertion is unchanged; a forced 85 ms real delay on the first page, which failed the old test 3/3, is now part of the test. A new control test shows the same governor still stops `no_admission` once the clock passes the window before a commit. The file's two hung-pass tests only wait for a stop, so a late timer cannot fail them.
+
 ## [0.60.165.0] - 2026-10-11
 
 **Managed sync stops instead of hanging, a database publish that never finishes is cancelled and retried, and managed brains write meeting timelines and extracted entities through the coordinator.**
