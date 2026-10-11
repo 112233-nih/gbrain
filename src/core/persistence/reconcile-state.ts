@@ -192,6 +192,13 @@ export async function readReconcileState(engine: BrainEngine, sourceId: string, 
   // Preserve a terminal .md in the page key while parsing the canonical Markdown.
   const parsed = parseMarkdown(text, `${slug}.md`, { validate: true, expectedSlug: slug });
   const errors = parsed.errors?.filter(e => !['MISSING_OPEN', 'MISSING_CLOSE', 'EMPTY_FRONTMATTER'].includes(e.code)) ?? [];
+  if (!errors.length && !parsed.errors?.some(e => e.code === 'MISSING_CLOSE') && parsed.slug !== slug) {
+    // #5966 (W14 P1.7): a well-formed file whose path derives another slug is a legacy render of a slug the
+    // path cannot derive, written before renders stamped `slug:`; the frontmatter repair proposes the stamp.
+    throw opError('source_changed', 'The canonical file carries no slug stamp, so its path derives a different slug.',
+      `Nothing changed. The file of ${slug} in '${sourceId}' reads as ${parsed.slug} from its path. Preview the stamp with gbrain repair frontmatter --source ${sourceId} --only ${relative(root, path)} (a safe repair), apply it, then preview the page again.`,
+      { detail: 'slug_rule_mismatch' });
+  }
   if (errors.length || parsed.errors?.some(e => e.code === 'MISSING_CLOSE') || parsed.slug !== slug) {
     throw opError('invalid_params', 'Canonical file metadata cannot be parsed losslessly; repair its syntax before previewing.',
       `Nothing changed. Fix the frontmatter of the canonical file of ${slug} in '${sourceId}' (close the --- block, keep its slug), then preview the page again.`);
