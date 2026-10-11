@@ -69,7 +69,7 @@ function labelValue(line: string, next: string | undefined): { label: string; va
 export function excerptLines(body: string, title: string, budget = EXCERPT_PAGE_CHARS): string[] {
   const subject = titleName(title);
   const lines = body.split('\n');
-  const declared = new Set(declarationsIn(body, { ownNames: [subject] }).map(d => d.line));
+  const declared = new Set(declarationsIn(body, { ownNames: [subject], anchored: true }).map(d => d.line));
   const tiers: Array<Array<{ i: number; text: string }>> = [[], [], [], []];
   for (let i = 0; i < lines.length; i++) {
     const text = lines[i]!.trim();

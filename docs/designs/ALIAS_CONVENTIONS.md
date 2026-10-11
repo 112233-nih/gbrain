@@ -52,6 +52,31 @@ A capture is rejected when:
 A single-token alias matches only as written (`case_sensitive`); a multi-word
 alias matches case-insensitively, like a multi-word title.
 
+### Anchored declarations (stored aliases and the card)
+
+A page's prose names many other things with the same cues: another company's
+old name (`Dana Example (formerly Globex) joined`), a place (`a street known as
+Market Lane`), a product nickname, a concept, a tagline. So the names a page
+stores as its own aliases, and the identity lines its card shows, need a
+declaration anchored to the page itself:
+
+- a prose cue counts only when the clause before it names nothing but the page:
+  its own name or title subject (after corporate suffixes, `& Co.`, a trailing
+  `and`/`or` and any parenthetical), a name another cue declared earlier in the
+  same sentence (`doing business as Acme Snacks (formerly Old Acme)`), a self
+  pronoun (`it`, `this company`) or `the company` / `the account` / ..., or, on
+  a person page, the first name alone or the full name with a middle name;
+- a cue with nothing before it counts only at the start of a line or in label
+  form (`Also known as: X`), not mid-paragraph (`Nicknamed the Hammer, it set a
+  record` declares nothing);
+- the quoted `calls it "X"` cue counts only when its sentence names the page;
+- a quoted parenthetical without a cue (`Acme Example ("Snacks for everyone")`)
+  is not a stored name.
+
+Label and value forms are unchanged. Search's per-result declaration scan
+(`aliasDeclarations`) keeps reading every declaration as written above, because
+it reports evidence for one query and stores nothing.
+
 ## Prose cues
 
 A cue is followed by an optional `:`, `,`, `(` or `-`, an optional article
@@ -160,6 +185,16 @@ as written, as a whole token: "Call with JOF" links, "jof" does not.
   verbatim instead.
 
 ## Changelog
+
+- 2026-10-11: stored aliases and card identity lines need an anchored
+  declaration (above). Origin: the alias precision gate of the Cat 40 Hard fix
+  wave. On one real brain the unanchored rule stored 47 correct of 72 derived
+  aliases, nearly every wrong one a cue attached to another name in the page's
+  prose; anchored, 25 of 25. On held-out English Wikipedia prose, 50 of 198
+  before and 20 of 25 after. The Cat 40 Hard confirmation, calibration and v1
+  worlds derive exactly the same aliases, search-time declarations and card
+  lines as before. The label-form exception (`Also known as: X` mid-line) was
+  found on the confirmation world's account sheets.
 
 - 2026-10-08: short codes (2-3 characters) the page declares for itself with an
   alias label or an `also called` / `a.k.a.` / `known as` / `short for` cue, with

@@ -21,6 +21,10 @@
  *   ...") declares another entity's name and is skipped. Stored with
  *   `origin='declared'`. A single-token declaration matches only as written
  *   (`case_sensitive`), so "aka Mark" never links lowercase "mark".
+ * - Anchoring: stored aliases and the card's identity lines read declarations
+ *   with `anchored: true`, so a cue counts only when it attaches to the page
+ *   itself (docs/designs/ALIAS_CONVENTIONS.md, "Anchored declarations");
+ *   search's per-result scan reads every declaration.
  * - Escape hatches: `mentions.alias_deny` and frontmatter `alias_deny:` drop a
  *   derived name; `mentions.multiword_aliases=false` keeps one-token captures.
  *
@@ -48,6 +52,8 @@ const QUOTED_CUE_RE = /(?<![A-Za-z])(?:calls?|called|call) it\s+/gi;
 const SHORT_CODE_CUE_RE = /^(?:also known as|better known as|widely known as|known as|a\.k\.a\.?|aka|also called|short for)$/i;
 /** A pronoun subject that names the page itself ("It is also called JOF"). */
 const SELF_SUBJECT_RE = /^(?:it|this|this (?:company|account|customer|client|project|team))$/i;
+/** Anchored mode also accepts "the company", "the account", ... as the page itself. */
+const SELF_NOUN_RE = /^the (?:company|account|customer|client|project|team|firm|startup|fund|organization|business)$/i;
 const CUE_RE = new RegExp(`(?<![A-Za-z0-9])(?:${CUES.join('|')})(?![A-Za-z0-9])`, 'gi');
 const LABEL_NOUN_RE = /(?<![a-z])(?:nicknames?|alias(?:es)?|aka|a\.k\.a\.?|also known as|short name|trading name|trade name|brand name|former (?:legal )?name|previous name|legal name|display name|dba|d\/b\/a|code ?name|account code|customer code|ticker)(?![a-z])/i;
 const RELATIONAL_NOUN_RE = /\b(?:competitors?|rivals?|partners?|parent(?: company)?|subsidiar(?:y|ies)|affiliates?|vendors?|suppliers?|customers?|clients?|acquirers?|investors?)\b/i;
@@ -69,6 +75,13 @@ export interface DeclarationOpts {
   multiword?: boolean;
   /** Other names of the page (frontmatter aliases) that may introduce a parenthetical defined term. */
   ownNames?: string[];
+  /**
+   * Keep only declarations anchored to the page itself: a prose cue counts only when the clause before it
+   * names nothing but the page (its own name, its first name, a self pronoun or "the company"), a quoted
+   * "calls it" only when the sentence names the page, and a quoted parenthetical without a cue is not a
+   * name. Stored aliases and the card's identity lines use it; search's per-result scan does not.
+   */
+  anchored?: boolean;
 }
 
 /**
@@ -156,6 +169,17 @@ export function declarationsIn(text: string, opts: DeclarationOpts = {}): Declar
   };
   const ownNames = (opts.ownNames ?? []).filter(Boolean);
   const ownLower = ownNames.map(n => n.toLowerCase());
+  const anchored = opts.anchored === true;
+  /** Whether `text` mentions one of the page's own names as a whole word. */
+  const mentionsOwnName = (text: string): boolean => {
+    const lower = text.toLowerCase();
+    return ownLower.some(n => {
+      for (let at = lower.indexOf(n); at >= 0; at = lower.indexOf(n, at + 1)) {
+        if (!/[\p{L}\p{N}]/u.test(lower.charAt(at - 1)) && !/[\p{L}\p{N}]/u.test(lower.charAt(at + n.length))) return true;
+      }
+      return false;
+    });
+  };
   /** Whether `before` ends with one of the page's own names, after any corporate suffixes and a trailing comma. */
   const endsWithOwnName = (before: string): boolean => {
     const endsWithName = (t: string) => {
@@ -203,16 +227,51 @@ export function declarationsIn(text: string, opts: DeclarationOpts = {}): Declar
       const subject = sentenceBefore(at).trim().replace(/[,(\-\u2013\u2014]+$/, '').trim().replace(/\s+(?:is|was)$/i, '').trim();
       return subject === '' || SELF_SUBJECT_RE.test(subject) || endsWithOwnName(subject);
     };
+    /** Start of the sentence holding `at`, ignoring '. ' and '; ' inside parentheses. */
+    const sentenceStart = (at: number) => {
+      let start = 0, depth = 0;
+      for (let k = 0; k < at; k++) {
+        const c = plain[k];
+        if (c === '(') depth++;
+        else if (c === ')') depth = Math.max(0, depth - 1);
+        else if (depth === 0 && (c === '.' || c === ';') && plain[k + 1] === ' ') start = k + 2;
+      }
+      return start;
+    };
+    const anchoredToSelf = (at: number, cueLength: number) => {
+      const start = sentenceStart(at);
+      const labelForm = /^\s*:/.test(plain.slice(at + cueLength));
+      const chained = chain.filter(c => c.start === start).map(c => c.name);
+      ownLower.push(...chained);
+      try { return anchoredSubject(plain.slice(start, at), start === 0 || labelForm); } finally { ownLower.splice(ownLower.length - chained.length, chained.length); }
+    };
+    const anchoredSubject = (raw: string, lineFirst: boolean) => {
+      let subject = raw;
+      for (let k = 0; k < 3 && /\([^()]*\)/.test(subject); k++) subject = subject.replace(/\s*\([^()]*\)/g, '');
+      subject = subject.trim().replace(/[,;(\-\u2013\u2014]+$/, '').trim().replace(/\s+(?:and|or)$/i, '').replace(/\s+(?:is|was)$/i, '')
+        .replace(/\s*&\s*Co\.?$/i, '').trim();
+      if (subject === '') return lineFirst;
+      if (SELF_SUBJECT_RE.test(subject) || SELF_NOUN_RE.test(subject) || endsWithOwnName(subject)) return true;
+      const words = subject.toLowerCase().split(/\s+/);
+      return ownLower.some(n => {
+        const own = n.split(/\s+/);
+        return own.length > 1 && (words.length === 1 ? words[0] === own[0] : words[0] === own[0] && words.at(-1) === own.at(-1) && words.length <= own.length + 2);
+      });
+    };
+    const chain: Array<{ name: string; start: number }> = [];
     for (const m of plain.matchAll(CUE_RE)) {
-      if (RELATIONAL_NOUN_RE.test(sentenceBefore(m.index!))) continue;
-      push(captureName(plain.slice(m.index! + m[0].length), { multiword }), i, SHORT_CODE_CUE_RE.test(m[0]) && namesOnlySelf(m.index!));
+      if (RELATIONAL_NOUN_RE.test(sentenceBefore(m.index!)) || (anchored && !anchoredToSelf(m.index!, m[0].length))) continue;
+      const name = captureName(plain.slice(m.index! + m[0].length), { multiword });
+      push(name, i, SHORT_CODE_CUE_RE.test(m[0]) && namesOnlySelf(m.index!));
+      if (anchored && name) chain.push({ name: name.toLowerCase(), start: sentenceStart(m.index!) });
     }
     for (const m of plain.matchAll(QUOTED_CUE_RE)) {
       const rest = plain.slice(m.index! + m[0].length);
       if (!QUOTES[rest[0] ?? ''] || RELATIONAL_NOUN_RE.test(sentenceBefore(m.index!))) continue;
+      if (anchored && !mentionsOwnName(sentenceBefore(m.index!))) continue;
       push(captureName(rest, { multiword }), i);
     }
-    if (ownLower.length) {
+    if (ownLower.length && !anchored) {
       for (const m of plain.matchAll(PAREN_TERM_RE)) {
         if (!endsWithOwnName(plain.slice(0, m.index))) continue;
         push(captureName(`"${m[1]}"`, { multiword }), i);
@@ -323,7 +382,7 @@ export function deriveEntityAliases(
   const textLines = text.split('\n');
   const ownNames = frontmatterList(page.frontmatter?.aliases);
   const own = name.toLowerCase();
-  for (const d of declarationsIn(text, { multiword: opts.multiword, ownNames: [name, ...ownNames] })) {
+  for (const d of declarationsIn(text, { multiword: opts.multiword, ownNames: [name, ...ownNames], anchored: true })) {
     if (d.alias.toLowerCase() === own) continue;
     push(d.alias, 'declared', tokenizeTitle(d.alias).length === 1, textLines[d.line]?.trim(), d.selfCode === true);
   }

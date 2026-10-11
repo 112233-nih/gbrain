@@ -245,14 +245,17 @@ describe('short codes (2-3 characters) the page declares for itself', () => {
     expect(derived('Widget Co, also called WCO, is a reseller.')).toEqual([]);
     expect(derived('Our competitor, also called WCO, cut prices.')).toEqual([]);
     expect(derived('Widget Co is also known as WCO.')).toEqual([]);
-    // Four characters and up keep the existing rule: any cue on the page declares them.
-    expect(derived('Widget Co, also called WICO, is a reseller.')).toEqual(['WICO (cs)']);
+    // Four characters and up need the same anchor: a cue in another entity's sentence declares nothing for this page.
+    expect(derived('Widget Co, also called WICO, is a reseller.')).toEqual([]);
+    expect(derived('Joffrey Foods, also called JOFO, buys seats.')).toEqual(['JOFO (cs)']);
   });
 
   test('a short code declared on another page is not an alias of the entity it names', () => {
     const other = deriveEntityAliases({ title: 'Company: Widget Co', compiled_truth: 'Joffrey Foods, also called JOF, is a customer.' });
     expect(other.aliases.map(a => a.alias_text)).toEqual(['Widget Co']);
-    expect(other.rejected).toEqual(expect.arrayContaining([expect.objectContaining({ alias: 'JOF', reason: 'below_min_length' })]));
+    expect(other.rejected.map(r => r.alias)).not.toContain('JOF');
+    const own = deriveEntityAliases({ title: 'Company: Joffrey Foods', compiled_truth: 'Joffrey Foods, also called JOF, is a customer.' });
+    expect(own.aliases.map(a => a.alias_text)).toEqual(['Joffrey Foods', 'JOF']);
   });
 
   test('a short code after a cue outside the short-code list stays out', () => {
@@ -272,5 +275,68 @@ describe('short codes (2-3 characters) the page declares for itself', () => {
     for (const code of ['JOF', 'J2', '3M', 'JoF']) expect(isShortCode(code)).toBe(true);
     for (const text of ['J', 'JOFF', 'jo', 'J-F', 'J F']) expect(isShortCode(text)).toBe(false);
     expect([...SHORT_CODE_STOPLIST].every(c => c === c.toUpperCase())).toBe(true);
+  });
+});
+
+describe('stored aliases need a declaration anchored to the page itself', () => {
+  const stored = (body: string, title = 'Acme Example') =>
+    deriveEntityAliases({ title, compiled_truth: body }).aliases.filter(a => a.origin === 'declared').map(a => a.alias_text);
+
+  test.each([
+    ['a person\'s former employer', 'Dana Example (formerly Globex) joined as CFO.'],
+    ['a hire\'s former employer', 'We hired Lee Example from Initech, formerly Globex Corp.'],
+    ['an investor\'s old name', 'Fund A Example (formerly Old Fund Name) led the round.'],
+    ['another startup\'s old name', 'Rival Example (formerly Old Rival Name, applied before) is in the batch.'],
+    ['an agency\'s old name', 'Our agency, Brand Shop (fka Old Agency), sent the deck.'],
+    ['a competitor\'s other name', 'Competitor One, aka Competitor Two for the U.S., raised prices.'],
+    ['a place', 'The office is on a street known as Market Lane.'],
+    ['a band', 'The founder plays in a band known as Night Owls.'],
+    ['a protocol', 'Sync moved to a protocol often called "Wirefast".'],
+    ['a concept', 'Access runs on what is known as Zero Trust Access.'],
+    ['an acronym gloss', 'They adopted SSO (aka SAML - Security Assertion Markup Language).'],
+    ['quoted jargon', 'The plan relies on rapid scaling (AKA "Hypergrowth").'],
+    ['a founder\'s nickname', 'Dana Example aka Dee founded the company.'],
+    ['a product nickname', 'Our robot nicknamed the Rover ships in May.'],
+    ['a tagline after the name', 'Acme Example ("Snacks for everyone") makes chips.'],
+    ['"calls it" about something else', 'The team built a robot and calls it "Rover".'],
+    ['a sentence-initial cue mid-paragraph', 'The car was fast. Nicknamed the Hammer, it set a record.'],
+  ])('%s is not an alias of the page', (_label, body) => {
+    expect(stored(body)).toEqual([]);
+  });
+
+  test.each([
+    ['heading form', '# Acme Example (formerly Old Acme)', ['Old Acme']],
+    ['fka after the name', 'Acme Example (fka Old Acme) is a supplier.', ['Old Acme']],
+    ['aka after the name', 'Acme Example (aka Acme Snacks) is a supplier.', ['Acme Snacks']],
+    ['DBA after the name', 'Acme Example (DBA Acme Snacks) is a supplier.', ['Acme Snacks']],
+    ['appositive after the name', 'Acme Example, formerly Old Acme, is a supplier.', ['Old Acme']],
+    ['previously known as', 'Acme Example (previously known as Old Acme) renewed.', ['Old Acme']],
+    ['the name as subject', 'Acme Example was formerly known as Old Acme.', ['Old Acme']],
+    ['"the company" as subject', 'The company is also known as Acme Snacks.', ['Acme Snacks']],
+    ['a sentence-initial cue', 'Also known as Acme Snacks.', ['Acme Snacks']],
+    ['a label line', 'Internal nickname: Copper Fox', ['Copper Fox']],
+    ['"calls it" naming the page', 'The Acme Example team calls it "Copper Fox".', ['Copper Fox']],
+    ['a second cue chained to the first', 'Acme Example, LLC (often referred to as Acme Snacks and formerly known as Old Acme) is a supplier.', ['Acme Snacks', 'Old Acme']],
+    ['a cue after a name it just declared', 'Acme Example Holdings LLC, doing business as Acme Snacks (formerly Old Acme), is a supplier.', ['Acme Snacks', 'Old Acme']],
+    ['a parenthetical between the name and the cue', 'Acme Example Limited (AEL), formerly Old Acme, is a supplier.', ['Old Acme']],
+    ['"& Co." after the name', 'Acme Example & Co., also known as Acme Snacks, is a supplier.', ['Acme Snacks']],
+    ['a cue label mid-line', 'Account: Acme Example. Also known as: Acme Snacks.', ['Acme Snacks']],
+  ])('%s stays', (_label, body, want) => {
+    expect(stored(body)).toEqual(want);
+  });
+
+  test('a name declared in one sentence does not anchor a cue in the next', () => {
+    expect(stored('Acme Example (formerly Old Acme) is a supplier. Old Acme Labs, formerly Globex, is a customer.')).toEqual(['Old Acme']);
+  });
+
+  test('a person page: full name with a middle name, or the first name, anchors the cue', () => {
+    const person = (body: string) => deriveEntityAliases({ title: 'Dana Example', compiled_truth: body }).aliases.map(a => a.alias_text);
+    expect(person('Dana Lee Example (born 1970), also known as Dee Example, is an engineer.')).toEqual(['Dee Example']);
+    expect(person('Dana, aka Didi, runs sales.')).toEqual(['Didi']);
+    expect(person('Her mother, Ruth Example (née Other), taught school.')).toEqual([]);
+  });
+
+  test('search\'s per-result scan keeps reading unanchored declarations', () => {
+    expect(declaredNames('As of May, Old Co (account code OLDC) operates as New Co, account code NEWC.', 'Old Co')).toContain('NEWC');
   });
 });
