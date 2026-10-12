@@ -3010,6 +3010,16 @@ More: [docs/guides/write-refusals.md#unclosed_ambiguous_tail](../../docs/guides/
 |---|---|---|---|---|---|---|
 | Reclone only replaces a checkout created and managed by GBrain. | The request itself was wrong or no longer matches the brain; nothing was changed. | Correct the request using the message above, then retry. | agent | `repeat the read that failed` | 1 | no |
 
+### unpriced_model
+
+<a id="unpriced_model"></a>
+
+| Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
+|---|---|---|---|---|---|---|
+| The configured decide model has no price, so its spend cannot be metered; nothing was sent. | A `typesafe:<model>` id that gbrain ships no tariff for (a gateway-fronted or self-hosted Jev) would otherwise be admitted as $0 against `decide.budget.daily_usd` and its remote share, and the spend ledger would record $0 for a real bill (#5980). | Register the price the endpoint bills with `gbrain pricing set typesafe:<model> --rate <usd-per-1M-input-tokens> --source <pricing-page-url>`, then `gbrain decide probe`. Run: gbrain pricing list --json | agent | `gbrain config get pricing.overrides` | 1 | no |
+
+More: [docs/guides/system-one.md#unpriced_model](../../docs/guides/system-one.md#unpriced_model)
+
 ### unsupported_export_data
 
 <a id="unsupported_export_data"></a>
