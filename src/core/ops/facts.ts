@@ -667,7 +667,7 @@ const context_pack: Operation = {
   params: {
     entities: { type: 'string', description: 'Comma-separated names or slugs (max 8).' },
     budget_tokens: { type: 'number', description: 'Token budget; cards pack first.' },
-    since: { type: 'string', description: 'Only open-thread events after this ISO time.' },
+    since: { type: 'string', description: 'Open-thread events after this ISO time.' },
     session_id: { type: 'string', description: 'Opaque session id.' },
     include_private: { type: 'boolean', description: 'Local trusted callers only.' },
     min_trust: MIN_TRUST_PARAM,

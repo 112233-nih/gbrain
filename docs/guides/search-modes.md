@@ -150,6 +150,18 @@ Seven of the knobs deserve a sentence:
   one capped retry (see [multi-language FTS](multi-language-fts.md)). A cut
   arm reports `keyword_candidates_incomplete`; another value is refused
   with exit 2.
+- **`keyword_statement_timeout_ms`** (Postgres only; config key
+  `search.keyword_statement_timeout_ms`, integer milliseconds, default 8000,
+  range 1000 to 60000; for example
+  `gbrain config set search.keyword_statement_timeout_ms 20000`) is the
+  transaction-local `statement_timeout` around every keyword, keyword-count,
+  keyword-page, title and CJK search statement. It is an operator knob, read
+  once per connection (restart `gbrain serve` or the workers after setting
+  it) and never taken from a request; another value is refused with exit 2.
+  A keyword statement the bound cancels fails open to the vector arm
+  (`keyword_arm_failed`); doctor's `keyword_plan` check warns when the
+  brain's commonest term is near the bound (see
+  [troubleshooting](troubleshooting.md#keyword-search-times-out-on-a-large-postgres-brain)).
 - **`hnsw_iterative_scan`** (Postgres with pgvector 0.8+; config key
   `search.hnsw_iterative_scan`, string, default `relaxed_order`, one of
   `relaxed_order | strict_order | off`; env `GBRAIN_HNSW_ITERATIVE_SCAN`

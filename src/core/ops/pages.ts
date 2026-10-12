@@ -474,7 +474,7 @@ const list_pages: Operation = {
     // v0.29 — surface filter that already exists on PageFilters.
     updated_after: {
       type: 'string',
-      description: 'Only pages updated after this ISO time.',
+      description: 'Pages updated after this ISO time.',
     },
     updated_after_slug: {
       type: 'string',
@@ -652,7 +652,7 @@ const capture: Operation = {
     content: { type: 'string', required: true, description: 'Markdown or text (not a file path).' },
     local_file: { type: 'string', description: 'Local CLI only.', required: false },
     slug: { type: 'string', required: false, description: 'Default inbox/<date>-<hash>.' },
-    type: { type: 'string', required: false, description: 'Schema-pack page type (default note).' },
+    type: { type: 'string', required: false, description: 'Page type (default note).' },
   },
   scope: 'write',
   mutating: true,
