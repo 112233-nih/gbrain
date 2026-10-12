@@ -1345,6 +1345,7 @@ export const KNOWN_CONFIG_KEYS: readonly string[] = [
   // (commands/upgrade.ts, ops/image.ts, ops/search.ts, private-visibility.ts,
   // last-retrieved.ts).
   'search.mode_upgrade_notice_shown',
+  'search.mode_source',
   'search.image_query.max_bytes',
   'search.image_query.daily_budget_usd_per_client',
   'search.image_query.remote_max_bytes',

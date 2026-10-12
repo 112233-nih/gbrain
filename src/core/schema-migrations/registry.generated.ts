@@ -240,8 +240,9 @@ import { v236 } from './v236-open-loops-counterparty-source.ts';
 import { v237 } from './v237-facts-question-recall-indexes.ts';
 import { v238 } from './v238-persistence-client-request-id.ts';
 import { v239 } from './v239-extract-rollup-halt-reasons.ts';
-import { v240 } from './v240-persistence-request-slug-intent-index.ts';
-import { v241 } from './v241-extract-atoms-partial-input.ts';
+import { v240 } from './v240-pages-name-lookup-indexes.ts';
+import { v241 } from './v241-persistence-request-slug-intent-index.ts';
+import { v242 } from './v242-extract-atoms-partial-input.ts';
 
 // Array order is historical (see HISTORICAL_ARRAY_ORDER in the generator); the
 // runner sorts by version before applying.
@@ -482,4 +483,5 @@ export const MIGRATIONS: Migration[] = [
   v239,
   v240,
   v241,
+  v242,
 ];

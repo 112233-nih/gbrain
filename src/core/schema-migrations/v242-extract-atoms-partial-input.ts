@@ -2,8 +2,8 @@ import type { Migration } from './types.ts';
 
 // Applied by src/core/migrate.ts on the next initSchema(); the fresh-install
 // copies of both tables in src/schema.sql carry the same column.
-export const v241: Migration = {
-  version: 241,
+export const v242: Migration = {
+  version: 242,
   name: 'extract_atoms_partial_input',
   // #6503: an item cut at `cycle.extract_atoms.max_input_chars` is no longer
   // stamped complete. Its row records the cap the model read it under

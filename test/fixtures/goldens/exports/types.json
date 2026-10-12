@@ -6103,6 +6103,7 @@
           "emitResponseMeta?: ((key: string, value: unknown) => void) | undefined",
           "engine: BrainEngine",
           "explicitReadBinding?: ExplicitReadBinding | undefined",
+          "isCallable?: ((opName: string) => boolean) | undefined",
           "jobId?: number | undefined",
           "localFederatedSourceIds?: string[] | undefined",
           "localSourceImplicit?: boolean | undefined",

@@ -13,13 +13,13 @@ import { buildIndexOnline, migrationNotice } from './helpers.ts';
 // blob omits it); PGLite builds it inline. `gbrain repair request-indexes`
 // runs the same helper on a brain whose schema is already current. DDL only:
 // no column, no backfill.
-export const v240: Migration = {
-  version: 240,
+export const v241: Migration = {
+  version: 241,
   name: 'persistence_request_slug_intent_index',
   idempotent: true,
   transaction: false,
   sql: '',
   handler: async engine => {
-    await buildIndexOnline(engine, 240, PERSISTENCE_REQUEST_SLUG_INTENT_INDEX, { notice: migrationNotice });
+    await buildIndexOnline(engine, 241, PERSISTENCE_REQUEST_SLUG_INTENT_INDEX, { notice: migrationNotice });
   },
 };
