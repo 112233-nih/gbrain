@@ -62,6 +62,7 @@ import type { BrainEngine } from '../engine.ts';
 import { dimsProviderOptions } from './dims.ts';
 import { hasAnthropicKey, stashGatewayAnthropicKeyFromEnv } from './anthropic-key.ts';
 import { AIConfigError, AITransientError, isStructuredOutputRejection, isUnbilledEmbeddingRejection, normalizeAIError } from './errors.ts';
+import { embeddingModelNotFoundHint, gatewayModelNotFoundHint } from './model-not-found-hint.ts';
 import { fitMatryoshkaPrefix, isEmbeddingZeroNormError, screenAlignedEmbeddings, screenEmbeddings, sendableEmbeddingInputs } from './embedding-guard.ts';
 import { getProviderCapabilities } from './capabilities.ts';
 import { runGuardrails, hasGuardrails, type GuardrailHook } from '../guardrails.ts';
@@ -1805,7 +1806,7 @@ async function embedSubBatch(
       };
     }
     reportEmbeddingAuthFailure(recipe, err);
-    throw normalizeAIError(err, `embed(${recipe.id}:${modelId})`, redactKeys);
+    throw normalizeAIError(err, `embed(${recipe.id}:${modelId})`, redactKeys, embeddingModelNotFoundHint());
   }
 }
 
@@ -2639,7 +2640,7 @@ export async function expand(query: string): Promise<string[]> {
   } catch (err) {
     if (isAIInvocationPolicyError(err)) throw err;
     // Expansion is best-effort: on failure, fall back to the original query alone.
-    const normalized = normalizeAIError(err, 'expand', redactKeys);
+    const normalized = normalizeAIError(err, `expand(${_config?.expansion_model ?? ''})`, redactKeys, gatewayModelNotFoundHint('expansion', _config?.expansion_model ?? ''));
     if (normalized instanceof AIConfigError) {
       console.warn(`[ai.gateway] expansion disabled: ${normalized.message}`);
     }
@@ -3840,7 +3841,7 @@ async function chatAdmitted(opts: ChatOpts, admitted: {
     // Pessimistic fallback (A3 amended): when err.usage isn't there, charge
     // the worst-case ceiling — better to overcount on failure than under.
     _recordBudget(failedCallUsage(err, { inputTokens: estimatedInputTokens, outputTokens: maxOutputTokens }));
-    throw normalizeAIError(err, `chat(${recipe.id}:${modelId})`, redactKeys);
+    throw normalizeAIError(err, `chat(${recipe.id}:${modelId})`, redactKeys, gatewayModelNotFoundHint('chat', modelStr));
   }
 }
 
