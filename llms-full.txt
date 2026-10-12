@@ -2730,9 +2730,9 @@ loop; full reference in `docs/ENGINES.md` ("Engine detection and access repair")
 ## Step 3.5: Confirm search mode with the user (DO NOT SKIP)
 
 This is the `search_mode` decision from the first-run bundle.
-`gbrain init` auto-applied a default search mode: `balanced`, unless your
-subagent tier is Haiku-class or there is neither a chat key (Anthropic, OpenAI
-or Google) nor a ready reranker, in which case `conservative`. The init output
+`gbrain init` auto-applied a default search mode: `tokenmax` with a chat key
+(Anthropic, OpenAI or Google), `balanced` with a ready reranker but no chat key,
+and `conservative` when your subagent tier is Haiku-class or neither exists. The init output
 included the cost matrix below preceded by `[AGENT]` markers. You must NOT
 silently accept the default. Stop and ask the operator.
 
@@ -2768,12 +2768,10 @@ Estimated downstream input cost of the retrieved payload @ 10K queries/mo:
 >   1) conservative — tight 4K budget, 10 chunks max, no reranker.
 >      Best for Haiku subagents, cost-sensitive setups, high-volume loops.
 >
->   2) balanced (recommended default) — 12K budget, 25 chunks, reranked.
->      On LongMemEval-S it found every gold session for 451 of 470 questions,
->      against 442 for tokenmax.
+>   2) balanced — 12K budget, 25 chunks, reranked.
 >
->   3) tokenmax — no budget, 50 chunks, reranked, `gbrain query` expands by
->      default. The widest retrieval, for low-volume high-stakes work.
+>   3) tokenmax (recommended with a chat key) — no budget, 50 chunks, reranked,
+>      `gbrain query` expands by default. The widest retrieval.
 >
 > Expansion follows the mode for `gbrain query` only: on in `tokenmax`, off in
 > `balanced` and `conservative`; `--expand` (`expand: true` over MCP) forces it

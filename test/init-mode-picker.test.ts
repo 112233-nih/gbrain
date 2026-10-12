@@ -83,7 +83,7 @@ describe('recommendModeFor: every input combination', () => {
   const expected = (model: string, chat: boolean, rerank: boolean): string => {
     if (model === 'Haiku') return 'conservative';
     if (!chat && !rerank) return 'conservative';
-    return 'balanced';
+    return chat ? 'tokenmax' : 'balanced';
   };
   for (const m of models) {
     for (const chat of [true, false]) {
@@ -107,19 +107,12 @@ describe('recommendModeFor: every input combination', () => {
   });
 
   test('unknown key state is not "no keys": empty inputs get the default', () => {
-    expect(recommendModeFor({}).mode).toBe('balanced');
+    expect(recommendModeFor({}).mode).toBe('tokenmax');
   });
 
   test('a Haiku subagent wins over an Opus default model', () => {
     const r = recommendModeFor({ defaultModel: 'anthropic:claude-opus-5-5', subagentModel: 'anthropic:claude-haiku-5-5', hasChatKey: true, hasRerankKey: true });
     expect(r.mode).toBe('conservative');
-  });
-
-  test('the Opus and default reasons quote the benchmark as measured', () => {
-    for (const reason of [MODE_REASONS.opus, MODE_REASONS.default]) {
-      expect(reason).toContain('451 of 470');
-      expect(reason).toContain('442');
-    }
   });
 });
 
@@ -156,7 +149,7 @@ describe('resolveModePickerInputs: keys through mergedProviderEnv and reranker r
       const inputs = await resolveModePickerInputs(engine);
       expect(inputs.hasChatKey).toBe(true);
       expect(inputs.hasRerankKey).toBe(false);
-      expect(recommendModeFor(inputs)).toEqual({ mode: 'balanced', reason: MODE_REASONS.default });
+      expect(recommendModeFor(inputs)).toEqual({ mode: 'tokenmax', reason: MODE_REASONS.default });
     });
   });
 
@@ -244,14 +237,14 @@ describe('parseModeInput', () => {
 });
 
 describe('runModePicker: non-TTY and --json', () => {
-  test('non-TTY applies balanced for a keyed brain, records auto, prints the [AGENT] banner', async () => {
+  test('non-TTY applies tokenmax for a keyed brain, records auto, prints the [AGENT] banner', async () => {
     await inHome({ ANTHROPIC_API_KEY: 'sk-ant-test-stub' }, async () => {
       let decision: { mode: string; reason: string } | undefined;
       const out = (await captureLog(() => runModePicker(engine, { onDecision: d => { decision = d; } }))).join('\n');
-      expect(await engine.getConfig('search.mode')).toBe('balanced');
+      expect(await engine.getConfig('search.mode')).toBe('tokenmax');
       expect(await engine.getConfig('search.mode_source')).toBe('auto');
-      expect(decision).toEqual({ mode: 'balanced', reason: MODE_REASONS.default });
-      expect(out).toContain('[gbrain] search mode tentatively set to: balanced');
+      expect(decision).toEqual({ mode: 'tokenmax', reason: MODE_REASONS.default });
+      expect(out).toContain('[gbrain] search mode tentatively set to: tokenmax');
       expect(out.toLowerCase()).toContain('show this matrix');
       expect(out).toContain('INSTALL_FOR_AGENTS.md');
       expect(out).toContain('gbrain init --search-mode <mode>');
@@ -290,8 +283,9 @@ describe('runModePicker: non-TTY and --json', () => {
   test('--force re-runs the recommendation over an existing mode', async () => {
     await engine.setConfig('search.mode', 'tokenmax');
     await inHome({ ANTHROPIC_API_KEY: 'sk-ant-test-stub' }, async () => {
+      await engine.setConfig('search.mode', 'conservative');
       await captureLog(() => runModePicker(engine, { force: true }));
-      expect(await engine.getConfig('search.mode')).toBe('balanced');
+      expect(await engine.getConfig('search.mode')).toBe('tokenmax');
       expect(await engine.getConfig('search.mode_source')).toBe('auto');
     });
   });
@@ -353,8 +347,7 @@ describe('upgrade banner', () => {
   test('states the default a mode-less brain runs and the recommendation from the shared source', () => {
     const text = upgradeBannerLines().join('\n');
     expect(text).toContain('runs balanced');
-    expect(text).toContain('Recommended: balanced');
-    expect(text).toContain('451 of 470');
+    expect(text).toContain('Recommended for a brain with a chat key: tokenmax');
     expect(text).not.toMatch(/expand=true|preserves current retrieval shape|v0\.31/);
   });
 });

@@ -236,17 +236,13 @@ for the question but, by default, never below three results and never an exact m
 None of them changes a mode bundle. See [System One](system-one.md).
 
 The mode picker runs inside `gbrain init`. Non-TTY and `--json` initialization
-tentatively applies its recommendation, `balanced`, with two exceptions:
-`conservative` for a Haiku subagent, or when there is neither a chat key
-(Anthropic, OpenAI or Google) nor a ready reranker. A ready reranker without a
-chat key still gets `balanced`, since nothing in `balanced` needs a chat
-model. Keys count whether they are exported or saved in
-`~/.gbrain/config.json`. The evidence: on LongMemEval-S (direct harness, top
-5), `balanced` found every gold session for 451 of 470 questions and
-`tokenmax` for 442 (gbrain-evals, 2026-10-04; that `tokenmax` run also
-expanded queries). Existing valid selections are preserved, and the picker
-asks agents to confirm the choice with their operator before continuing a real
-setup.
+tentatively applies its recommendation: `tokenmax` with a chat key (Anthropic,
+OpenAI or Google), `balanced` with a ready reranker but no chat key (nothing in
+`balanced` needs a chat model), and `conservative` for a Haiku subagent or when
+neither exists. Keys count whether they are exported or saved in
+`~/.gbrain/config.json`. Existing valid selections are preserved, and the
+picker asks agents to confirm the choice with their operator before
+continuing a real setup.
 
 An agent that already knows the operator's choice records it at install time
 with `gbrain init --search-mode <conservative|balanced|tokenmax>`: no
@@ -254,19 +250,6 @@ recommendation, no first-run `search_mode` question, and the brain records
 `search.mode_source: operator` (picker choices record `auto`; `gbrain config
 set search.mode` records `operator`). On a brain that already has a different
 mode, `--search-mode` refuses unless you also pass `--force`.
-
-Brains that run `tokenmax` because the picker chose it (no
-`search.mode_source: operator`) get one `search_mode_coaching` notice, once
-per brain and only on the owner's local channels (CLI and the stdio MCP pipe,
-never HTTP). It names what switching to `balanced` changes: `query` returns 25
-rows instead of 50 under a 12,000-token budget, the rerank pool is 25 instead
-of 50, `query` stops expanding by default, new chunks are embedded with title
-context instead of per-chunk synopses (existing vectors keep serving until
-replaced), and the paid nightly conversation-parser probe stops (it runs in
-`tokenmax` or when `autopilot.conversation_parser_probe.enabled` is true). Its
-fix is `gbrain config set search.mode balanced`, run only after the user
-agrees; nothing changes on its own. Mute it with `gbrain notices mute
-search_mode_coaching`.
 
 ## Query instruction prefix
 

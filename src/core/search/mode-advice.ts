@@ -19,8 +19,8 @@ import type { SearchMode } from './mode.ts';
 export const SEARCH_MODE_SOURCE_KEY = 'search.mode_source';
 export type SearchModeSource = 'auto' | 'operator';
 
-/** The mode gbrain recommends when nothing argues for another. */
-export const RECOMMENDED_SEARCH_MODE: SearchMode = 'balanced';
+/** The mode gbrain recommends for a brain with a chat key when nothing argues for another. */
+export const RECOMMENDED_SEARCH_MODE: SearchMode = 'tokenmax';
 
 const MODES: readonly SearchMode[] = ['conservative', 'balanced', 'tokenmax'];
 
@@ -89,18 +89,13 @@ export const QUERY_EXPANSION_LINE =
   '--expand forces it and --no-expand skips it. `gbrain search` never expands. An expansion is one call to the ' +
   'configured chat model, a separate provider charge; keyless brains never expand.';
 
-/** The measured evidence behind the recommendation, as measured. */
-export const BALANCED_EVIDENCE =
-  'On LongMemEval-S (direct harness, top 5), balanced found every gold session for 451 of 470 questions and ' +
-  'tokenmax for 442 (gbrain-evals, 2026-10-04; that tokenmax run also expanded queries).';
-
 /** The picker's reason for each recommendation branch. */
 export const MODE_REASONS = {
   haiku: 'Haiku subagent tier detected — conservative keeps the payload at 4K tokens for a small-context model.',
   noKeys: 'No chat key (Anthropic/OpenAI/Google) and no ready reranker — conservative keeps a tight 4K budget; balanced\'s reranker could not run.',
   rerankOnly: 'A reranker is ready but there is no chat key — balanced reranks with it; nothing in balanced needs a chat model.',
-  opus: `Opus-class model detected — balanced is still the recommendation: ${BALANCED_EVIDENCE}`,
-  default: `Recommended default. ${BALANCED_EVIDENCE} tokenmax doubles the payload; pick it when the operator wants the widest retrieval.`,
+  opus: 'Opus-class model detected — quality ceiling worth the token cost.',
+  default: 'A chat key is configured — tokenmax gives the widest retrieval; pick conservative or balanced if cost-sensitive.',
 } as const;
 
 /** The non-TTY banner the picker prints after applying `applied`: an agent block asking the operator, then the matrix. */
@@ -139,7 +134,7 @@ export function upgradeBannerLines(): string[] {
     '',
     ...agentBlock({
       ask: 'Which search mode should this brain use: conservative, balanced or tokenmax?',
-      why: `Relay this matrix to your operator and ask which mode they want. Recommended: ${RECOMMENDED_SEARCH_MODE}. ${BALANCED_EVIDENCE}`,
+      why: `Relay this matrix to your operator and ask which mode they want. Recommended for a brain with a chat key: ${RECOMMENDED_SEARCH_MODE}.`,
       next: 'ask_user: run `gbrain config set search.mode <mode>` after they decide.',
       verify: 'gbrain search modes',
     }).trimEnd().split('\n'),

@@ -475,7 +475,6 @@ export const BEHAVIOR_CHANGES: ReadonlyArray<{ since: string; text: ChangeText }
   { since: '0.60.182.0', text: 'On a multimodal install, plain `gbrain embed --stale` now runs the image sweep (`--images`) before its text pass and reports it as `images` in `--json`; `gbrain embed --stale --images` works on managed brains, finds an image page with no recorded `source_path` by its slug, and exits non-zero naming the path it tried when no candidate has a file (it used to exit 0); the folded sweep only reports fileless pages. Doctor gains `image_embedding_coverage`.' },
   // Low-hanging-fruit wave lane A (GBRA-81 items 1 and 1b). `since` is provisional (this branch's VERSION, 0.60.184.0); the integrator restamps it to the release at the merge slot.
   { since: '0.60.184.0', text: '`query` now expands only when the search mode says so: on in `tokenmax`, off in `balanced` (the default) and `conservative`, so `query` on a `balanced` brain no longer makes an expansion LLM call before retrieval. `expand: true` (CLI `--expand`) expands one call in any mode, and `gbrain config set search.expansion true` restores expansion by default for the brain; `expand: false` (`--no-expand`) still skips it. A `search.expansion` value set earlier, which `query` used to ignore, now takes effect on `query`; `gbrain search modes` shows it. `search` never expands, as before. CRAG escalation now reads whether the first pass actually expanded (`expansion_applied`), and eval capture records the `expand` the caller sent (null when unset) so `gbrain eval replay` replays the mode default.' },
-  { since: '0.60.184.0', text: '`gbrain init` now recommends `balanced` instead of `tokenmax` for brains with a chat key, Opus-class models included (on LongMemEval-S, direct harness, top 5, `balanced` found every gold session for 451 of 470 questions and `tokenmax` for 442). New `balanced` installs do not run the paid nightly conversation-parser probe, which `tokenmax` turns on (`gbrain config set autopilot.conversation_parser_probe.enabled true` runs it in any mode). Existing brains keep their mode; one that runs `tokenmax` because init chose it gets one `search_mode_coaching` notice on the CLI or stdio MCP (never HTTP) naming what switching changes, and nothing changes unless the user agrees.' },
   { since: '0.60.184.0', text: '`gbrain init --search-mode <conservative|balanced|tokenmax>` records the operator\'s choice: no recommendation, no first-run `search_mode` question, and `search.mode_source: operator` (picker choices record `auto`, and `gbrain config set search.mode` records `operator`). On a brain that already has a different mode it refuses unless `--force`. Init now recommends `balanced` instead of `conservative` when a reranker is ready but no chat key exists, and provider keys saved in `~/.gbrain/config.json` count toward the recommendation. The install matrix now prices Haiku 5.5, Sonnet 5.5 and Opus 5.5 from gbrain\'s pricing table (about a 200x corner-to-corner spread), and switching modes no longer promises a cache refill while semantic result caching is off.' },
   // Low-hanging fruit wave lane B (GBRA-81, items 2 and 3). `since` is a placeholder equal to the branch's VERSION until the merge-slot stamp.
   { since: '0.60.184.0', text: 'Lean `search` and `query` rows (remote callers) now carry `id`, the `fetch` key, only when the connection can call `fetch` at that moment: a `full` surface, a stdio session `request_tools` widened, or an HTTP client whose surface and scopes include it. On `starter` and `verbs` connections, `fetch` was never callable, so the row\'s `slug` and `source_id` identify the page; `fields: "full"` returns every field, `id` included, and the `mcp.result_rows: full` host setting does so for every remote caller. Lean-row `score` now prints 4 significant digits. The local CLI and gbrain\'s thin client keep full rows, unchanged. `fetch` called without an id now says to re-run `search` once `fetch` is callable, or to pass the row\'s slug.' },
@@ -570,22 +569,6 @@ const markerSuffix = (brainKey: string, channel: 'cli' | 'stdio') => `.${brainKe
 /** Claim the per-channel marker for the current notice id. `unwritable` still delivers (conservative). */
 function claimMarker(brainKey: string, channel: 'cli' | 'stdio'): 'claimed' | 'shown' | 'unwritable' {
   const path = join(noticeDir(), `${safe(BEHAVIOR_NOTICE_ID)}${markerSuffix(brainKey, channel)}`);
-  try {
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, `${new Date().toISOString()}\n`, { mode: 0o600, flag: 'wx' });
-    return 'claimed';
-  } catch (e) {
-    return (e as NodeJS.ErrnoException)?.code === 'EEXIST' ? 'shown' : 'unwritable';
-  }
-}
-
-/**
- * A one-time notice per brain (every local channel together), under the same
- * directory as the behavior-change markers: created exclusively, so
- * concurrent processes deliver it once. `unwritable` still delivers.
- */
-export function claimBrainNoticeMarker(code: string, brainKey: string): 'claimed' | 'shown' | 'unwritable' {
-  const path = join(noticeDir(), `${safe(code)}.${brainKey}.shown`);
   try {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, `${new Date().toISOString()}\n`, { mode: 0o600, flag: 'wx' });
