@@ -67,3 +67,10 @@ export async function readThinkPagesBudget(engine: Pick<BrainEngine, 'getConfig'
   const [totalChars, ceilingChars] = await Promise.all([read(THINK_PAGES_BUDGET_KEY), read(THINK_EXCERPT_CEILING_KEY)]);
   return { totalChars, ceilingChars };
 }
+
+/** `gbrain config set` validation: the refusal text for a bad value, or null when it is acceptable. */
+export function pagesBudgetConfigError(key: keyof typeof THINK_PAGES_BUDGET_BOUNDS, value: string): string | null {
+  if (parsePagesBudgetValue(key, value) !== null) return null;
+  const { min, max } = THINK_PAGES_BUDGET_BOUNDS[key];
+  return `${key} must be an integer between ${min} and ${max} (characters); got ${JSON.stringify(value)}`;
+}

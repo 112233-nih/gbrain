@@ -916,8 +916,7 @@ class ProposeTakesPhase extends BaseCyclePhase {
       };
     }
 
-    // Load pages eligible for proposal. Source-scoped per BaseCyclePhase;
-    // #5213 `cycle.propose_takes.types` narrows the types.
+    // Load pages eligible for proposal. Source-scoped per BaseCyclePhase; #5213 types narrow it.
     const pages = await listCandidatePages(engine, scope, pageLimit, await proposeTakesTypes(engine));
 
     if (opts.reporter) {

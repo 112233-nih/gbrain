@@ -28,8 +28,8 @@ ranking, not a model call, so it is free and instant, and the same call
 without `query` returns the whole catalog exactly as before. On a brain that
 serves a shared catalog (`schema_version: 2`, or shared skills activated)
 `query` is refused with `invalid_params` instead of being ignored; narrow with
-`section` there. **Say to your agent:** *"Which of my brain's skills should I
-use to prepare for this meeting?"*
+`section` there. **Say to your agent:** *"Which of my brain's skills fit
+preparing for this meeting?"*
 
 **Brain-resident skillpacks + advisor:** A brain repo can carry its
 own publishable skillpack (`brain_resident: true` in `skillpack.json` + `schema_pack`);

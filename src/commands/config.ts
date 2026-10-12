@@ -1264,15 +1264,11 @@ export async function runConfig(engine: BrainEngine, args: string[]) {
       catch (error) { console.error(`[config] ${(error as Error).message}`); process.exit(1); }
     }
 
-    // #5461: think falls back to the default budget on a malformed value
-    // (and warns); refuse it here, where the operator can fix it.
+    // #5461: think falls back to the default budget on a malformed value (and warns); refuse it here.
     if (key === 'think.pages_budget_chars' || key === 'think.excerpt_ceiling_chars') {
-      const { parsePagesBudgetValue, THINK_PAGES_BUDGET_BOUNDS } = await import('../core/think/pages-budget.ts');
-      if (parsePagesBudgetValue(key, value) === null) {
-        const { min, max } = THINK_PAGES_BUDGET_BOUNDS[key];
-        console.error(`[config] ${key} must be an integer between ${min} and ${max} (characters); got ${JSON.stringify(value)}`);
-        process.exit(1);
-      }
+      const { pagesBudgetConfigError } = await import('../core/think/pages-budget.ts');
+      const error = pagesBudgetConfigError(key, value);
+      if (error) { console.error(`[config] ${error}`); process.exit(1); }
     }
 
     // Validate sources.default at set time. This key is read by

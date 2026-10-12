@@ -262,15 +262,15 @@ export async function dispatchFreshnessSyncs(
     if (await isFederatedV2Enabled(engine)) {
       const attempted = await attemptedConnectorSourceIds(engine).catch(() => null);
       const sources = await loadAllSources(engine);
-      const activationPending = await loadActivationPendingSourceIds(engine);
-      const intervalMs = baseInterval * 1000;
-      const now = Date.now();
       // #6451: one status line per tick when the operator turned automatic pulls off.
       if (await automaticGitPullDisabled(engine)) {
         process.stderr.write((jsonMode
           ? JSON.stringify({ event: 'git_pull_disabled', key: AUTOPILOT_GIT_PULL_KEY })
           : `[autopilot] git_pull: off (${AUTOPILOT_GIT_PULL_KEY}=false); remote sources sync their local checkout without pulling`) + '\n');
       }
+      const activationPending = await loadActivationPendingSourceIds(engine);
+      const intervalMs = baseInterval * 1000;
+      const now = Date.now();
       for (const src of sources) {
         if (isConnectorSourceKind(parseSourceConfig(src.config).kind)) {
           await dispatchConnectorFreshnessSync(queue, src, attempted, activationPending, { intervalMs, now, slot, timeoutMs, jsonMode });

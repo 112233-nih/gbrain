@@ -536,6 +536,13 @@ async function persistCitations(
  * the renderer passes through whole instead of cutting its own excerpts;
  * auto's unchanged chunks keep the usual excerpts.
  */
+/** #5461: source-qualify each citation from the gather (the highest-ranked gathered page with that slug; null outside the gather). */
+function stampCitationSources(citations: ParsedCitation[], pages: SearchResult[]): void {
+  const sourceOfSlug = new Map<string, string>();
+  for (const pg of pages) if (!sourceOfSlug.has(pg.slug)) sourceOfSlug.set(pg.slug, pg.source_id ?? 'default');
+  for (const c of citations) c.source_id = sourceOfSlug.get(c.page_slug) ?? null;
+}
+
 async function renderThinkPages(engine: BrainEngine, opts: RunThinkOpts, pages: SearchResult[], timeZone: string, warnings: string[]): Promise<{ pagesBlock: string; evidenceTruncated: boolean; evidenceDelivery?: DeliveryMeta }> {
   const [plan, budget] = await Promise.all([
     resolveEvidencePlan(engine, {
@@ -985,10 +992,7 @@ export async function runThink(
   for (const slug of new Set(resolved.citations.map(c => c.page_slug))) {
     if (!gatheredSlugs.has(slug)) warnings.push(`CITATION_NOT_IN_GATHER:${slug}`);
   }
-  // #5461: source-qualify each citation from the gather (highest-ranked page with that slug).
-  const sourceOfSlug = new Map<string, string>();
-  for (const pg of gather.pages) if (!sourceOfSlug.has(pg.slug)) sourceOfSlug.set(pg.slug, pg.source_id ?? 'default');
-  for (const c of resolved.citations) c.source_id = sourceOfSlug.get(c.page_slug) ?? null;
+  stampCitationSources(resolved.citations, gather.pages);
 
   // Round-loop scaffolding (rounds > 1 currently re-runs without gap-driven retrieval).
   // The loop is in place so the v0.29 gap-fill heuristic doesn't change the call site.
