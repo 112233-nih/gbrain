@@ -42,8 +42,8 @@ PAGES
 
 SEARCH
   search <query>                     Keyword search (tsvector)
-  query <question> [--no-expand]     Hybrid search (RRF + expansion)
-  ask <question> [--no-expand]       Alias for query
+  query <question> [--expand]        Hybrid search (RRF; expansion per search mode)
+  ask <question> [--expand]          Alias for query
 
 IMPORT/EXPORT
   import <dir> [--no-embed]          Import markdown directory
