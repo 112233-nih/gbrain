@@ -214,6 +214,11 @@ jobs:
       # 0x42") in its private-IPC test right after the native lock probe; the
       # crash is Bun's, tracked in #6462, and the #5332 bound it exercised is
       # covered by the forced probe inside postgres-disconnect-bounded.
+      # Upstream: oven-sh/bun#40023 ("Windows: dispatch libuv events from the
+      # event loop, not from inside libuv callbacks") is the fix for the
+      # class: on Windows a socket or pipe closed during a nested tick is
+      # freed while the outer libuv dispatch still holds it. Re-try the file
+      # on this row once a Bun release carries that change.
       - name: Teardown bounds that used to park the Windows unit run (#5332)
         run: bun test --timeout 120000 test/postgres-disconnect-bounded.test.ts
       - name: Backup archive round trip on this host (#5312)
