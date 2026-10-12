@@ -197,6 +197,7 @@ test/harness-onboarding.test.ts	harness identity and private handoff	6	readFileS
 test/hook-command.serial.test.ts	user-prompt	16	source-surface-helper
 test/hook-push-spawn-env.test.ts	spawnDetachedPush env handoff	2	readFileSync
 test/hook-push-spawn-env.test.ts	tryExecAsync env handoff	1	readFileSync
+test/init-mode-picker.test.ts	cost matrix: newest models, priced from model-pricing	6	readFileSync
 test/integrations-install.test.ts	installRecipeIntoHostRepo — happy path	6	readFileSync
 test/integrations.test.ts	CLI integration	3	source-surface-helper
 test/jobs-embed-background-parity.serial.test.ts	embed job background parity (D7)	2	readFileSync,source-surface-helper
@@ -255,7 +256,7 @@ test/pglite-repair-command.serial.test.ts	gbrain pglite-repair — interactive c
 test/pglite-wal-repair.serial.test.ts	WAL auto-repair — real-brain regression (#223/#1670/#2575)	6	source-surface-helper
 test/physical-root-birth-tolerance-6501.test.ts	physical root birth drift (${kind})	5	readFileSync
 test/physical-root-birth-tolerance-6501.test.ts	samePhysicalBirth (#6501)	5	readFileSync
-test/postgres-driver-vendor.test.ts	vendored Postgres driver packaging	3	readFileSync
+test/postgres-driver-vendor.test.ts	vendored Postgres driver packaging	4	readFileSync
 test/postgres-engine.test.ts	postgres-engine / search date filtering	2	source-surface-helper
 test/postgres-engine.test.ts	postgres-engine / search path timeout isolation	7	source-surface-helper
 test/private-visibility.test.ts	shared private predicate lives once (#4352 remediation)	1	readFileSync
