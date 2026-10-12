@@ -31,7 +31,7 @@ import type { HybridSearchMeta, SearchResult } from '../types.ts';
 import { bumpLastRetrievedAt } from '../last-retrieved.ts';
 import { applySnippetCap, DEFAULT_AGENT_SNIPPET_CHARS } from '../search/snippet-cap.ts';
 import { redactRetrievalOutput } from '../search/output-redaction.ts';
-import { projectRows, resultRowsFor } from '../search/lean-rows.ts';
+import { leanRowsKeepId, projectRows, resultRowsFor } from '../search/lean-rows.ts';
 import { buildScoreDetails } from '../search/explain-formatter.ts';
 import { TargetTrace, diagnoseProbe, diagnoseTrace, probeTarget, type ExplainTargetDiagnosis } from '../search/explain-target.ts';
 import { assembleEvidenceForHits, capDeliveredSnippets, capEvidenceToBudget, deliverEvidence, effectivePlan, pagePlanHits, resolveEvidencePlan, unsupportedDelivery, type DeliveryMeta, type DeliveryScope, type EvidencePlan, type FrozenHit, type ReturnUnit } from '../search/evidence-delivery.ts';
@@ -109,6 +109,7 @@ function thinkScopeFromQueryScope(scope: SourceScope): { sourceId?: string; allo
 function searchOutput(ctx: OperationContext, p: Record<string, unknown>, results: SearchResult[], meta: Record<string, unknown>, snippetCap: number,
   evidence?: { delivery: DeliveryMeta; explicitSnippet: boolean }): SearchResult[] {
   const rows = resultRowsFor(ctx, p.fields);
+  const lean = { keepId: leanRowsKeepId(ctx) };
   // `explain: true` — every row carries its score breakdown (kept in lean rows).
   if (p.explain === true) for (const r of results) r.score_details = buildScoreDetails(r);
   // The shape is reported where it can vary: remote callers, or an explicit `fields`.
@@ -116,7 +117,7 @@ function searchOutput(ctx: OperationContext, p: Record<string, unknown>, results
   if (!evidence) {
     const output = redactRetrievalOutput(results, { ...meta, ...shown });
     ctx.emitResponseMeta?.('retrieval', output.meta);
-    return projectRows(applySnippetCap(output.results, snippetCap).map(factRowOutput), rows);
+    return projectRows(applySnippetCap(output.results, snippetCap).map(factRowOutput), rows, lean);
   }
   // Evidence delivery: explicit snippet_chars wins over the delivered blocks;
   // otherwise the blocks are returned whole (their budget already bounds
@@ -126,7 +127,7 @@ function searchOutput(ctx: OperationContext, p: Record<string, unknown>, results
   // markers and redaction recounted); without one both are no-ops.
   const capped = evidence.explicitSnippet ? capDeliveredSnippets(output.results, snippetCap, output.meta.delivery) : capEvidenceToBudget(output.results, output.meta.delivery);
   ctx.emitResponseMeta?.('retrieval', output.meta);
-  return projectRows(capped.map(factRowOutput), rows);
+  return projectRows(capped.map(factRowOutput), rows, lean);
 }
 
 /** C1: the per-call row-shape escape hatch shared by `search` and `query` (`detail` is query's low/medium/high). */

@@ -713,6 +713,7 @@ export function buildOperationContext(
     (typeof opts.sessionId === 'string' && opts.sessionId.length > 0
       ? opts.sessionId.slice(0, SESSION_ID_MAX_CHARS)
       : undefined) ?? metaSessionIdFrom(params);
+  let render: RenderContext | undefined;
   return {
     engine,
     config: opts.config ?? loadConfig() ?? { engine: 'postgres' },
@@ -734,6 +735,7 @@ export function buildOperationContext(
     ...(opts.revealTools ? { revealTools: opts.revealTools } : {}),
     ...(opts.writeWaitMs !== undefined ? { writeWaitMs: opts.writeWaitMs } : {}),
     ...(opts.resultRows ? { resultRows: opts.resultRows } : {}),
+    isCallable: (opName: string) => (render ??= dispatchRenderContext(opts)).isCallable(opName),
     auth: opts.auth,
   };
 }

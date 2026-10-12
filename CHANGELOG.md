@@ -10,6 +10,14 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [Unreleased] - low-hanging fruit wave lane B: leaner search rows (GBRA-81)
+
+### Itemized changes
+
+- **Lean search rows drop `id` where `fetch` is not callable.** Remote `search` and `query` lean rows carry `id` (the deep-research `fetch` key, base64 of `source_id` and `slug`, so a duplicate of two fields already in the row) only when `fetch` is callable on the caller's surface at call time. MCP dispatch threads one `isCallable(op)` predicate into `OperationContext`, built from the same check tools/list uses: the stdio session's surface after any `request_tools` widening, the HTTP client's effective surface and scopes under the server ceiling. `fields: "full"`, `mcp.result_rows: full`, gbrain's thin client and the local CLI are unchanged. On the committed Cat 40 Hard transcripts (served on `starter`, 3,169 `search` calls) a keyless replay (`scripts/replay-lean-row-savings.ts`) saves 9.52% of `search` characters on the starter surface and 1.35% on the full surface, where `id` stays and only score rounding applies.
+- **Lean-row `score` prints 4 significant digits.** Rounding happens only in `leanRow`, so full rows and trusted local callers keep the raw float; RRF-scale scores are small, so fixed decimals would have collapsed them. Two scores print equal only when they agree to 4 significant digits, and order never inverts.
+- **`fetch` without an id names both routes.** The refusal says to re-run `search` once `fetch` is callable, or to pass the row's slug (accepted when unambiguous in the caller's read scope).
+
 ## [0.60.178.0] - 2026-10-12
 
 **Batch entity lookups respect quarantine.** `entity` with `names` now hides quarantined pages from remote callers the way a single-name `entity` lookup and `get_page` already do, whichever way the name resolves, and a quarantined identity sibling no longer appears beside a page for remote callers, in batch rows or in a single-name card. Trusted local callers see the same results as before. No migration, no paid call.
