@@ -69,7 +69,7 @@ export interface ModePickerInputs {
  *   - Haiku subagent → conservative (a small-context model).
  *   - No chat key and no ready reranker → conservative.
  *   - A ready reranker without a chat key → balanced.
- *   - Opus, or anything else → tokenmax (RECOMMENDED_SEARCH_MODE).
+ *   - Opus, or anything else → balanced (RECOMMENDED_SEARCH_MODE).
  */
 export function recommendModeFor(inputs: ModePickerInputs): { mode: SearchMode; reason: string } {
   if (/haiku/i.test(inputs.subagentModel ?? '')) return { mode: 'conservative', reason: MODE_REASONS.haiku };
@@ -137,7 +137,7 @@ retrieval or downstream generation.
                     high-volume search loops, MCP servers w/ many users.
 
   2) balanced       12K-token cap, 25 results by default, reranked.
-                    Best for: mixed workloads, a reranker without a chat key.
+                    The recommended default for most brains.
 
   3) tokenmax       no token cap, 50 results by default, reranked,
                     query expansion on by default.
