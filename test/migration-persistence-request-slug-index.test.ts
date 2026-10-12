@@ -33,10 +33,12 @@ const INDEX = PERSISTENCE_REQUEST_SLUG_INTENT_INDEX;
 const migration = MIGRATIONS.find(m => m.name === 'persistence_request_slug_intent_index');
 
 describe('#6511 the slug index migration module', () => {
-  test('is registered once, as the latest migration, in the v179 online-index shape', () => {
+  test('is registered once, in this release, in the v179 online-index shape', () => {
     expect(MIGRATIONS.filter(m => m.name === 'persistence_request_slug_intent_index')).toHaveLength(1);
     expect(migration).toMatchObject({ idempotent: true, transaction: false, sql: '' });
-    expect(migration!.version).toBe(LATEST_SCHEMA_VERSION);
+    // Numbered at the merge slot; it is one of this release's migrations, not necessarily the last (v241 follows it).
+    expect(migration!.version).toBeGreaterThan(239);
+    expect(migration!.version).toBeLessThanOrEqual(LATEST_SCHEMA_VERSION);
     expect(typeof migration!.handler).toBe('function');
   });
   test('is DDL only: an index on the request table, no column and no backfill', () => {
