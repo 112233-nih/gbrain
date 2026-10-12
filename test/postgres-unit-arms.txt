@@ -11,6 +11,7 @@
 # file is a one-line edit: insert its path in sorted order. Shards balance
 # other Postgres lane runs. The unit, serial and slow lanes unset
 # themselves from scripts/postgres-arm-weights.json.
+test/activation-unbound-rooted-6449.test.ts
 test/alias-source-cascade-5094.test.ts
 test/attribution-backfill-history.test.ts
 test/behavior-change-notice.test.ts

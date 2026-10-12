@@ -7,6 +7,7 @@ import { assertPhysicalRoot } from './physical-root.ts';
 import { inspectLegacyWriterLocks } from './legacy-locks.ts';
 import { UNSUPPORTED_MANAGED_BULK_WRITERS } from './maintenance.ts';
 import { isConnectorSourceKind } from './connector-identity.ts';
+import { writeThroughConfigured } from './switches.ts';
 
 export function containerPathPreflight(paths: Record<string, string>, mountinfo?: string, container?: boolean) {
   if (container === undefined) container = existsSync('/.dockerenv') || existsSync('/run/.containerenv');
@@ -30,7 +31,7 @@ export async function writerOnboardingPreflight(engine: BrainEngine, sourceId?: 
   const rows = await engine.executeRaw<{ id: string; local_path: string | null; incarnation: string; kind: string | null }>(
     "SELECT id,local_path,incarnation,config->>'kind' AS kind FROM sources WHERE NOT archived AND ($1::text IS NULL OR id=$1) ORDER BY id", [sourceId ?? null]);
   const fallback = await engine.getConfig('sync.repo_path'), host = existingLocalHostId();
-  const writeThrough = !/^(false|0|off|no)$/i.test(await engine.getConfig('sync.write_through') ?? 'true');
+  const writeThrough = writeThroughConfigured(await engine.getConfig('sync.write_through'));
   const sources = [];
   for (const row of rows) {
     const binding = await getWorktreeBinding(engine, row.id, host), configured = row.local_path || (row.id === 'default' ? fallback : null);

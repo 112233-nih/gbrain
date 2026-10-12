@@ -23,6 +23,7 @@
  * committed deactivation; a newer or unknown one is kept and reported pending.
  */
 import { randomUUID } from 'node:crypto';
+import { DATABASE_ONLY_SOURCES_KEY } from './unbound-source.ts';
 import { existsSync, lstatSync, readFileSync, readdirSync, unlinkSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { BrainEngine } from '../engine.ts';
@@ -273,6 +274,7 @@ export async function deactivatePersistence(engine: BrainEngine, opts: { dryRun?
       await tx.executeRaw("UPDATE persistence_worktrees SET state='retired' WHERE state<>'retired'");
       await tx.executeRaw('DELETE FROM persistence_source_bindings');
       await tx.executeRaw('DELETE FROM persistence_host_bindings');
+      await tx.unsetConfig(DATABASE_ONLY_SOURCES_KEY);
       const sourceRoots = (await tx.executeRaw<{ local_path: string }>('SELECT local_path FROM sources WHERE local_path IS NOT NULL')).map(r => r.local_path);
       const outcome = { brain_id: current.brain_id, retired_mode_epoch: Number(current.mode_epoch), mode_epoch: Number(epoch.mode_epoch),
         worktrees: retired.worktrees, source_roots: sourceRoots };

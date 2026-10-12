@@ -12,6 +12,7 @@ import { isSyncable, isCodeFilePath, isImageFilePath, matchesAnyGlob, resolveSlu
 import { resolveSlugRootMode } from '../sync-anchor.ts';
 import { isWriteTargetContained } from '../path-confine.ts';
 import { getWorktreeBinding, type WorktreeBinding } from './ownership.ts';
+import { unboundBindCommand } from './unbound-source.ts';
 import { localHostId } from './identity.ts';
 import { sha256 } from './digest.ts';
 import { isWindowsColonTarget } from './native-file-target.ts';
@@ -155,8 +156,13 @@ export async function resolveManagedSyncContext(engine: BrainEngine, opts: SyncO
   const binding = await getWorktreeBinding(engine, sourceId);
   if (!source || source.archived || !binding || binding.source_incarnation !== source.incarnation ||
       binding.owner_host_id !== localHostId() || binding.state !== 'active' || !binding.local_path) {
+    // #6449: a rooted source with no owner at all is the database-only one activation listed; the exit is a deliberate claim.
+    const unbound = source && !source.archived && !binding && source.local_path && source.config?.kind == null;
     throw opError('owner_unavailable', 'Sync must run on the active registered worktree owner.',
-      `Source ${sourceId} is archived, re-registered, or not bound to an active worktree owned by this host. Run its sync on the owner host that gbrain sources writer status --source ${sourceId} --json names; do not claim or transfer the source to make this host the owner.`,
+      unbound
+        ? `Source ${sourceId} has a checkout path (${source.local_path}) but no canonical owner, so it is database-only and there is no checkout to sync; nothing changed. `
+          + `To make this host its owner (a brain-wide change: ask the user first), preview with gbrain sources writer claim ${sourceId} --path ${source.local_path} --dry-run --json, then ${unboundBindCommand(sourceId, source.local_path)}; afterwards run gbrain sync --no-pull --source ${sourceId}.`
+        : `Source ${sourceId} is archived, re-registered, or not bound to an active worktree owned by this host. Run its sync on the owner host that gbrain sources writer status --source ${sourceId} --json names; do not claim or transfer the source to make this host the owner.`,
       { fix: { argv: ['gbrain', 'sources', 'writer', 'status', '--source', sourceId, '--json'], consent: [], actor: 'agent', requires_exclusive: false,
         why: 'Shows the owning host, binding state and incarnation of the source.' } });
   }

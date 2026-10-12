@@ -441,8 +441,21 @@ substitute the new value and retry. Dry runs do not grant permission to apply.
 
 Activation additionally requires every older writer and maintenance process on
 every host to be upgraded and stopped, filesystem sources to have their intended
-owners, and outstanding locks and recovery to be resolved. Preview activation
-with `--confirm-quiesced --dry-run`, then, only when approved:
+owners, and outstanding locks and recovery to be resolved. On a brain whose
+`sync.write_through` is `false` (a database-only brain), a rooted source with no
+owner needs none: `writer status` already reports it `database_only`, and
+activation lists it under `database_only_sources` and goes ahead (#6449). Page
+writes to it publish to the database only (`write_through.skipped:
+disabled_by_config`), `gbrain sync` on it refuses `owner_unavailable` naming the
+claim, and turning `sync.write_through` back on does not claim it, not even on
+PGLite (activation records the listed sources in
+`persistence.database_only_sources`; deactivation clears it): the next write
+refuses with `detail: unbound_source` and the `writer claim` to run (preview
+with `--dry-run`), or stays database-only under
+`persistence.unbound_write=database_only`. With `sync.write_through` on, the
+same source refuses activation with `writer_registration_required`, and the
+suggestion names that claim and the database-only alternative. Preview
+activation with `--confirm-quiesced --dry-run`, then, only when approved:
 
 ```bash
 gbrain sources writer activate --brain host --confirm-quiesced \

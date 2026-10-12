@@ -479,8 +479,12 @@ A source with a checkout path (`local_path`, or `sync.repo_path` for the
 `default` source) normally publishes every page write to a markdown file in
 that checkout, through the source's canonical owner. PGLite claims that owner
 automatically on the first write. Postgres does not, because several hosts can
-share one Postgres brain and only one of them may own the files. Until someone
-binds the source, page writes to it refuse with
+share one Postgres brain and only one of them may own the files. Neither does
+PGLite for a source `writer activate` listed under `database_only_sources`
+(a rooted source with no owner on a brain whose `sync.write_through` was off,
+#6449; the list is the config key `persistence.database_only_sources`, which
+deactivation clears): turning the setting back on never starts an unreviewed
+claim there. Until someone binds the source, page writes to it refuse with
 `owner_unavailable` and `detail: unbound_source`. The refusal is a
 configuration state, not a transient one: it renders `retryable: false` and a
 `fix` with `next: ask_user`, so an agent never retries it.
