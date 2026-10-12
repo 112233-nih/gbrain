@@ -26,7 +26,9 @@ test/decide/conflict-proposals-managed.test.ts
 test/declared-lineage-visibility.test.ts
 test/derived-link-reconciliation.test.ts
 test/doctor-frontmatter-holds.test.ts
+test/doctor-image-embedding-coverage.test.ts
 test/doctor-routing-skill-pack-source.test.ts
+test/embed-stale-images-managed-6529.test.ts
 test/embedding-completion-atomic.serial.test.ts
 test/engine-sql-facts-keyset.test.ts
 test/extract-all-stamp-intersection.serial.test.ts
