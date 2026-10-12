@@ -27,9 +27,9 @@ export async function startStubRegistry(options: StubRegistryOptions) {
   const tarball = readFileSync(join(options.dir, packed.stdout.toString().trim()));
   const integrity = `sha512-${createHash('sha512').update(tarball).digest('base64')}`;
   let packumentRequests = 0, tarballRequests = 0;
-  const server = Bun.serve({
+  const server: ReturnType<typeof Bun.serve> = Bun.serve({
     hostname: '127.0.0.1', port: 0,
-    fetch(request) {
+    fetch(request): Response {
       const path = new URL(request.url).pathname;
       if (path === `/${STUB_PACKAGE}`) {
         packumentRequests++;
