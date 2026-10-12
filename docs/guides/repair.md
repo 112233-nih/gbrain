@@ -2025,6 +2025,64 @@ the hosted one. Manage that connection with `gbrain connect <mcp-url>
 --harness claude-code --install`; `gbrain doctor --only harness_wiring` shows
 which brain the registration reaches.
 
+## Connection notices
+
+Two notices tell an agent, on its own MCP connection, why something it
+expected is out of reach. Neither changes what the connection can call.
+
+### Grant blocked operations
+
+`grant_blocked_operations` (info): this connection's grant cannot call some
+operations its scopes allow. The notice says which proven blocker applies,
+with counts and never operation names: the grant's operation snapshot, the
+client's stored tool surface (a pin the brain owner set), or the server's
+tool surface. A missing scope is named only on a refused call, because it is
+how the grant was issued. Grant age is kept apart from the blockers: a grant
+whose snapshot was written before snapshots recorded their operation catalog
+says "this grant's snapshot excludes N currently eligible operations;
+original intent unknown", and only a grant with recorded catalog provenance
+says it predates operations. Operations outside the grant's scopes are never
+counted, so a writer is not told about admin-only operations.
+
+It arrives once per session: once per (principal, transport session) on
+stdio and HTTP, and for a stateless HTTP call with no session id once per
+(principal, grant revision), so a rescoped grant is diagnosed afresh.
+`fix.next` is `tell_user_to_run`: the brain owner previews the change on the
+brain host and then applies it (`then`). For an OAuth client that is
+`gbrain auth rescope --client <client_id> --operations <OPERATIONS> --surface full --dry-run`
+(`--surface full` only when the stored surface also blocks), then the same
+command without `--dry-run`; for a legacy token,
+`gbrain auth rescope --id <token_id> --refresh-operations` and then
+`... --add <OPERATIONS>`. The owner chooses `<OPERATIONS>`. When only the
+server's tool surface blocks, no grant change lifts it, and the fix is the
+read-only doctor check that names the setting. `fix.verify` is read-only:
+`gbrain doctor --only grant_new_ops_available --json` on the host, or
+`whoami` on the same connection (its `grant_diagnosis` field carries the same
+diagnosis). Nothing widens automatically; see
+[grants that cannot reach new operations](../mcp/ADMIN.md#grants-that-cannot-reach-new-operations).
+
+### Hidden tool content
+
+`hidden_tool_content` (info): a page read, search or query left out takes
+(page reads and search never include the takes table for an agent-facing
+reader) and the tool that lists them, `takes_list`, is not in this
+connection's tool list. The notice counts the takes and names the result's
+own pages, and its `fix` is the next step this connection can actually take:
+
+- `takes_list` is callable but not listed (an advertised surface narrower
+  than the callable one): the fix is the `takes_list` call itself, and a
+  stdio session also adds it to its tool list. A client that ignores
+  `tools/list_changed` can still call it by name.
+- one `request_tools {surface}` call would make it callable: the fix is that
+  call (stdio: this session only, nothing written; HTTP: the client's own
+  surface, within the server ceiling and never past an operator pin).
+- otherwise only the brain host can change it: on HTTP the fix is the grant
+  repair from `grant_blocked_operations`; on stdio it is the tool's CLI
+  equivalent, relayed to the user.
+
+A fix never names a call the connection cannot make: read-only access,
+operator pins, the grant's snapshot and `GBRAIN_MCP_FORCE_SURFACE` all hold.
+
 ## Related
 
 - [Write refusal reasons](write-refusals.md) — what a refused write means and the recovery command
