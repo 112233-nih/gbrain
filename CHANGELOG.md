@@ -79,6 +79,7 @@ identifiers and attribution are available in the pre-removal Git revision
 
 - v240 `persistence_request_slug_intent_index`: online partial index on `persistence_requests(source_id, slug, sequence)`, `transaction: false`, CONCURRENTLY on Postgres, inline on PGLite. DDL only.
 - v241 `extract_atoms_partial_input`: `ADD COLUMN IF NOT EXISTS partial_input_chars INTEGER` on `extract_atoms_page_state` and `extract_atoms_transcript_state`. Metadata-only, no backfill.
+
 ## [0.60.188.0] - 2026-10-12
 
 ### Itemized changes
