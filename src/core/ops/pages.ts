@@ -236,7 +236,7 @@ const fetch_page: Operation = {
   handler: async (ctx, p) => {
     const id = p.id as string;
     if (typeof id !== 'string' || !id.trim()) {
-      throw opError('invalid_params', 'fetch requires a non-empty id', 'Pass the `id` field from a `search` result.');
+      throw opError('invalid_params', 'fetch requires a non-empty id', 'Pass the `id` field from a `search` result. Search rows carry `id` only when `fetch` is callable on this connection, so a row from a search run before `fetch` was callable has none: re-run `search` now that `fetch` is callable, or pass the row\'s `slug` as `id` (accepted when it is unambiguous within your read scope).');
     }
     let identity: ReturnType<typeof decodeDeepResearchId>;
     try { identity = decodeDeepResearchId(id); }

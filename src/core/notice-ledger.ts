@@ -8,6 +8,11 @@
  *   principal. Bounded: 10k keys, 24 h TTL.
  * - `degraded` and `safety` notices are never deduped on HTTP (attached to
  *   every affected call). At most 2 `coaching` notices per session.
+ * - A notice's unrendered `dedupe_key` replaces its code as the dedupe
+ *   identity, and turns a per-call code into a once-per-session one:
+ *   `degraded_recall` rides every affected call, except a notice made only of
+ *   configuration-persistent stages (a keyless brain's `embed_unavailable`),
+ *   which shows once per session per distinct key.
  * - Mute applies to `coaching` and `info` only: globally for the local owner
  *   (`gbrain notices mute <code>`), per client on remote transports
  *   (`mute_notice`). Persisted under GBRAIN_HOME.
@@ -20,10 +25,10 @@ import type { Notice, Transport } from './agent-output.ts';
 const MAX_KEYS = 10_000;
 const TTL_MS = 24 * 60 * 60 * 1000;
 export const COACHING_BUDGET_PER_SESSION = 2;
-/** Notices that describe THIS call's result (never deduped): the diagnosis must ride every affected call. */
 /** The one muteable `ask`: an unanswered first-run bundle must stay dismissible. Every other ask always shows. */
 export const MUTEABLE_ASK_CODES: ReadonlySet<string> = new Set(['first_run_decisions']);
-export const PER_CALL_NOTICE_CODES: ReadonlySet<string> = new Set(['empty_retrieval', 'unknown_param', 'listing_truncated', 'former_relationships_hidden', 'source_binding_narrowed', 'local_transcripts', 'held_files', 'relational_chain', 'mention_index', 'delta_incomplete', 'identity_siblings_capped', 'alias_fanout', 'facts_unembedded']);
+/** Notices that describe THIS call's result (never deduped unless the notice carries a `dedupe_key`): the diagnosis must ride every affected call. */
+export const PER_CALL_NOTICE_CODES: ReadonlySet<string> = new Set(['degraded_recall', 'empty_retrieval', 'unknown_param', 'listing_truncated', 'former_relationships_hidden', 'source_binding_narrowed', 'local_transcripts', 'held_files', 'relational_chain', 'mention_index', 'delta_incomplete', 'identity_siblings_capped', 'alias_fanout', 'facts_unembedded']);
 
 export interface NoticeAudience {
   transport: Transport;
@@ -68,9 +73,9 @@ export class NoticeLedger {
     const session = this.session(audience);
     for (const n of notices) {
       if ((n.kind === 'coaching' || n.kind === 'info' || MUTEABLE_ASK_CODES.has(n.code)) && muted.has(n.code)) continue;
-      const always = PER_CALL_NOTICE_CODES.has(n.code)
+      const always = (PER_CALL_NOTICE_CODES.has(n.code) && n.dedupe_key === undefined)
         || (audience.transport === 'http' && (n.kind === 'degraded' || n.kind === 'safety'));
-      const key = `${session}|${n.code}`;
+      const key = n.dedupe_key === undefined ? `${session}|${n.code}` : `${session}|${n.code}|${n.dedupe_key}`;
       if (!always && this.seen.has(key)) continue;
       if (n.kind === 'coaching') {
         const used = this.coaching.get(session)?.count ?? 0;
