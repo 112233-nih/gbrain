@@ -10,6 +10,18 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [Unreleased: withdrawn refusal detail, version stamped at merge] - 2026-10-12
+
+**When `remember` refuses a forgotten claim, the refusal now says when and how widely it was forgotten.** An agent that re-saves a claim the user forgot gets `fact_withdrawn` as before, and the refusal now carries `withdrawn: { at, subject, visibility }`, where `subject` is the entity the claim was forgotten for or `all_entities`. The agent can tell the user "you asked me to forget that on <date>" instead of retrying. The object rides the immediate refusal, the batch item error, the failed write receipt and `get_write_request`. It covers the exact claim only, the message, code and suggestion are unchanged, and nothing is ever restored.
+
+### Itemized changes
+
+- `src/core/facts/single-prepare.ts` (`factWithdrawnRefusal`): the object comes from the withdrawal ledger only (never a purge): the named entity's withdrawal over `all_entities`, then the newest, among withdrawals whose forgotten rows the caller can read. When it cannot read them, the refusal is the one v0.60.176.0 returns, with no object. `src/core/facts/write-single.ts` applies the same rule, fail-closed when the caller is unknown.
+- `src/core/ops/contract.ts`, `src/core/agent-output.ts`, `src/core/remember-batch.ts`, `src/core/persistence/verb-errors.ts`: `withdrawn` on `OperationError`, the agent envelope (stdio, HTTP, CLI) and batch item errors.
+- `src/core/facts/withdrawal.ts`, `src/core/persistence/coordinator.ts`, `src/core/persistence/service.ts`, `src/core/ops/persistence.ts`: a refusal at preparation stores the object in the receipt's versioned `error_detail`, read back by the failed response, replay and `get_write_request`.
+- `src/core/verbs.ts` (`ERROR_SCHEMA.withdrawn`), the conformance fixture for re-remembering a forgotten claim, the `gbrain errors fact_withdrawn` row, MEMORY_VERBS v1 "remember withdrawn refusal detail (additive)".
+- Tests: `test/withdrawn-detail.test.ts` (PGLite) and `test/e2e/withdrawn-detail-postgres.test.ts` (Postgres) share `test/helpers/withdrawn-detail-scenarios.ts`; `test/agent-contract-goldens.test.ts` pins one object on stdio, HTTP and CLI.
+
 ## [0.60.178.0] - 2026-10-12
 
 **Batch entity lookups respect quarantine.** `entity` with `names` now hides quarantined pages from remote callers the way a single-name `entity` lookup and `get_page` already do, whichever way the name resolves, and a quarantined identity sibling no longer appears beside a page for remote callers, in batch rows or in a single-name card. Trusted local callers see the same results as before. No migration, no paid call.
