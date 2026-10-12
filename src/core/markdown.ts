@@ -1252,9 +1252,11 @@ export function serializePageToMarkdown(
   opts: SerializePageOpts = {},
 ): string {
   // #6454: the columns are the page's type, title and tags; a stored reserved key (older imports kept
-  // them) never overrides them in the rendered file. Stripped before the slug stamp so the #5966 rule still runs.
+  // them) never overrides them in the rendered file. A stored `slug` still reaches the #5966 stamp rule, which
+  // replaces one that names another identity with the page's slug.
+  const stored = page.frontmatter ?? {};
   const frontmatter: Record<string, unknown> = {
-    ...slugStampedFrontmatter(page.slug, comparableFrontmatter(page.frontmatter)),
+    ...slugStampedFrontmatter(page.slug, { ...comparableFrontmatter(stored), ...(stored.slug !== undefined ? { slug: stored.slug } : {}) }),
     ...(opts.frontmatterOverrides ?? {}),
   };
   return serializeMarkdown(

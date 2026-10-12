@@ -78,12 +78,14 @@ describe('serializePageToMarkdown renders the columns, never a stale stored rese
     expect(serializePageToMarkdown(clean, ['x'])).toBe(serializeMarkdown(frontmatter, clean.compiled_truth, '', { type: 'person', title: 'Alice Example', tags: ['x'] }));
   });
 
-  test('the doubled-hyphen slug stamp (#5966) survives the strip, and a stored slug naming another page is dropped', () => {
+  test('the #5966 slug stamp rules survive the strip: a doubled hyphen is stamped, a stored slug naming another page is replaced by the page slug', () => {
     const doubled = serializePageToMarkdown(page({ slug: 'people/a--b', frontmatter: { slug: 'people/elsewhere' } }), []);
     expect(doubled).toMatch(/^slug: people\/a--b$/m);
     const plain = serializePageToMarkdown(page({ frontmatter: { slug: 'people/elsewhere' } }), []);
-    expect(plain).not.toMatch(/^slug:/m);
+    expect(plain).toMatch(/^slug: people\/alice-example$/m);
+    expect(plain).not.toContain('people/elsewhere');
     expect(parseMarkdown(plain, 'people/alice-example.md').slug).toBe('people/alice-example');
+    expect(serializePageToMarkdown(page({ frontmatter: {} }), [])).not.toMatch(/^slug:/m);
   });
 });
 
