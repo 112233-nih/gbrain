@@ -2,7 +2,7 @@ import { searchAnswerFeedback } from '../feedback/record.ts';
 import { parseRelationalPlan } from '../search/relational-plan.ts';
 import { loadSearchModeConfig, resolveSearchMode } from '../search/mode.ts';
 import { WRITE_REQUEST_PARAM } from '../persistence/params.ts';
-import { deliverEvidence, effectivePlan, resolveEvidencePlan, type DeliveryMeta, type EvidencePlan } from '../search/evidence-delivery.ts';
+import { countEvidenceTokens, deliverEvidence, effectivePlan, resolveEvidencePlan, type DeliveryMeta, type EvidencePlan } from '../search/evidence-delivery.ts';
 import { withFactDateHeaders } from '../search/evidence-date.ts';
 import { randomUUID } from 'node:crypto';
 import { readHolders } from './context.ts';
@@ -201,9 +201,29 @@ function packingArm<T>(candidates: T[], kept: T[], cost: (item: T) => number) {
   return { candidates: candidates.length, kept: kept.length, dropped: candidates.length - kept.length, used: kept.reduce((sum, r) => sum + cost(r), 0) };
 }
 
+/**
+ * A result row's cost in recall's packing. A delivered block costs what delivery counted (its text and title in
+ * delivery's tokenizer), so recall never re-cuts a set delivery already fit using a different estimator.
+ */
+function recallResultCost(delivery: DeliveryMeta | undefined): (r: SearchResult) => number {
+  if (!delivery) return resultTokens;
+  return r => r.delivered ? r.delivered.tokens + countEvidenceTokens(r.title ?? '', delivery.tokenizer) : resultTokens(r);
+}
+
+/**
+ * Facts pack first under a budget (every policy but query_first), so delivery gets only what they leave.
+ * Sized to the whole budget, delivery filled it and recall then dropped whole delivered blocks after the facts.
+ * Null when the facts leave nothing: delivery is skipped and the results arm packs empty.
+ */
+function recallDeliveryPlan(plan: EvidencePlan | null, policy: unknown, queryText: string | null, budgetTokens: number | null, rows: Array<{ fact: string }>): EvidencePlan | null {
+  if (!plan || budgetTokens === null || (policy === 'query_first' && queryText !== null)) return plan;
+  const left = Math.min(plan.budgetTokens, budgetTokens - packToBudget(rows, r => estimateTokens(r.fact), budgetTokens).meta.used);
+  return left > 0 ? { ...plan, budgetTokens: left } : null;
+}
+
 /** recall's budget_packing meta: only policy-supplied calls carry it. */
 function recallBudgetPacking<F extends { fact: string }>(policy: unknown, queryText: string | null, budgetTokens: number | null,
-  arms: { rows: F[]; packedFacts: F[]; searchResults: SearchResult[]; packedResults: SearchResult[] }) {
+  arms: { rows: F[]; packedFacts: F[]; searchResults: SearchResult[]; packedResults: SearchResult[] }, resultCost: (r: SearchResult) => number) {
   if (policy !== 'facts_first' && policy !== 'query_first') return undefined;
   const queryFirst = policy === 'query_first' && queryText !== null && budgetTokens !== null;
   const { rows, packedFacts, searchResults, packedResults } = arms;
@@ -217,7 +237,7 @@ function recallBudgetPacking<F extends { fact: string }>(policy: unknown, queryT
             : packedFacts.length + packedResults.length === 0 ? 'first_items_exceed_budget'
               : 'packed',
     facts: packingArm(rows, packedFacts, r => estimateTokens(r.fact)),
-    results: packingArm(searchResults, packedResults, resultTokens),
+    results: packingArm(searchResults, packedResults, resultCost),
   };
 }
 
@@ -507,7 +527,7 @@ const recall: Operation = {
         });
       }
       bumpLastRetrievedAt(ctx.engine, searchResults.map(r => r.page_id));
-      const applied = effectivePlan(evidencePlan, searchResults);
+      const applied = recallDeliveryPlan(effectivePlan(evidencePlan, searchResults), p.budget_policy, queryText, budgetTokens, rows);
       if (applied) ({ results: searchResults, delivery } = await deliverEvidence(ctx.engine, searchResults, applied, { ...searchScope, excludePrivate, requireSafeChunks: ctx.remote !== false }));
       searchResults = await stampPageTrust(ctx.engine, searchResults, eligibility.floor);
     }
@@ -524,7 +544,7 @@ const recall: Operation = {
     const queryFirst = p.budget_policy === 'query_first' && queryText !== null && budgetTokens !== null;
     if (queryFirst) {
       const resultsPack = budgetTokens > 0
-        ? packToBudget(searchResults, resultTokens, budgetTokens)
+        ? packToBudget(searchResults, recallResultCost(delivery), budgetTokens)
         : { items: [] as SearchResult[], meta: { used: 0, dropped: searchResults.length } };
       packedResults = resultsPack.items;
       const remaining = budgetTokens - resultsPack.meta.used;
@@ -540,14 +560,14 @@ const recall: Operation = {
       const remaining = budgetTokens - factsPack.meta.used;
       const resultsPack =
         remaining > 0
-          ? packToBudget(searchResults, resultTokens, remaining)
+          ? packToBudget(searchResults, recallResultCost(delivery), remaining)
           : { items: [] as SearchResult[], meta: { budget: 0, used: 0, dropped: searchResults.length, kept: 0 } };
       packedResults = resultsPack.items;
       budgetUsed = factsPack.meta.used + resultsPack.meta.used;
       droppedCount = factsPack.meta.dropped + resultsPack.meta.dropped;
     }
 
-    const budgetPacking = recallBudgetPacking(p.budget_policy, queryText, budgetTokens, { rows, packedFacts, searchResults, packedResults });
+    const budgetPacking = recallBudgetPacking(p.budget_policy, queryText, budgetTokens, { rows, packedFacts, searchResults, packedResults }, recallResultCost(delivery));
 
     return {
       facts: await withFactDateHeaders(ctx.engine, await stampRowTrust(ctx.engine, 'facts', packedFacts.map(r => ({ // #5575 A6: + trust_tier, origin, unconfirmed

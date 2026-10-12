@@ -103,6 +103,11 @@ Per-call params on `search`, `query`, `recall`:
   `query`'s `token_budget` still prunes chunks (chunk mode), and `recall`'s
   `budget_tokens` / `budget_policy` still pack chunks (facts first), so any of
   them keeps an implied `auto` on `chunk`.
+- `recall` with a unit and `budget_tokens` packs saved facts first (unless
+  `budget_policy` is `query_first`). Delivery gets the budget the facts leave,
+  and each delivered block costs what delivery counted (text and title, in
+  `delivery.tokenizer`), so the facts and blocks together fill
+  `budget_tokens` and no delivered block is dropped afterwards.
 - Page-unit ranking cut (off by default): ranking cuts its hits to the search
   mode's `search.tokenBudget` (4,000 under conservative, none under tokenmax)
   before delivery packs whole pages, whatever the caller's budget. With
