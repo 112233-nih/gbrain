@@ -82,15 +82,16 @@ export async function embedStaleImages(
     const root = row.local_path ?? (row.source_id === 'default' ? repoPath : null);
     // An image slug is the lower-cased repo-relative path, so it names the file when the importer never recorded source_path.
     const sourcePath = row.source_path ?? row.slug;
-    const file = root ? locateSourceFile(root, sourcePath, gitRoots) : null;
+    const located = root ? locateSourceFile(root, sourcePath, gitRoots) : null;
+    const file = located?.found ?? null;
     if (!file) {
       result.missingFile++;
-      if (result.missing_samples.length < SAMPLE_CAP) result.missing_samples.push(`${row.source_id}:${row.slug}: no file at ${root ? join(root, sourcePath) : `<source ${row.source_id} has no local path>`}`);
+      if (result.missing_samples.length < SAMPLE_CAP) result.missing_samples.push(`${row.source_id}:${row.slug}: no file at ${located ? located.direct : `<source ${row.source_id} has no local path>`}`);
       continue;
     }
     // A managed brain imports through the source's owner (the coordinated importer, as `gbrain import` does); the legacy writer refuses it.
     // The owner reads only files inside the source root: a subpath-scoped page found under the git root is reported, not copied in.
-    if (managed && file !== join(root!, sourcePath)) { fail(row, `${file} is outside source ${row.source_id}'s root ${root}; a managed brain imports only files inside the source root`); continue; }
+    if (managed && file !== located!.direct) { fail(row, `${file} is outside source ${row.source_id}'s root ${root}; a managed brain imports only files inside the source root`); continue; }
     try {
       const run = () => managed ? importManagedFile(engine, file, sourcePath, { sourceId: row.source_id }) : importImageFile(engine, file, sourcePath, { sourceId: row.source_id });
       const imported = cap ? await cap.metered(run) : await run();
@@ -163,11 +164,11 @@ export async function runEmbedStaleImagesCli(engine: BrainEngine, args: string[]
   return result;
 }
 
-/** A page's source_path is relative to its source checkout, or to the git root for subpath-scoped syncs. */
-function locateSourceFile(root: string, sourcePath: string, gitRoots: Map<string, string | null>): string | null {
+/** A page's source_path is relative to its source checkout (`direct`), or to the git root for subpath-scoped syncs; `found` is whichever exists. */
+function locateSourceFile(root: string, sourcePath: string, gitRoots: Map<string, string | null>): { direct: string; found: string | null } {
   // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- source_path is the repo-relative path the importer recorded for this page, joined under the source's own checkout
   const direct = join(root, sourcePath);
-  if (existsSync(direct)) return direct;
+  if (existsSync(direct)) return { direct, found: direct };
   if (!gitRoots.has(root)) {
     try {
       gitRoots.set(root, execFileSync('git', ['-C', root, 'rev-parse', '--show-toplevel'], { env: gitChildEnv(), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim());
@@ -176,5 +177,5 @@ function locateSourceFile(root: string, sourcePath: string, gitRoots: Map<string
   const gitRoot = gitRoots.get(root);
   // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- same recorded repo-relative path, joined under the checkout's git root
   const viaGit = gitRoot ? join(gitRoot, sourcePath) : null;
-  return viaGit && existsSync(viaGit) ? viaGit : null;
+  return { direct, found: viaGit && existsSync(viaGit) ? viaGit : null };
 }
