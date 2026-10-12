@@ -536,12 +536,8 @@ export function supervisorLockId(queue: string): string {
  *   - `no_lock`  — no live lock holder (nothing to assert).
  *   - `single`   — the live lock holder IS the local pidfile holder. Healthy.
  *   - `mismatch` — a live lock holder differs from the local pidfile holder:
- *                  a second supervisor likely ran with a different --max-rss.
- *
- * PR #6463: `pidfileHost` is the hostname the local supervisor recorded in its
- * PID file when it took the lock. The same pid whose recorded host equals the
- * lock holder's host is the same process even when `localHost` (the live
- * label) has drifted since; the caller reports that as `host_label_drift`.
+ *                  a second supervisor likely ran with a different --max-rss. PR #6463: the same pid whose `pidfileHost`
+ *                  (recorded in the PID file at lock time) equals the lock holder's host is `single` despite a drifted `localHost`.
  */
 export function classifySupervisorSingleton(args: {
   lockLive: boolean;
@@ -555,8 +551,7 @@ export function classifySupervisorSingleton(args: {
     return 'no_lock';
   }
   if (args.localPid === null || args.lockHolderPid !== args.localPid) return 'mismatch';
-  const matches = args.lockHolderHost === args.localHost || (args.pidfileHost != null && args.lockHolderHost === args.pidfileHost);
-  return matches ? 'single' : 'mismatch';
+  return args.lockHolderHost === args.localHost || (args.pidfileHost != null && args.lockHolderHost === args.pidfileHost) ? 'single' : 'mismatch';
 }
 
 export class MinionSupervisor {
