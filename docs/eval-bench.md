@@ -563,6 +563,22 @@ gbrain eval longmemeval ~/datasets/longmemeval/longmemeval_s_cleaned.json \
   --mode balanced --reranker on --autocut off \
   --output ~/lme-receipts/default.ndjson
 
+# Through the real operation instead of the core library: --via-operation query|search
+# runs each question as an agent's stdio MCP call would (remote, stdio, source
+# `default`), at the operation's own default limit and under the brain's resolved
+# search mode, so a receipt reproduces from a tagged gbrain. `query` expands by the
+# mode (on only in tokenmax) unless --op-expand on|off says otherwise. Each row's
+# `via_operation` records the context, the `expand` sent, model calls per
+# touchpoint, latency, the CRAG grade and the expansion outcome;
+# run_config.via_operation_summary has the tree, p50/p95 latency and model calls
+# per query. A run that expects expansion fails (exit 1) when any question did
+# not expand (`expansion_not_applied`); --expansion, --keyword-only and
+# --capture-pool are refused with it.
+gbrain eval longmemeval ~/datasets/longmemeval/longmemeval_s_cleaned.json \
+  --retrieval-only --top-k 5 --by-type --no-trajectory \
+  --mode balanced --reranker on --via-operation query --op-expand off \
+  --output ~/lme-receipts/query-balanced-noexpand.ndjson
+
 # Embeddings are cached content-addressed at ~/.cache/gbrain-eval/longmemeval-embed.sqlite
 # (--embed-cache FILE to relocate, --no-embed-cache to disable), so every arm after
 # the first sees byte-identical vectors; run_config.cache.misses must be 0 for a
