@@ -719,6 +719,18 @@ More: [docs/guides/core-memory.md#remote-edits](../../docs/guides/core-memory.md
 |---|---|---|---|---|---|---|
 | The brain database could not be reached or refused the operation. | The server failed; this is not a caller mistake. | Server-side failure, not a caller mistake. Run `gbrain doctor --json` on the brain host; if it repeats, report it to the user. | host_admin | `gbrain doctor --json` | 1 | no |
 
+### deep_health_probe_failed
+
+<a id="deep_health_probe_failed"></a>
+
+| Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
+|---|---|---|---|---|---|---|
+| The pooled `SELECT 1` of `/health?deep=1` did not answer: an earlier probe is still pending, it timed out, or it failed. | The deep probe runs through the ordinary pooled dispatch, where handler statements wait, so a saturated or wedged pool fails it while plain /health (a reserved idle connection) may still answer 200. One deep probe runs per engine at a time. | Retry in a few seconds; if it keeps failing, run gbrain doctor --json from a fresh process to check the database and pooler, then restart this gbrain serve. | agent | `repeat the read that failed` | 1 | yes |
+
+Reasons: `pending`, `timeout`, `error`.
+
+More: [docs/ENGINES.md#serve-deep-health](../../docs/ENGINES.md#serve-deep-health)
+
 ### delta_cursor_upgrade_required
 
 <a id="delta_cursor_upgrade_required"></a>
@@ -2045,6 +2057,16 @@ More: [docs/guides/google-connect.md#troubleshooting](../../docs/guides/google-c
 |---|---|---|---|---|---|---|
 | This caller is not authorized for the operation. | Only the operator of the brain host can change what blocks this. | Only the brain host's operator can resolve this. Tell the user the message and run `gbrain doctor --json` on the brain host. | host_admin | `gbrain doctor --json` | 1 | no |
 
+### persistence_restart_required
+
+<a id="persistence_restart_required"></a>
+
+| Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
+|---|---|---|---|---|---|---|
+| This gbrain serve's persistence consumer reports restart_required, so it claims no write until the process restarts; `/health?deep=1` answers 503 with this code. | A preparation abandoned past the ceiling (a zombie) or a publication that never settled past its deadline makes the owner stop claiming on every root, because the abandoned work may still hold locks or write files; only a process exit releases it. The deep health probe reports it so a supervisor can restart serve; it never acts on its own (GBRAIN_SERVE_RESTART_REQUIRED_EXIT_SECONDS opts into an exit). | Restart this gbrain serve (systemctl --user restart gbrain-serve, or stop and start the foreground process); to let a supervisor do it unattended, set GBRAIN_SERVE_RESTART_REQUIRED_EXIT_SECONDS=300 in the serve environment (~/.gbrain/env for the installed service). Then run gbrain sources writer status --json. | host_admin | `gbrain doctor --json` | 1 | no |
+
+More: [docs/ENGINES.md#serve-deep-health](../../docs/ENGINES.md#serve-deep-health)
+
 ### persistence_write_stall
 
 <a id="persistence_write_stall"></a>
@@ -2061,7 +2083,7 @@ More: [docs/guides/troubleshooting.md#persistence-write-stall](../../docs/guides
 
 | Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
 |---|---|---|---|---|---|---|
-| A pooled Postgres statement waited past the pool's statement_timeout plus grace with nothing coming back from the server, so the driver retired that connection; the statement and everything queued behind it failed with CONNECTION_STUCK. | A legitimate statement cannot outlive the server-side statement_timeout, so a connection that is still waiting past it is wedged: a pipeline the server and client no longer agree on, a transaction-mode pooler that swallowed a CancelRequest and left the backend in ClientRead, or a dead peer. Before #6383 such a connection held its queue forever while /health answered 200. The pool reconnects on its own; the warn line names the pool, the age, the queue depth and the statement by keyword and table. | Retry the failed call. If the line repeats, run gbrain doctor --json and report the warn lines with the operations that preceded them; GBRAIN_PG_STUCK_GRACE_MS raises the grace, and off disables the watchdog. Run: gbrain doctor --json | agent | `repeat the read that failed` | 1 | yes |
+| A pooled Postgres statement waited past the pool's statement_timeout plus grace with nothing coming back from the server, so the driver retired that connection; the statement and everything queued behind it failed with CONNECTION_STUCK. | Nothing arriving for that long usually means the connection is wedged: a pipeline the server and client no longer agree on, a transaction-mode pooler that swallowed a CancelRequest and left the backend in ClientRead, or a dead peer. It is not proof: behind a transaction-mode pooler the startup statement_timeout never applies (SHOW statement_timeout reads 0), so a legitimately slow statement can reach the budget too, and the clock restarts on every byte, so a statement that keeps streaming is never retired. Before #6383 such a connection held its queue forever while /health answered 200. The pool reconnects on its own; the warn line names the pool, the age, the queue depth and the statement by keyword and table. | Retry the failed call. If the line repeats, run gbrain doctor --json and report the warn lines with the operations that preceded them; GBRAIN_PG_STUCK_GRACE_MS raises the grace, and off disables the watchdog. Run: gbrain doctor --json | agent | `repeat the read that failed` | 1 | yes |
 
 More: [docs/ENGINES.md#pg-connection-stuck](../../docs/ENGINES.md#pg-connection-stuck)
 
@@ -2081,7 +2103,7 @@ More: [docs/ENGINES.md#pg-pool-stalled](../../docs/ENGINES.md#pg-pool-stalled)
 
 | Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
 |---|---|---|---|---|---|---|
-| A Postgres statement could not be built from its parameters (UNDEFINED_VALUE: a parameter was undefined; MAX_PARAMETERS_EXCEEDED: more than 65534 parameters) and was answered in its place in the pipeline by a query the server refuses; only it failed, and a transaction it was part of was aborted rather than committed without it. | This is a gbrain programming error at the call site the warn line names by keyword and table. Before #6383 the same failure, when it happened behind another statement on the connection, rejected that other statement, desynced the connection and left every later statement on it hanging; the driver now answers the culprit in its place (the approach of porsager/postgres#1236), so only it rejects and a transaction it was in aborts. | The call that got this error failed cleanly and can be retried with corrected input; report the warn line (it names the statement) as a gbrain bug so the call site gets a null where it bound undefined. | host_admin | `gbrain doctor --json` | 1 | no |
+| A Postgres statement could not be built from its parameters (UNDEFINED_VALUE: a parameter was undefined; MAX_PARAMETERS_EXCEEDED: more than 65534 parameters) and was answered in its place in the pipeline by a query the server refuses; it failed, and a transaction it was part of was aborted rather than committed without it. | Either a gbrain programming error at the call site the warn line names by keyword and table (and by `param=$n`), or, behind a transaction-mode pooler (port 6543, prepare off), a value read from a row that belonged to another statement: a pooler that misroutes pipelined answers hands a statement someone else's row, and binding one of its missing columns fails here. Before #6383 the same failure, when it happened behind another statement on the connection, rejected that other statement, desynced the connection and left every later statement on it hanging; the driver now answers the culprit in its place (the approach of porsager/postgres#1236), so only it rejects and a transaction it was in aborts. | On a transaction-mode pooler, check /health?deep=1 transport (max_pipeline should be 0; PGMAX_PIPELINE=0 on the serve environment forces it) and treat earlier reads as suspect (docs/guides/pooler-misroute-audit.md); otherwise report the warn line (it names the statement and parameter) as a gbrain bug so the call site gets a null where it bound undefined. | host_admin | `gbrain doctor --json` | 1 | no |
 
 More: [docs/ENGINES.md#pg-statement-build-failed](../../docs/ENGINES.md#pg-statement-build-failed)
 
@@ -2120,6 +2142,16 @@ More: [docs/ENGINES.md#pglite-vector-index-ceiling](../../docs/ENGINES.md#pglite
 | Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
 |---|---|---|---|---|---|---|
 | The saved plan has no valid repository identity. | The request itself was wrong or no longer matches the brain; nothing was changed. | Correct the request using the message above, then retry. | agent | `repeat the read that failed` | 1 | no |
+
+### pool_inflight_over_budget
+
+<a id="pool_inflight_over_budget"></a>
+
+| Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
+|---|---|---|---|---|---|---|
+| A pooled statement of this gbrain serve has waited longer than the read pool's in-flight budget (statement_timeout plus grace); `/health?deep=1` answers 503 with this code. | The in-flight watchdog retires a connection only after nothing arrives for the budget, so a statement that keeps receiving bytes, or one behind a transaction-mode pooler where no server statement_timeout applies, can sit past it while every statement queued behind it waits. Through a transaction-mode pooler a pipelined answer can also be misrouted. The probe reports it and never retires the connection, because the endpoint is unauthenticated. | Restart this gbrain serve. On a transaction-mode pooler check the transport block of /health?deep=1: max_pipeline should read 0 (set PGMAX_PIPELINE=0 in the serve environment to force it) and session_timeouts_not_applied names the ALTER ROLE fix. GBRAIN_SERVE_RESTART_REQUIRED_EXIT_SECONDS does not act on this code: restart serve yourself or from your health check. | host_admin | `gbrain doctor --json` | 1 | no |
+
+More: [docs/ENGINES.md#serve-deep-health](../../docs/ENGINES.md#serve-deep-health)
 
 ### port_in_use
 
@@ -2579,6 +2611,16 @@ More: [docs/guides/google-connect.md#troubleshooting](../../docs/guides/google-c
 |---|---|---|---|---|---|---|
 | gbrain serve --http could not listen: another process already holds that host and port. | A capability this request needs is not configured or not reachable on this brain. | Stop the process on that port, or start the server with another --port and point the harnesses at it. | agent | `gbrain doctor --json` | 1 | no |
 
+### serve_self_exit_suppressed
+
+<a id="serve_self_exit_suppressed"></a>
+
+| Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
+|---|---|---|---|---|---|---|
+| gbrain serve stayed at restart_required past GBRAIN_SERVE_RESTART_REQUIRED_EXIT_SECONDS but did not exit, because it had already exited on its own 3 times within the hour; `/health?deep=1` reports self_exit_suppressed. | The opt-in self-exit keeps a durable ledger (serve-self-exit.json under the gbrain home). A serve that reaches restart_required again right after every restart has a cause a restart does not fix, so after 3 self-exits in an hour it keeps serving reads and leaves the decision to a human instead of looping. | Run gbrain sources writer status --json and gbrain doctor --json, report both with the serve log lines, then restart serve by hand. | host_admin | `gbrain doctor --json` | 1 | no |
+
+More: [docs/ENGINES.md#serve-unhealthy-exit](../../docs/ENGINES.md#serve-unhealthy-exit)
+
 ### serve_status_only
 
 <a id="serve_status_only"></a>
@@ -2588,6 +2630,16 @@ More: [docs/guides/google-connect.md#troubleshooting](../../docs/guides/google-c
 | gbrain serve is in status-only mode: its brain is locked by another server, missing, damaged, or its config is unreadable. | A capability this request needs is not configured or not reachable on this brain. | Call gbrain_status for the cause, the fix and what to tell the user. | agent | `gbrain doctor --json` | 1 | no |
 
 Reasons: `lock_held`, `no_brain`, `config_unreadable`, `missing_brain`, `brain_unopenable`, `repair_failed`, `unavailable`.
+
+### serve_unhealthy_exit
+
+<a id="serve_unhealthy_exit"></a>
+
+| Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
+|---|---|---|---|---|---|---|
+| gbrain serve exited on its own because its persistence consumer reported restart_required continuously for GBRAIN_SERVE_RESTART_REQUIRED_EXIT_SECONDS. | Opt-in (off by default, at least 120 s): a supervisor that restarts on failure, such as the installed gbrain-serve service, then starts a fresh serve without a human. Cleanup is bounded (5 s) because the consumer's stop waits on the stuck work, so the process exits even when it cannot drain. Abandoned claims lapse with the exited process's heartbeat; journaled writes resume on the next owner. | Let the supervisor restart serve; if it exits this way again soon after, run gbrain doctor --json and gbrain sources writer status --json and report both with the exit line. | agent | `gbrain doctor --json` | 69 | no |
+
+More: [docs/ENGINES.md#serve-unhealthy-exit](../../docs/ENGINES.md#serve-unhealthy-exit)
 
 ### setup_harness_unsupported
 
