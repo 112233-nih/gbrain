@@ -795,7 +795,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "list_write_requests",
     "idempotent": true,
     "outputRedaction": "no_stored_text",
-    "description": "List your write receipts in one source, newest first. Use when a request_id was lost.",
+    "description": "List your write receipts in one source, newest first, for a lost request_id.",
     "params": {
       "source_id": {
         "type": "string",
@@ -1649,7 +1649,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "mutating": false,
     "idempotent": true,
     "outputRedaction": "no_stored_text",
-    "description": "Link provenances in the brain (e.g. markdown, manual) with edge counts.",
+    "description": "Link provenances (e.g. markdown, manual) with edge counts.",
     "params": {},
     "scope": "read",
     "cliHints": {
@@ -1662,7 +1662,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "mutating": false,
     "idempotent": true,
     "outputRedaction": "retrieval",
-    "description": "Walk the link graph from a page. Remote callers get bidirectional paths at depth 2 by default.",
+    "description": "Walk the link graph from a page. Remote default: both directions, depth 2.",
     "params": {
       "slug": {
         "type": "string",
@@ -1755,7 +1755,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "add_timeline_entry",
     "idempotent": true,
     "outputRedaction": "retrieval",
-    "description": "Append a dated entry to a page timeline. Replaying the same entry changes nothing. A page's Timeline section needs no call. The receipt returns the rendered bullet; to change or remove an entry, edit that bullet in the page's Timeline section with edit_page (expected_revision from get_page include_content:true): the row follows the page.",
+    "description": "Append a dated entry to a page timeline. Replays change nothing; the Timeline section needs no call. To change or remove one, edit its bullet via edit_page (expected_revision from get_page).",
     "params": {
       "request_id": {
         "type": "string",
@@ -2792,7 +2792,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "mutating": false,
     "idempotent": true,
     "outputRedaction": "no_stored_text",
-    "description": "Fuzzy-match a partial slug or title to page slugs. Use when a slug is uncertain. Needs read scope.",
+    "description": "Fuzzy-match a partial slug or title to page slugs when a slug is uncertain. Needs read scope.",
     "params": {
       "partial": {
         "type": "string",
@@ -2877,7 +2877,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "mutating": false,
     "idempotent": true,
     "outputRedaction": "retrieval",
-    "description": "Recent ingestion log entries. Use when checking what was already imported.",
+    "description": "Recent ingestion log entries: what was already imported.",
     "params": {
       "limit": {
         "type": "number",

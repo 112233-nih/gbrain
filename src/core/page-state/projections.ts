@@ -520,10 +520,10 @@ export async function drainProjections(engine: BrainEngine, opts: { limit?: numb
       const batch = await rebuildPendingPageProjections(engine, Math.min(DRAIN_BATCH, (opts.limit ?? Infinity) - tried),
         { notAfter: runStart, reasons: opts.reasons, onHeal: () => { healed++; },
           onFailure: failure => { failed.push(failure); if (!failure.reason.startsWith('revision_conflict:')) failedNow++; } });
-      const progressed = batch.rebuilt + healed + failedNow;
-      if (progressed === 0) break;
       rebuilt += batch.rebuilt;
       superseded += batch.superseded;
+      const progressed = batch.rebuilt + healed + failedNow;
+      if (progressed === 0) break;
       tried += progressed;
       opts.progress?.tick(progressed, `${rebuilt} rebuilt, ${failed.length} failed`);
     }

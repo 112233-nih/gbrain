@@ -5,9 +5,8 @@
  * applies only to types the active pack is silent about, so gbrain-base
  * (meeting/source declared true, the rest undeclared) is unchanged, while
  * gbrain-recommended's `source: extractable: false` now holds for atoms the
- * way it already did for facts (facts/eligibility.ts).
- *
- * Serial: selects the active pack through GBRAIN_SCHEMA_PACK.
+ * way it already did for facts (facts/eligibility.ts). The active pack is
+ * selected through GBRAIN_SCHEMA_PACK inside withEnv, so nothing leaks.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import { withEnv } from './helpers/with-env.ts';
