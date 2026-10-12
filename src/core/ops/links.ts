@@ -427,7 +427,7 @@ const list_link_sources: Operation = {
   // v114 (#1941): the read-side counterpart to link-add/link-rm. Since
   // link_source is now an open kebab provenance (no allowlist), this is how an
   // agent discovers which provenances a brain actually carries.
-  description: 'Link provenances (e.g. markdown, manual) with edge counts.',
+  description: 'Link provenances (e.g. markdown, manual) with their edge counts.',
   params: {},
   handler: async (ctx) => {
     // Route through sourceScopeOpts so the read honors both scalar ctx.sourceId

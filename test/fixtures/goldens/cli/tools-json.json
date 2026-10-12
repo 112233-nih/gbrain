@@ -2,8 +2,8 @@
   "golden": {
     "exitCode": 0,
     "stderr": "",
-    "stdoutBytes": 230856,
-    "stdoutSha256": "1cfbe67abedfc85e1125062fa7f74015e75573f597c65f94262f914110cdbe6b",
+    "stdoutBytes": 230858,
+    "stdoutSha256": "4bcd48788a03811e88996b3f24ecf2c827ffef82e6f612b4074ffd87a0d4822e",
     "toolNames": [
       "remember",
       "entity",
@@ -2014,7 +2014,7 @@
         "scope": "read"
       },
       {
-        "description": "Link provenances (e.g. markdown, manual) with edge counts.",
+        "description": "Link provenances (e.g. markdown, manual) with their edge counts.",
         "idempotent": true,
         "local_only": false,
         "mutating": false,
@@ -2138,7 +2138,7 @@
         "scope": "read"
       },
       {
-        "description": "Append a dated entry to a page timeline. Replays change nothing; the Timeline section needs no call. To change or remove one, edit its bullet via edit_page (expected_revision from get_page).",
+        "description": "Append a dated entry to a page timeline. Replays change nothing; the Timeline section needs no call. To change or remove one, edit its bullet via edit_page with expected_revision.",
         "idempotent": true,
         "local_only": false,
         "mutating": true,
@@ -2161,7 +2161,7 @@
               "type": "string"
             },
             "detail": {
-              "description": "Longer text.",
+              "description": "Details.",
               "type": "string"
             },
             "expected_revision": {
@@ -2181,7 +2181,7 @@
               "type": "string"
             },
             "source": {
-              "description": "Provenance slug or URL.",
+              "description": "Source slug or URL.",
               "type": "string"
             },
             "summary": {
@@ -3314,7 +3314,7 @@
         "scope": "read"
       },
       {
-        "description": "Fuzzy-match a partial slug or title to page slugs when a slug is uncertain. Needs read scope.",
+        "description": "Fuzzy-match a partial slug or title to page slugs. Use when a slug is uncertain. Needs read scope.",
         "idempotent": true,
         "local_only": false,
         "mutating": false,
@@ -3425,7 +3425,7 @@
         "scope": "write"
       },
       {
-        "description": "Recent ingestion log entries: what was already imported.",
+        "description": "Recent ingestion log entries: what was already imported, and when.",
         "idempotent": true,
         "local_only": false,
         "mutating": false,

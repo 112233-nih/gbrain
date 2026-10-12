@@ -1649,7 +1649,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "mutating": false,
     "idempotent": true,
     "outputRedaction": "no_stored_text",
-    "description": "Link provenances (e.g. markdown, manual) with edge counts.",
+    "description": "Link provenances (e.g. markdown, manual) with their edge counts.",
     "params": {},
     "scope": "read",
     "cliHints": {
@@ -1755,7 +1755,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "add_timeline_entry",
     "idempotent": true,
     "outputRedaction": "retrieval",
-    "description": "Append a dated entry to a page timeline. Replays change nothing; the Timeline section needs no call. To change or remove one, edit its bullet via edit_page (expected_revision from get_page).",
+    "description": "Append a dated entry to a page timeline. Replays change nothing; the Timeline section needs no call. To change or remove one, edit its bullet via edit_page with expected_revision.",
     "params": {
       "request_id": {
         "type": "string",
@@ -1788,11 +1788,11 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "detail": {
         "type": "string",
-        "description": "Longer text."
+        "description": "Details."
       },
       "source": {
         "type": "string",
-        "description": "Provenance slug or URL."
+        "description": "Source slug or URL."
       }
     },
     "mutating": true,
@@ -2792,7 +2792,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "mutating": false,
     "idempotent": true,
     "outputRedaction": "no_stored_text",
-    "description": "Fuzzy-match a partial slug or title to page slugs when a slug is uncertain. Needs read scope.",
+    "description": "Fuzzy-match a partial slug or title to page slugs. Use when a slug is uncertain. Needs read scope.",
     "params": {
       "partial": {
         "type": "string",
@@ -2877,7 +2877,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "mutating": false,
     "idempotent": true,
     "outputRedaction": "retrieval",
-    "description": "Recent ingestion log entries: what was already imported.",
+    "description": "Recent ingestion log entries: what was already imported, and when.",
     "params": {
       "limit": {
         "type": "number",

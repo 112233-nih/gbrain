@@ -79,7 +79,7 @@ Every non-localOnly operation on the MCP surface: 149 tools across 25 areas. **S
 
 | Tool | Description | Scope | Starter | Gate |
 |---|---|---|---|---|
-| `get_ingest_log` | Recent ingestion log entries: what was already imported. | read | yes |  |
+| `get_ingest_log` | Recent ingestion log entries: what was already imported, and when. | read | yes |  |
 | `log_ingest` | Record one ingestion event (source type, reference, pages updated, summary) in the brain's ingest log. | write |  |  |
 
 ## insights
@@ -183,7 +183,7 @@ Every non-localOnly operation on the MCP surface: 149 tools across 25 areas. **S
 | `put_page` | Complete content REPLACES the whole page: read get_page include_content:true; send its revision as expected_revision. | write | yes |  |
 | `put_pages` | Write up to 50 complete Markdown pages (8 MB total) in one call; use instead of put_page for more than 3 pages. | write |  |  |
 | `put_raw_data` | Store a raw provider payload (API response JSON) alongside a page, keyed by source. | write |  |  |
-| `resolve_slugs` | Fuzzy-match a partial slug or title to page slugs when a slug is uncertain. | read | yes |  |
+| `resolve_slugs` | Fuzzy-match a partial slug or title to page slugs. | read | yes |  |
 | `restore_page` | Restore a soft-deleted page (clear deleted_at) and re-create its markdown file on disk (the counterpart to delete_page removing it; the result write_through field reports the outcome). | write |  |  |
 | `revert_version` | Restore a page to an earlier version from its history (a new revision; history is kept). | write |  |  |
 | `unpurge_page` | Owner-only (`gbrain pages unpurge <slug>`). | admin |  |  |
