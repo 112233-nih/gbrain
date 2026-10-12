@@ -2203,6 +2203,16 @@ More: [docs/guides/repair.md#projection-owner-resident](../../docs/guides/repair
 
 More: [docs/guides/memory-boundaries.md#purge](../../docs/guides/memory-boundaries.md#purge)
 
+### purge_lookup_timeout
+
+<a id="purge_lookup_timeout"></a>
+
+| Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
+|---|---|---|---|---|---|---|
+| A page purge's in-transaction journal lookup hit the publication transaction's statement budget, so the purge failed terminally; nothing was removed, tombstoned or redacted, and later writes to the source move again. | The lookup is deterministic on a large request table, not contention: retrying it as `database_contention` requeued the same purge forever and held every later write to its source behind it. The substring search for the page's claims now runs at preparation under the preparation budget; this code is for the lookups that still run inside the transaction (the slug lookup, the tail and pending re-checks, the locking read). | Do not assume the requested content was erased. If the receipt names the slug index as missing or INVALID, run gbrain repair request-indexes --apply first; then submit the purge again with a new request_id (a retry with the same id returns this failure). Run: gbrain repair request-indexes --json | host_admin | `repeat the read that failed` | 1 | no |
+
+More: [docs/guides/write-refusals.md#purge_lookup_timeout](../../docs/guides/write-refusals.md#purge_lookup_timeout)
+
 ### purged_content
 
 <a id="purged_content"></a>

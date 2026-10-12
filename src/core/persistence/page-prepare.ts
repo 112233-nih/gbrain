@@ -57,7 +57,7 @@ import { fenceWhere } from '../fence-repair/refusal.ts';
 import { pageFencesNormalized } from '../fence-repair/report.ts';
 import { parseFenceRepairReceipt } from '../fence-repair/receipt.ts';
 import { fenceRepairCommit } from './effect-model.ts';
-import { purgePageInTransaction } from './page-purge.ts';
+import { preparePagePurge, purgePageInTransaction, type PreparedPagePurge } from './page-purge.ts';
 import { withTrustKeep } from './context.ts';
 import { isFenceEditWrite, pageGateTrust, pageWriteTrust, recordAgentPageLowering, stampPageTrustMarker, storedPageTier } from '../trust/page-write.ts';
 import { suppliedTrustMarkerView } from '../trust/channel.ts';
@@ -291,6 +291,34 @@ async function assertStillSyncExcluded(tx: BrainEngine, row: WriteRequest, exclu
     `${excludedPath} was excluded from sync when the purge of ${row.slug} was prepared and is not any more, so nothing was purged. Run the purge again; it re-reads the exclusion.`, pageFix(row.source_id, row.slug));
 }
 
+/** The `delete_page` preparation: soft delete, or purge with its journal sweep (#6511) run under the preparation budget. */
+async function prepareDeletePageMutation(engine: BrainEngine, row: WriteRequest, snapshot: PageSnapshot | null,
+  options: { activePack?: ParseOpts['activePack']; clock?: ClaimPhaseClock; allowMissingFile?: boolean }): Promise<PreparedMutation> {
+  const p = row.intent!, source = { sourceId: row.source_id }, clock = options.clock;
+  assertPurgeParams(p, row.authority.remote);
+  if (!snapshot) throw pageRefusal('page_not_found', 'Page not found.', row,
+    `Page ${row.slug} does not exist in source ${row.source_id}, so nothing was deleted. Check the slug and the source.`, pageFix(row.source_id, row.slug));
+  const observedRevision = snapshot.revision;
+  const purge = p.purge === true;
+  const noop = !purge && snapshot.page.deleted_at != null;
+  // Always-loaded core pages: a remote caller cannot delete one (owner-only).
+  if (!noop) { enterClaimStep(clock, 'core_guard', undefined, 'db'); await prepareCoreGuard(engine, { row, snapshot, incoming: null }); }
+  enterClaimStep(clock, 'file_target', undefined, 'fs');
+  // Tombstones still own their recorded artifact. Purge always attempts its
+  // removal before the guarded hard-delete and receipt commit; failure rolls
+  // back to the prior row, and replay survives the eventual absence of that row.
+  const { file, excludedPath } = await prepareDeleteFileTarget(engine, row, snapshot, purge, { allowMissing: purge || options.allowMissingFile, deleting: true, activePack: options.activePack, remote: row.authority.remote });
+  // #6511: the purge's journal sweep runs here, under the preparation budget, never inside the 5 s publication transaction.
+  const preparedPurge: PreparedPagePurge | null = purge ? await preparePagePurge(engine, row, snapshot, clock) : null;
+  return { observedRevision, noop, file, ...await pageDatabaseOnlyPublication(engine, row, file), ...(excludedPath !== null ? { databaseOnlyReason: 'sync_excluded' as const } : {}), apply: async tx => {
+    if (purge && excludedPath !== null) await assertStillSyncExcluded(tx, row, excludedPath);
+    if (preparedPurge) return purgePageInTransaction(tx, row, snapshot, preparedPurge);
+    if (!noop) { await tx.createVersion(row.slug, source); await tx.softDeletePage(row.slug, source); }
+    return { status: 'soft_deleted', slug: row.slug, source_id: row.source_id, noop,
+      recoverable_until: 'now + 72h via restore_page (remove immediately instead: gbrain delete <slug> --purge, local CLI only)' };
+  } };
+}
+
 /**
  * Providers and parsing run before the OS lock and before any publication transaction.
  * `coordinated`: the caller publishes this mutation itself through the coordinator, whose
@@ -332,27 +360,7 @@ export async function preparePageMutation(unbounded: BrainEngine, row: WriteRequ
         'Use capture --file PATH --slug SLUG for file input, or pass allow_empty:true with the expected revision to intentionally clear it.');
     }
   }
-  if (row.operation === 'delete_page') {
-    assertPurgeParams(p, row.authority.remote);
-    if (!snapshot) throw pageRefusal('page_not_found', 'Page not found.', row,
-      `Page ${row.slug} does not exist in source ${row.source_id}, so nothing was deleted. Check the slug and the source.`, pageFix(row.source_id, row.slug));
-    const purge = p.purge === true;
-    const noop = !purge && snapshot.page.deleted_at != null;
-    // Always-loaded core pages: a remote caller cannot delete one (owner-only).
-    if (!noop) { enterClaimStep(clock, 'core_guard', undefined, 'db'); await prepareCoreGuard(engine, { row, snapshot, incoming: null }); }
-    enterClaimStep(clock, 'file_target', undefined, 'fs');
-    // Tombstones still own their recorded artifact. Purge always attempts its
-    // removal before the guarded hard-delete and receipt commit; failure rolls
-    // back to the prior row, and replay survives the eventual absence of that row.
-    const { file, excludedPath } = await prepareDeleteFileTarget(engine, row, snapshot, purge, { allowMissing: purge || options.allowMissingFile, deleting: true, activePack, remote: row.authority.remote });
-    return { observedRevision, noop, file, ...await pageDatabaseOnlyPublication(engine, row, file), ...(excludedPath !== null ? { databaseOnlyReason: 'sync_excluded' as const } : {}), apply: async tx => {
-      if (purge && excludedPath !== null) await assertStillSyncExcluded(tx, row, excludedPath);
-      if (purge) return purgePageInTransaction(tx, row, snapshot);
-      if (!noop) { await tx.createVersion(row.slug, source); await tx.softDeletePage(row.slug, source); }
-      return { status: 'soft_deleted', slug: row.slug, source_id: row.source_id, noop,
-        recoverable_until: 'now + 72h via restore_page (remove immediately instead: gbrain delete <slug> --purge, local CLI only)' };
-    } };
-  }
+  if (row.operation === 'delete_page') return prepareDeletePageMutation(engine, row, snapshot, { activePack, clock, allowMissingFile: options.allowMissingFile });
   // #6188: a trusted local fence repair's receipt (admission refuses it from every other caller) rides the outcome and the file's commit.
   const fenceRepair = row.operation === 'put_page' && !row.authority.remote ? parseFenceRepairReceipt(p.fence_repair) : null;
   const fenceRepairOutcome = fenceRepair ? { fence_repair: fenceRepair } : {};
