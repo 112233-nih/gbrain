@@ -17,6 +17,8 @@
  */
 
 import type { BrainEngine } from '../engine.ts';
+import { pageSnapshotKey } from '../page-snapshot-batch.ts';
+import type { PageSnapshot } from '../page-state/types.ts';
 import { sanitizeRemoteBody } from '../remote-body.ts';
 import { ALIAS_ORIGIN_RANK, declarationsIn, titleName, type AliasOrigin } from '../mentions/aliases.ts';
 import { readIdentitySiblings, SIBLING_GROUP_CAP } from '../mentions/siblings.ts';
@@ -127,12 +129,13 @@ export async function readCardIdentity(engine: BrainEngine, sourceId: string,
       capped: siblings.capped,
     };
   }
-  const bodies = new Map<string, { title: string; body: string }>([[row.slug, { title: row.title ?? row.slug, body: row.compiled_truth ?? '' }]]);
-  if (siblings.pages.length) {
-    const rows = await engine.executeRaw<{ slug: string; title: string | null; compiled_truth: string | null }>(
-      `SELECT slug, title, compiled_truth FROM pages WHERE source_id = $1 AND slug = ANY($2::text[]) AND deleted_at IS NULL`,
-      [sourceId, siblings.pages.map(p => p.slug)]).catch(() => []);
-    for (const r of rows) bodies.set(r.slug, { title: r.title ?? r.slug, body: r.compiled_truth ?? '' });
+  // Snapshot reads carry the withdrawal overlay get_page shows, so a forgotten fence row is struck and the sanitizer drops it.
+  const { snapshots } = await engine.readPageSnapshotsBatch(slugs.map(slug => ({ slug, sourceId })))
+    .catch(() => ({ snapshots: new Map<string, PageSnapshot>() }));
+  const bodies = new Map<string, { title: string; body: string }>();
+  for (const slug of slugs) {
+    const snapshot = snapshots.get(pageSnapshotKey(sourceId, slug));
+    if (snapshot) bodies.set(slug, { title: snapshot.page.title ?? slug, body: snapshot.page.compiled_truth ?? '' });
   }
   const excerpt: IdentityExcerptLine[] = [];
   const omitted: string[] = [];
