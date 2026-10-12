@@ -831,7 +831,7 @@ jobs:
       fail-fast: false
       matrix:
         # #5903: GBRAIN_PAID_LANES='0' switches the credentialed lane off even when it is requested.
-        lane: ${{ fromJSON((inputs.run_opencode_paid || vars.GBRAIN_OPENCODE_PAID_E2E == '1') && vars.GBRAIN_PAID_LANES != '0' && '["keyless","credentialed"]' || '["keyless"]') }}
+        lane: ${{ fromJSON((inputs.run_opencode_paid || vars.GBRAIN_OPENCODE_PAID_E2E == '1') && format('{0}', vars.GBRAIN_PAID_LANES) != '0' && '["keyless","credentialed"]' || '["keyless"]') }}
     # Measured local door wall-time: full 6-test run 35.8s + one-time
     # compiled gbrain build (~2-4 min) + npm install (~15s); free-tier +
     # paid turn budgets 2 x 240s each. 20 min = measured + >50% headroom.

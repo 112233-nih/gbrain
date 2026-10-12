@@ -553,8 +553,11 @@ jobs:
     # Unset or any other value keeps them on. e2e-status accepts this job as
     # `skipped` only when that exact variable is '0' and says so in the step
     # summary; any other skip, failure or cancellation still fails the aggregate.
+    # format() keeps the comparison on strings: an unset variable is null, and
+    # GitHub's `!=` coerces null and '0' both to the number 0, which would skip
+    # this job on every repository that never set the variable.
     needs: jsonb-parity
-    if: vars.GBRAIN_PAID_LANES != '0'
+    if: format('{0}', vars.GBRAIN_PAID_LANES) != '0'
     runs-on: ubicloud-standard-4-ubuntu-2404
     timeout-minutes: 30
     services:

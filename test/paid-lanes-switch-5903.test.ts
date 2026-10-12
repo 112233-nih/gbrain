@@ -62,7 +62,7 @@ function runAggregate(overrides: Partial<typeof GREEN>) {
 
 describe('#5903 GBRAIN_PAID_LANES switches every paid lane off', () => {
   test('tier2 is gated on the variable and e2e-status reads it from env', () => {
-    expect(e2eJobs.tier2.if).toBe("vars.GBRAIN_PAID_LANES != '0'");
+    expect(e2eJobs.tier2.if).toBe("format('{0}', vars.GBRAIN_PAID_LANES) != '0'");
     expect(aggregate!.env!.GBRAIN_PAID_LANES).toBe('${{ vars.GBRAIN_PAID_LANES }}');
     expect(aggregate!.env!.TIER2).toBe('${{ needs.tier2.result }}');
     expect(e2eJobs['e2e-status'].needs).toContain('tier2');
@@ -108,7 +108,7 @@ describe('#5903 GBRAIN_PAID_LANES switches every paid lane off', () => {
 
   test('OpenCode credentialed lane stays keyless-only when the variable is 0', () => {
     const lane = heavyJobs['opencode-door'].strategy?.matrix?.lane ?? '';
-    expect(lane).toContain("vars.GBRAIN_PAID_LANES != '0' && '[\"keyless\",\"credentialed\"]'");
+    expect(lane).toContain("format('{0}', vars.GBRAIN_PAID_LANES) != '0' && '[\"keyless\",\"credentialed\"]'");
   });
 });
 

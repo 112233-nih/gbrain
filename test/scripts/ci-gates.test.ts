@@ -43,7 +43,7 @@ describe('CI execution evidence', () => {
     }
     expect(e2e.jobs.tier2.needs).toBe('jsonb-parity');
     // No event gating: the only condition is the repository-wide paid-lane switch (#5903).
-    expect(e2e.jobs.tier2.if).toBe("vars.GBRAIN_PAID_LANES != '0'");
+    expect(e2e.jobs.tier2.if).toBe("format('{0}', vars.GBRAIN_PAID_LANES) != '0'");
   });
 
   test('the verify job runs `bun run verify`, which dispatches through run-verify-parallel.sh', () => {
