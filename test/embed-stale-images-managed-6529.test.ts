@@ -21,7 +21,7 @@ import type { BrainEngine } from '../src/core/engine.ts';
 import { claimWorktree } from '../src/core/persistence/ownership.ts';
 import { performManagedSync } from '../src/core/persistence/sync-run.ts';
 import { disposePersistenceConsumer } from '../src/core/persistence/service.ts';
-import { embedStaleImages } from '../src/core/embed-stale-images.ts';
+import { embedStaleImages, runEmbedStaleImagesCli } from '../src/core/embed-stale-images.ts';
 import { importImageFile } from '../src/core/import-file.ts';
 import { runEmbed } from '../src/commands/embed.ts';
 import { __setEmbedTransportForTests, configureGateway, resetGateway } from '../src/core/ai/gateway.ts';
@@ -128,7 +128,7 @@ describe('#6529 embed --stale --images on a managed brain', () => {
       }
     }), 240_000);
 
-  test('a sweep that finds no file for any candidate is a failure naming the path it tried, never a quiet success', async () =>
+  test('explicit --images that finds no file for any candidate is a failure naming the path it tried, never a quiet success', async () =>
     withEnv(env, async () => {
       for (const engine of engines) {
         providerCalls = 0;
@@ -136,12 +136,28 @@ describe('#6529 embed --stale --images on a managed brain', () => {
         await engine.executeRaw("UPDATE pages SET source_path=NULL WHERE source_id=$1 AND slug='notes/gone.png'", [sourceId]);
         rmSync(join(root, 'notes', 'gone.png'));
 
-        const swept = await embedStaleImages(engine, { sourceId, dryRun: false });
+        const swept = await runEmbedStaleImagesCli(engine, ['--stale', '--images', '--source', sourceId, '--json']);
         expect(swept).toMatchObject({ candidates: 1, rebuilt: 0, missingFile: 1, missingSourcePath: 1 });
         expect(swept.failures).toBeGreaterThan(0);
         expect(swept.failure_samples[0]).toContain(`${sourceId}:notes/gone.png`);
         expect(swept.failure_samples[0]).toContain(join(root, 'notes', 'gone.png'));
         expect(swept.missing_samples?.[0]).toContain(join(root, 'notes', 'gone.png'));
+      }
+    }), 240_000);
+
+  test('plain embed --stale reports fileless image pages in `images` and leaves the exit code to the text run', async () =>
+    withEnv(env, async () => {
+      for (const engine of engines) {
+        providerCalls = 0;
+        const { sourceId, root } = await managedSource(engine, { 'notes/plain.md': NOTE, 'notes/gone.png': PNG }, ['notes/gone.png']);
+        rmSync(join(root, 'notes', 'gone.png'));
+
+        const result = await runEmbed(engine, ['--stale', '--source', sourceId, '--json']);
+        const images = result && 'images' in result ? result.images : undefined;
+        expect(images).toMatchObject({ candidates: 1, rebuilt: 0, missingFile: 1, failures: 0, failure_samples: [] });
+        expect(images?.missing_samples[0]).toContain(join(root, 'notes', 'gone.png'));
+        expect(result?.failures).toBe(0);
+        expect(providerCalls).toBe(0);
       }
     }), 240_000);
 

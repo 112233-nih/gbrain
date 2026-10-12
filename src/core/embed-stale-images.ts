@@ -103,12 +103,12 @@ export async function embedStaleImages(
       fail(row, e instanceof Error ? e.message : String(e));
     }
   }
-  // Every candidate without a file and nothing rebuilt: the sweep did no work, so it must not read as success.
-  if (result.candidates > 0 && result.rebuilt === 0 && result.missingFile === result.candidates) {
-    result.failures += result.missingFile;
-    result.failure_samples.push(...result.missing_samples.slice(0, SAMPLE_CAP - result.failure_samples.length));
-  }
   return result;
+}
+
+/** Every candidate without a file and nothing rebuilt: the explicit `--images` sweep did no work, so it must not read as success. */
+function sweepFoundNoFiles(result: StaleImageSweepResult): boolean {
+  return result.candidates > 0 && result.rebuilt === 0 && result.missingFile === result.candidates;
 }
 
 /**
@@ -122,10 +122,16 @@ export async function runStaleImageSweepFirst(engine: BrainEngine, opts: { sourc
   return embedStaleImages(engine, opts);
 }
 
-/** Folds the image sweep into the text run's result: image pages count as failures only when the sweep failed on them. */
+/**
+ * Folds the image sweep into the text run's result: image pages count as failures only when the sweep failed on them.
+ * Pages whose file is gone from the checkout are reported (`images.missingFile`, the first `missing_samples` line on
+ * stderr), never failed: the text run's exit code is the text run's, so a routine `embed --stale` stays green while an
+ * out-of-scope backlog of fileless image pages remains (#6529).
+ */
 export function foldImageSweep<T extends { failures: number; failure_samples: string[]; images?: StaleImageSweepResult }>(result: T, sweep: StaleImageSweepResult | null): T {
   if (!sweep) return result;
   result.images = sweep;
+  if (sweep.missingFile > 0) serr(`[embed] images: ${sweep.missingFile} image page(s) have no source file in the checkout and were not rebuilt (first: ${sweep.missing_samples[0]}); delete those pages or restore the files.`);
   if (sweep.failures > 0) {
     result.failures += sweep.failures;
     result.failure_samples.push(`${sweep.failures} image page(s) could not be rebuilt by the image sweep (${sweep.failure_samples.slice(0, 3).join('; ')}); every other stale image was rebuilt first.`);
@@ -142,6 +148,10 @@ export async function runEmbedStaleImagesCli(engine: BrainEngine, args: string[]
   const srcI = args.indexOf('--source');
   const dryRun = args.includes('--dry-run');
   const result = await embedStaleImages(engine, { sourceId: srcI >= 0 ? args[srcI + 1] : undefined, dryRun, costCap });
+  if (sweepFoundNoFiles(result)) {
+    result.failures += result.missingFile;
+    result.failure_samples.push(...result.missing_samples.slice(0, SAMPLE_CAP - result.failure_samples.length));
+  }
   const capped = costCap?.hit();
   if (capped) noteEmbedCostStop(result, capped, args);
   if (args.includes('--json')) console.log(JSON.stringify(result));
