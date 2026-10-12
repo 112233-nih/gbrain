@@ -81,9 +81,6 @@ export interface ConnectionManagerOpts {
 /** Default direct-pool size (P1 raised from 2 to 3). Override via env. */
 export const DEFAULT_DIRECT_POOL_SIZE = 3;
 
-/** Search statement timeout (F5 consolidation) — was 8s scattered. */
-export const SEARCH_STMT_TIMEOUT_MS = 8000;
-
 /** DDL pool default statement_timeout (Fix 1). */
 const DDL_STMT_TIMEOUT_MS = 30 * 60 * 1000; // 30min
 

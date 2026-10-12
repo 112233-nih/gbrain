@@ -100,6 +100,7 @@
       "  [OK] writer_version: Every writer that admitted or published a request in the last 7 days is v0.60.5.0 or newer.",
       "  [OK] self_capture: No session corpus is configured; nothing to classify.",
       "  [OK] vector_plan: Skipped: PGLite runs vector search in-process; the plan check applies to Postgres brains.",
+      "  [OK] keyword_plan: Skipped: PGLite runs keyword search with no statement timeout; the canary applies to Postgres brains.",
       "  [OK] stale_embedding_effects: No committed write has a stale queued or failed embedding effect.",
       "  [OK] google_file_modes: No group- or world-readable gbrain files under Google source directories outside ~/.gbrain.",
       "  [OK] extractor_facts_expired: No conversation-extractor fact is left expired by the pre-v0.60.11.0 projection.",

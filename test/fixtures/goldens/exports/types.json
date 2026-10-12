@@ -568,7 +568,8 @@
         "members": [
           "database_path?: string | undefined",
           "database_url?: string | undefined",
-          "engine?: \"postgres\" | \"pglite\" | undefined"
+          "engine?: \"postgres\" | \"pglite\" | undefined",
+          "keyword_statement_timeout_ms?: number | undefined"
         ],
         "name": "EngineConfig"
       },
@@ -1165,6 +1166,8 @@
           "private engineSqlOn",
           "private getBulkRetryOpts",
           "private jitOffRead",
+          "private keywordStatementTimeout",
+          "private keywordStatementTimeoutSetting",
           "private onPoisoned",
           "private poisonedDiscards",
           "private poolHealth",
@@ -2716,7 +2719,7 @@
           "retrieval_reflex_volunteer?: boolean | undefined",
           "retrieval_reflex_window_turns?: number | undefined",
           "schema_pack?: string | undefined",
-          "search?: { adaptive_return?: boolean; adaptive_return_entity_max?: number; adaptive_return_other_max?: number; adaptive_return_min_keep?: number; vector_legacy_guard?: boolean; hnsw_iterative_scan?: string; cjk_keyword_deadline_ms?: number; } | undefined",
+          "search?: { adaptive_return?: boolean; adaptive_return_entity_max?: number; adaptive_return_other_max?: number; adaptive_return_min_keep?: number; vector_legacy_guard?: boolean; hnsw_iterative_scan?: string; cjk_keyword_deadline_ms?: number; keyword_statement_timeout_ms?: number; } | undefined",
           "search_embedding_column?: string | undefined",
           "self_upgrade?: { mode?: \"auto\" | \"notify\" | \"off\"; mode_prompted?: boolean; quiet_hours?: { start?: number; end?: number; tz?: string; }; failed_versions?: string[]; attempting_version?: string; last_check_ts?: number; last_applied_version?: string; } | undefined",
           "storage?: unknown",
@@ -8312,7 +8315,8 @@
         "members": [
           "database_path?: string | undefined",
           "database_url?: string | undefined",
-          "engine?: \"postgres\" | \"pglite\" | undefined"
+          "engine?: \"postgres\" | \"pglite\" | undefined",
+          "keyword_statement_timeout_ms?: number | undefined"
         ],
         "name": "EngineConfig"
       },
