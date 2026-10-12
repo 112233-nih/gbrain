@@ -20,6 +20,7 @@ import { dispatchRenderContext, dispatchToolCall, toolConnection, type DispatchO
 import { renderAction } from '../src/core/agent-output.ts';
 import { PGLiteEngine } from '../src/core/pglite-engine.ts';
 import { NoticeLedger } from '../src/core/notice-ledger.ts';
+import { withEnv } from './helpers/with-env.ts';
 import { resolveGrantProfile } from '../src/core/grants/profiles.ts';
 
 const op = (name: string) => operations.find(o => o.name === name)!;
@@ -68,16 +69,12 @@ describe('hidden-tool hint', () => {
     expect(hint.fix.why).toContain('this connection stays read-only');
   });
 
-  test('GBRAIN_MCP_FORCE_SURFACE=starter: no widen past the clamp', () => {
-    const prev = process.env.GBRAIN_MCP_FORCE_SURFACE;
-    process.env.GBRAIN_MCP_FORCE_SURFACE = 'starter';
-    try {
+  test('GBRAIN_MCP_FORCE_SURFACE=starter: no widen past the clamp', async () => {
+    await withEnv({ GBRAIN_MCP_FORCE_SURFACE: 'starter' }, () => {
       const { hint, fix } = rendered(stdio(starter, 'starter'), true);
       expect(fix.mcp).toBeUndefined();
       expect(hint.suggestion).toContain('cannot widen it');
-    } finally {
-      if (prev === undefined) delete process.env.GBRAIN_MCP_FORCE_SURFACE; else process.env.GBRAIN_MCP_FORCE_SURFACE = prev;
-    }
+    });
   });
 
   test('HTTP, the local CLI and visible tools get no hint', () => {
