@@ -192,6 +192,15 @@ async function lockWorktree(binding: WorktreeBinding, waitMs: number, signal: Ab
   try { assertPhysicalRoot(binding.local_path, identity); return lock; }
   catch (error) {
     try {
+      if (error instanceof OperationError && error.detail === 'physical_root_directory_changed') {
+        // #6501: a directory recreated (or drifted beyond tolerance) at its recorded path; fill the #5914 exit for this source.
+        error.suggestion = `The directory at ${binding.local_path} is not the one this owner stamped (inode or birth time changed; owner token, brain, worktree, root and device match). `
+          + `If this checkout was restored or recreated at its recorded path, on the brain host run gbrain sources writer status ${binding.source_id} and note admin_state, `
+          + `then gbrain sources writer transfer prepare ${binding.source_id} --self-transfer --confirm-relocated-root --admin-intent writer_transfer_prepare --expected-state <admin_state>, `
+          + `then gbrain sources writer transfer accept ${binding.source_id} --path ${binding.local_path} --expected-epoch ${binding.owner_epoch} --manifest <manifest digest printed by prepare> `
+          + `--self-transfer --confirm-relocated-root --admin-intent writer_transfer_accept --expected-state <admin_state from a fresh status>. Retry the original write with the same request_id afterwards; never remove the ownership markers.`;
+        throw error;
+      }
       if (!(error instanceof OperationError) || error.detail !== 'physical_root_device_changed') throw error;
       if (engine && await restampPhysicalRoot(engine, binding, localHostId())) { assertPhysicalRoot(binding.local_path, identity); return lock; }
       const why = !engine ? 'this caller cannot verify database ownership'
