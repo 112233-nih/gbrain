@@ -445,8 +445,8 @@ async function buildRetrievalResponseMeta(
 ): Promise<Record<string, unknown>> {
   const m = meta as (HybridSearchMeta & { degraded?: unknown[]; retrieved_count?: number }) | null;
   const hint = opts.conceptHint && looksConceptShaped(queryText)
-    ? "concept-shaped question — the 'query' tool adds multi-query expansion and recovers " +
-      'synonym-phrased matches this keyword-leaning search can miss.'
+    ? "concept-shaped question — the 'query' tool with expand: true adds multi-query expansion, " +
+      'which can recover synonym-phrased matches this keyword-leaning search can miss.'
     : undefined;
   const excludePrivate = await resolveExcludePrivatePages(ctx.engine, ctx.remote);
   const excludeSlugPrefixes = resolveHardExcludes();
@@ -839,7 +839,7 @@ const query: Operation = {
     return_unit: RETURN_UNIT_PARAM,
     return_window: RETURN_WINDOW_PARAM,
     token_budget: { type: 'number', description: 'Evidence token cap.' },
-    expand: { type: 'boolean', description: 'Default true; false skips the LLM expansion.' },
+    expand: { type: 'boolean', description: 'Default per search mode (tokenmax on).' },
     detail: { type: 'string', description: 'low (compiled truth), medium (default) or high (all chunks).' },
     fields: FIELDS_PARAM,
     mode: { type: 'string', description: 'Local callers only.' },
@@ -865,7 +865,7 @@ const query: Operation = {
   },
   handler: async (ctx, p) => {
     const startedAt = Date.now();
-    const expand = p.expand !== false;
+    const expandParam = typeof p.expand === 'boolean' ? p.expand : undefined;
     const detail = (p.detail as 'low' | 'medium' | 'high') || undefined;
     const queryText = p.query as string | undefined;
     // #3985: validated multi-type filter (text path; the image-similarity
@@ -986,8 +986,8 @@ const query: Operation = {
       excludePrivate,
       requireSafeChunks: ctx.remote !== false, decide: { remote: ctx.remote !== false, answerability: true },
       takesHoldersAllowList: readHolders(ctx),
-      expansion: expand,
-      expandFn: expand ? expandQuery : undefined,
+      expansion: expandParam,
+      expandFn: expandParam === false ? undefined : expandQuery,
       // T4/D5 — per-call mode (local/trusted only; remote ignored).
       ...((): { mode?: string } => { const m = resolvePerCallMode(ctx, p.mode); return m ? { mode: m } : {}; })(),
       detail,
@@ -1055,16 +1055,17 @@ const query: Operation = {
         ctx.engine.getConfig('search.crag_escalation').catch(() => null),
         ctx.engine.getConfig('search.crag_think').catch(() => null),
       ]);
-      // #4610: pass the documented guard inputs. `callerExpanded: expand`
-      // implements the long-documented high-ceiling skip — a first pass that
-      // already ran with expansion (the default) doesn't pay for a second
-      // expansion LLM call + rerank over a near-identical query. Escalation
-      // now fires for callers that explicitly opted out of expansion (the
-      // shape where the forced-expansion re-run has something new to find).
+      // #4610: pass the documented guard inputs. `callerExpanded` reads what
+      // the first pass actually did (`expansion_applied`), not what was
+      // requested: a first pass that produced expansion variants doesn't pay
+      // for a second expansion LLM call + rerank over a near-identical query,
+      // while one that ran without expansion (the mode default outside
+      // tokenmax, an explicit opt-out, or an expander that produced nothing)
+      // can still escalate.
       if (shouldEscalateRetrieval(grade, {
         enabled: escalationCfg === 'true',
         alreadyEscalated: false,
-        callerExpanded: expand,
+        callerExpanded: (capturedMeta as HybridSearchMeta | null)?.expansion_applied === true,
       })) {
         try {
           // The caller's effective row contract (shared with the image
@@ -1178,7 +1179,7 @@ const query: Operation = {
           meta,
           latency_ms,
           remote: ctx.remote ?? false,
-          expand_enabled: expand,
+          expand_enabled: expandParam ?? null,
           detail: detail ?? null,
           job_id: ctx.jobId ?? null,
           subagent_id: ctx.subagentId ?? null,
