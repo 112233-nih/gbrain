@@ -37,6 +37,7 @@ import { DEFAULT_CHARS_PER_TOKEN, DEFAULT_SAFETY_FACTOR, embedRequestMaxInputTok
 export { splitByTokenBudget, capBatchItems, NO_BATCH_CAP_SUB_BATCH_ITEMS } from './embed-batch-plan.ts';
 import { BudgetTracker, type BudgetReservation } from '../budget/budget-tracker.ts';
 import { failedCallUsage, recordOnTracker } from './budget-record.ts';
+import { estimateChatInputTokens } from './chat-input-estimate.ts';
 import { chatWithFallback, normalizeChatFallbackChain } from './chat-fallback.ts';
 import { applyThinkingOff, thinkingOffMaxOutputTokens } from './thinking-off.ts';
 import type {
@@ -2755,23 +2756,6 @@ export function withBudgetTracker<T>(tracker: BudgetTracker, fn: () => Promise<T
 
 export function getCurrentBudgetTracker(): BudgetTracker | null {
   return __budgetStore.getStore() ?? null;
-}
-
-/** Internal helper: estimate input tokens from messages + system. Heuristic only
- * (~4 chars/token); cap math is best-effort because we pre-flight reservation
- * before the SDK has counted anything. */
-function estimateChatInputTokens(opts: { system?: string; messages?: Array<{ content?: unknown }> }): number {
-  let chars = (opts.system ?? '').length;
-  for (const m of opts.messages ?? []) {
-    if (typeof m.content === 'string') chars += m.content.length;
-    else if (Array.isArray(m.content)) {
-      for (const block of m.content) {
-        const t = (block as { text?: unknown }).text;
-        if (typeof t === 'string') chars += t.length;
-      }
-    }
-  }
-  return Math.ceil(chars / 4);
 }
 
 // ---- Chat (commit 1) ----

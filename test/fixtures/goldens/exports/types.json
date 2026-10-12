@@ -2964,6 +2964,13 @@
       },
       {
         "kind": "variable",
+        "name": "ANTHROPIC_LONG_PROMPT_THRESHOLD_TOKENS",
+        "signature": [
+          "100000"
+        ]
+      },
+      {
+        "kind": "variable",
         "name": "CANONICAL_PRICING",
         "signature": [
           "Record<string, ModelPricing>"
@@ -2975,6 +2982,18 @@
           "cache_read?: number | undefined",
           "cache_write?: number | undefined",
           "input: number",
+          "output: number",
+          "threshold_tokens: number"
+        ],
+        "name": "LongPromptTier"
+      },
+      {
+        "kind": "interface",
+        "members": [
+          "cache_read?: number | undefined",
+          "cache_write?: number | undefined",
+          "input: number",
+          "long_prompt?: LongPromptTier | undefined",
           "output: number"
         ],
         "name": "ModelPricing"
@@ -2984,6 +3003,13 @@
         "name": "canonicalLookup",
         "signature": [
           "(modelId: string | null | undefined) => ModelPricing | undefined"
+        ]
+      },
+      {
+        "kind": "function",
+        "name": "priceAtPromptSize",
+        "signature": [
+          "(pricing: ModelPricing, inputTokens: number | null | undefined) => ModelPricing"
         ]
       }
     ],
