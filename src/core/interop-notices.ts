@@ -62,6 +62,16 @@ export const DEGRADED_STAGE_GUIDANCE: Readonly<Record<RecallStage, StageGuidance
   facts_embedding_column_missing: { why: 'the facts table has no embedding column, so saved facts were ranked by word overlap alone', fix: 'doctor' },
 };
 
+/**
+ * Stage/reason pairs that come from the brain's configuration, not from this
+ * call: a keyless install (`--no-embedding`, or no embedding provider)
+ * degrades every search the same way, so its notice shows once per session.
+ * Every other recall stage is transient and rides each affected call.
+ */
+const CONFIGURATION_PERSISTENT_STAGES: ReadonlySet<string> = new Set([
+  'embed_unavailable:embedding_disabled', 'embed_unavailable:no_provider', 'keyword_only_no_embedding_provider:',
+]);
+
 const NOT_ABSENCE = 'Treat a thin or empty result as "not found with a degraded search", never as "the brain has nothing on this".';
 
 /** Why each `rerank_failed` reason happened (closed vocabulary: RerankFailedReason). */
@@ -129,6 +139,8 @@ function embeddingsFix(cfg: GBrainConfig | null | undefined, transport: 'stdio' 
 
 /**
  * One `degraded_recall` notice for the recall-affecting stages of this call; null when none applies.
+ * It rides every affected call, except when all its stage/reason pairs are configuration-persistent:
+ * then it carries an unrendered `dedupe_key` (the sorted unique pairs) and shows once per session.
  * A `rerank_failed` stage names its reason, the fallback (fused order) and, when the caller counts them
  * (`rerankDegradedCalls`), this session's reranker-degraded calls; its fix follows the reason (`retry`
  * is the call to repeat after a transient failure) when no other stage needs a fix.
@@ -142,6 +154,8 @@ export function degradedRecallNotice(
     .filter(s => affectsRecall(s) && (s.stage as string) in DEGRADED_STAGE_GUIDANCE)
     .map(s => s.stage as RecallStage))];
   if (names.length === 0) return null;
+  const pairs = [...new Set(entries.filter(s => names.includes(s.stage as RecallStage)).map(s => `${s.stage}:${s.reason ?? ''}`))].sort();
+  const persistent = pairs.every(p => CONFIGURATION_PERSISTENT_STAGES.has(p));
   const rerank = names.includes('rerank_failed') ? rerankReason(entries.find(s => s.stage === 'rerank_failed')?.reason) : undefined;
   const labels = names.map(n => (n === 'rerank_failed' ? `rerank_failed: ${rerank}` : n));
   const whys = names.map(n => (n === 'rerank_failed'
@@ -161,6 +175,7 @@ export function degradedRecallNotice(
     why: `Recall was degraded (${labels.join(', ')}): ${whys.join('; ')}. ${NOT_ABSENCE}${choice}`,
     ...(fix ? { fix } : {}),
     ...(fix?.user_message ? { user_message: fix.user_message } : {}),
+    ...(persistent ? { dedupe_key: pairs.join('|') } : {}),
   };
 }
 
