@@ -1,6 +1,7 @@
 import { OperationError } from '../ops/contract.ts';
 import { writerStamp } from './writer-versions.ts';
 import type { FenceFailureDetail } from '../fence-repair/refusal.ts';
+import type { WithdrawalFailureDetail } from '../facts/withdrawal.ts';
 import type { Action } from '../agent-output.ts';
 
 /**
@@ -34,7 +35,9 @@ export type FenceRefusalDetail = FenceFailureDetail & Pick<PublicationFailureDet
 export interface OwnerExceptionDetail extends Pick<PublicationFailureDetail, 'stage' | 'attempt'> {
   origin: 'owner_exception'; error_class?: string; errno?: string; frame?: string;
 }
-export interface PublicationFailure { code: string; message: string; detail?: PublicationFailureDetail | FenceRefusalDetail | OwnerExceptionDetail }
+/** A `fact_withdrawn` refusal's `withdrawn` object (`facts/withdrawal.ts`), plus the attempt stamp. */
+export type WithdrawalRefusalDetail = WithdrawalFailureDetail & Pick<PublicationFailureDetail, 'stage' | 'attempt'>;
+export interface PublicationFailure { code: string; message: string; detail?: PublicationFailureDetail | FenceRefusalDetail | WithdrawalRefusalDetail | OwnerExceptionDetail }
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_.:-]{0,79}$/;
 const ident = (value: unknown) => typeof value === 'string' && IDENT.test(value) ? value : undefined;

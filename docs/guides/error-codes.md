@@ -15,6 +15,7 @@ Under contract v1 an `error` value never changes. Where a surface sends a legacy
 
 | `error` (frozen) | `code` (canonical) | Meaning |
 |---|---|---|
+| `invalid_params` | `fact_withdrawn` | `remember` refused a claim that was explicitly forgotten for this subject (wire `invalid_params`, message prefix `fact_withdrawn:`); nothing was saved. |
 | `permission_denied` | `insufficient_scope` | The connection lacks the OAuth scope the operation requires. |
 | `invalid_params` | `invalid_fence` | A facts or takes fence in the page cannot be imported without dropping or guessing rows, so the page (or the file) was not written. |
 | `invalid_params` | `not_found` | The requested resource does not exist or is not visible to this caller. |
@@ -973,6 +974,14 @@ More: [docs/guides/move-to-postgres.md#graduated-datastore](../../docs/guides/mo
 | Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
 |---|---|---|---|---|---|---|
 | Fact not found. | The request itself was wrong or no longer matches the brain; nothing was changed. | Correct the request using the message above, then retry. | agent | `repeat the read that failed` | 1 | no |
+
+### fact_withdrawn
+
+<a id="fact_withdrawn"></a>
+
+| Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
+|---|---|---|---|---|---|---|
+| `remember` refused a claim that was explicitly forgotten for this subject (wire `invalid_params`, message prefix `fact_withdrawn:`); nothing was saved. | A forgotten claim stays withdrawn: remembering the same normalized text does not restore it, and a claim forgotten without an entity is withdrawn for every entity. The additive `withdrawn` object (`at`, `subject`: an entity slug or `all_entities`, `visibility`) says when and how widely the exact claim was forgotten; it covers that exact claim only, and its absence carries no meaning. | Do not retry the same text. Tell the user the claim was forgotten (withdrawn.at, withdrawn.subject); if it is still true, remember it in new words. To link a fact saved without an entity, remember it with entity and replaces set to its fact id instead of forgetting it. | agent | `repeat the read that failed` | 1 | no |
 
 ### facts_absorb_write_refused
 
