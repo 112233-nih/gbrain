@@ -7737,6 +7737,7 @@
           "cost_usd?: number | undefined",
           "diagnostics: { pagesFromHybrid: number; takesFromKeyword: number; takesFromVector: number; graphHits: number; }",
           "evidence_delivery?: DeliveryMeta | undefined",
+          "evidence_truncated?: boolean | undefined",
           "extractive?: ExtractiveFallback | undefined",
           "feedback_evidence?: { source_id: string; slug: string; content_hash: string | null; }[] | undefined",
           "gaps: string[]",
