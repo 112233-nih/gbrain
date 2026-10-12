@@ -137,6 +137,7 @@ describe('#6432 quoted scalars survive pack mutations', () => {
     await withEnv({ GBRAIN_HOME: tmpDir, GBRAIN_AUDIT_DIR: auditDir }, async () => {
       // A YAML pack that copies these lines verbatim is the affected path
       // (`schema fork` writes JSON). Reuse the exact authored bytes.
+      // test-reads-source-ok[raw-bytes]: the bundled pack's single-quoted regex lines are the fixture under test (#6432)
       const bundled = join(import.meta.dir, '..', 'src', 'core', 'schema-pack', 'base', 'company-brain.yaml');
       const regexLines = [...readFileSync(bundled, 'utf-8').matchAll(/^\s+regex: ('.*')$/gm)].map((m) => m[1]);
       const expected = loadPackFromFile(bundled).link_types
