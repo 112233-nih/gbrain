@@ -10,6 +10,16 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [Unreleased] - low-hanging fruit wave, per-stage search timings (GBRA-81 item 5)
+
+**Every `search` and `query` response now says where its time went.**
+
+### Itemized changes
+
+- `_meta.retrieval.timings` on every `search` and `query` response, including empty, degraded and keyword-only ones: `total_ms` (the whole operation, on its own clock, after the response is assembled), `stages_ms` (setup, lexical, relational, expansion, embed, vector, fuse, post_fusion, rerank, alias_fanout, anchoring, facts_arm, response), `other_ms` (time no stage claimed) and `overlapped_ms` (the keyword and title arms, which run in parallel). Integer milliseconds; stages plus `other_ms` add up to `total_ms`. A declared-name fan-out, a retry or a CRAG re-run adds to the same stages. The timings never appear in result text.
+- `gbrain search --explain` and `gbrain query --explain` print the timings as a `timings:` header line, also on an empty result.
+- The refactor-wave-1 bench has a `timings` phase: every bench query through both operations, failing unless the unclaimed time stays within 10% of each response's total. On the 400-page bench the unclaimed time stayed at or below 1.6% of every response's total on PGLite and Postgres, and every result set matched the tree before this change.
+
 ## [Unreleased] - memory proof wave 2 W3 + W5, confidence-gated reranking and the page-unit ranking cut (#6445)
 
 **Search can grade its candidates before the cross-encoder and report how often the reranker was paying for an answer retrieval already found, and a page-unit call's own budget can size its ranked hits. Both are off by default, and the grade never changes results.**

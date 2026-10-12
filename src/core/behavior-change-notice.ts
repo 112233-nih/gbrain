@@ -426,6 +426,8 @@ export const BEHAVIOR_CHANGES: ReadonlyArray<{ since: string; text: ChangeText }
   // W3 confidence-gated reranking (memory proof wave 2). `since` is a placeholder equal to the branch's VERSION until the merge-slot stamp.
   { since: '0.60.169.0', text: '`gbrain search stats --json` and the `search_stats` tool now always include a `rerank_gate` section, all zeros until you set `search.reranker.gate` to `shadow`; search results and ranking are unchanged. The search cache key now includes `search.evidence_cosine_floor` and the new gate keys (the result cache stays disabled).' },
   { since: '0.60.169.0', text: '`recall` with `budget_tokens` and a `return_unit` now fills its budget: saved facts are packed first and the delivered evidence gets the budget they leave, so the same parameters return more evidence (up to about 16% more on long conversations). Before, delivered blocks were dropped after the facts and re-counted with a rougher estimate. `budget_policy: "query_first"` is unchanged.' },
+  // GBRA-81 item 5 (per-stage search timings). `since` is a placeholder equal to the branch's VERSION until the merge-slot stamp.
+  { since: '0.60.169.0', text: 'Every `search` and `query` response now carries `_meta.retrieval.timings` (integer milliseconds per stage, `other_ms` and the operation total), and the CLI explain view of `gbrain search` and `gbrain query` prints them as a `timings:` line; results are unchanged and the timings never appear in result text.' },
 ];
 
 /** The newest disclosed change's release: the notice id moves only when a release adds rows. */
