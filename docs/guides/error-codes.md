@@ -695,6 +695,16 @@ More: [docs/guides/core-memory.md#remote-edits](../../docs/guides/core-memory.md
 |---|---|---|---|---|---|---|
 | Cost preview requires yes. | The step needs the user's decision before it runs. | Stop and ask the user; re-run only with the authorization the message names. | user | `repeat the read that failed` | 1 | no |
 
+### cursor_incarnation_retired
+
+<a id="cursor_incarnation_retired"></a>
+
+| Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
+|---|---|---|---|---|---|---|
+| An unfinished managed sync cursor of this source was recorded under a source incarnation the source no longer has (it was re-pointed at a new checkout, or removed and added again), so no current sync selects or resumes it. | The cursor key digests the incarnation; every incarnation-joined reader drops the old rows while the local ledger mirror and the source-id-only cursor read still showed them. Retiring the bookkeeping says nothing about whether the current source's files are imported. | Preview gbrain repair managed-sync-orphans --source <id> and apply it with the hash it prints; then gbrain sync status --source <id> --json shows the current cursor, if any. Run: gbrain repair managed-sync-orphans --source '{source_id}' | agent | `repeat the read that failed` | 1 | no |
+
+More: [docs/guides/repair.md#managed-sync-orphans](../../docs/guides/repair.md#managed-sync-orphans)
+
 ### cycle_failed
 
 <a id="cycle_failed"></a>
@@ -2812,6 +2822,14 @@ More: [docs/guides/google-connect.md#troubleshooting](../../docs/guides/google-c
 | Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
 |---|---|---|---|---|---|---|
 | Reading or writing durable storage failed. | Usually a dropped connection or a failed statement; the same error after a rerun is not transient. `detail: persistence_mode_unknown` (#6482): the persistence_brain singleton is missing, duplicated or carries a non-boolean `enabled`, so gbrain cannot tell whether the brain is managed and refuses every write, sync, connector run and activation step that depends on it rather than route a managed brain through the unmanaged writer; only a well-formed `enabled: false` row selects the unmanaged path. | For persistence_mode_unknown: run gbrain sources writer status --probe --json on the brain host (it reports the malformed state instead of refusing), fix the persistence_brain row it names, then gbrain doctor --json. | host_admin | `gbrain doctor --json` | 1 | no |
+
+### sync_cursor_replaced
+
+<a id="sync_cursor_replaced"></a>
+
+| Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
+|---|---|---|---|---|---|---|
+| Another sync run of the source replaced the managed-sync cursor before this checkpoint published, so the checkpoint had nothing left to publish. | The replacing run (a --retry-failed rediscovery or a newer sync of the source) covers the source from its own discovery; the superseded checkpoint's receipt is a conflict, no managed-sync failure is recorded for it, and the run that awaited it goes on with the winning cursor. A same-run index lag still reports revision_conflict. | Nothing to repair: let the current sync finish. gbrain sync status --source <id> --json shows the cursor that now covers the source. | agent | `repeat the read that failed` | 1 | no |
 
 ### sync_in_progress
 
