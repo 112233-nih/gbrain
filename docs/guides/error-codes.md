@@ -1377,6 +1377,18 @@ More: [docs/guides/bootstrap.md#harness_hook_duplicates](../../docs/guides/boots
 
 More: [docs/guides/bootstrap.md#harness_hook_unowned](../../docs/guides/bootstrap.md#harness_hook_unowned)
 
+### head_blocked
+
+<a id="head_blocked"></a>
+
+| Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
+|---|---|---|---|---|---|---|
+| The queued write at the head of a managed source cannot be claimed by any consumer, and its blocker needs an operator; a managed sync drain stops `drain_stalled` with `cause: head_blocked` and `blocked_by` names the predicate. | #6543: the drain used to wait the whole no-progress window and print a constant `claimable here: no`. The head probe evaluates each predicate of the claim query for the head itself. Only intervention-required blockers stop the drain, after one governor tick of confirmation: a refresh fence no refresh process holds, or a running request ahead held by a process that reports restart_required. Live blockers (a foreground publication, a lapsed lease, a refresh or recovery making progress) keep the progress-aware wait. | Run next.fix: for refresh_fence resume the refresh (gbrain sources refresh <source> --resume); for zombie_publication restart the named gbrain process on the brain host. Then rerun the same sync. Run: gbrain sources writer status --source '{source_id}' --json | host_admin | `gbrain doctor --json` | 1 | no |
+
+Reasons: `refresh_fence`, `zombie_publication`.
+
+More: [docs/guides/write-refusals.md#head-blocked](../../docs/guides/write-refusals.md#head-blocked)
+
 ### held_failed
 
 <a id="held_failed"></a>

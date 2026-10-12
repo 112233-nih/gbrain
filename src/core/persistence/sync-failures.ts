@@ -80,7 +80,7 @@ function blobAt(gitRoot: string, commit: string, path: string): string | null {
  * failure is settled when its file exists there and the database holds a live page for it with no hold on the path, or
  * when the file is gone there and no live page claims it.
  */
-async function unsettledReason(engine: BrainEngine, run: ManagedSyncImported, failure: ManagedSyncFailure): Promise<string | null> {
+export async function unsettledReason(engine: BrainEngine, run: ManagedSyncImported, failure: Pick<ManagedSyncFailure, 'source_id' | 'source_incarnation' | 'path'>): Promise<string | null> {
   if (failure.source_id !== run.sourceId || failure.source_incarnation !== run.incarnation) return 'source_changed';
   if (failure.path.startsWith('<')) return 'no_recorded_file';
   const gitPath = syncGitPath(run, failure.path);

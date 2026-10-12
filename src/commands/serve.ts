@@ -246,6 +246,7 @@ export async function runServe(
     console.error(`[gbrain serve] ignoring GBRAIN_SURFACE="${resolved.invalidEnv}" (use verbs | starter | full)`);
   }
   console.error(`[gbrain serve] surface=${surface} (source: ${SURFACE_SOURCE_LABEL[resolved.source]})`);
+  void (await import('../core/serve-behavior-notice.ts')).logServeBehaviorNotice(engine, loadConfig());
   // #6383: the pool stall line (Postgres only; the watch reports nothing for an engine without pool numbers).
   if (engine.kind === 'postgres') new PoolStallWatch(engine, (line) => console.error(line)).start();
   // #4768: stdio read-only access ceiling. HTTP refuses it: per-token grants

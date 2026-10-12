@@ -1438,7 +1438,20 @@ with "still pending publication" or "the canonical writer ... is held", check
 
 Every applying kind waits for each publication with the CLI write wait: `--wait <seconds>`, then
 `GBRAIN_WRITE_WAIT_MS`, then `persistence.write_wait_ms`, else 30 seconds. That includes the doctor
-remediation run and the replay of a restore a previous `extractor-facts` apply left pending. A malformed
+remediation run and the replay of a restore a previous `extractor-facts` apply left pending.
+
+A write that is accepted but still pending when its wait ends does not stop the run while a consumer
+on this host is publishing (#6543). The run keeps the receipt, leaves its saved position before that
+item, and admits the remaining items without a per-item wait. At most half the principal's
+outstanding-request cap (`persistence.limits.principal_outstanding`, at most 64) stays unresolved at
+once; past that the run waits for earlier receipts first. All receipts settle against one shared wait:
+the run gives up only when nothing it admitted has published for the write wait. A preview-bound kind
+(`--expect`) settles every earlier receipt before its last item, so its approved set is kept until
+every admitted item is accounted for. When the run still stops, `pending` lists the receipts (item and
+`request_id`) and rerunning the same apply command replays them; a crash leaves the position before
+the first unresolved receipt, so the rerun does the same. `--wait 0` waits for nothing: it admits what
+it can and stops with `pending`. With no live consumer on this host, or one that reports
+`restart_required`, the run stops at the first pending write as before and its `fix` names the owner. A malformed
 `GBRAIN_WRITE_WAIT_MS` refuses the apply with `invalid_write_wait` before anything is written; a preview
 never reads it.
 

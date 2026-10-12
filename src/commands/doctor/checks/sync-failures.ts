@@ -6,6 +6,7 @@ import { resolveHoursEnv } from '../../../core/env-number.ts';
 import { makeRemediationStep } from '../../../core/remediation-step.ts';
 import { classifyManagedSyncOrphans } from '../../../core/persistence/managed-sync-orphans.ts';
 import { readManagedMode } from '../../../core/persistence/ownership.ts';
+import { legacyLedgerNote } from '../../../core/persistence/legacy-sync-failures.ts';
 
 export async function checkSyncFailures(engine: BrainEngine | null, opts: { sourceIds?: string[]; remote?: boolean } = {}): Promise<Check | null> {
   // #5452: sync refuses an archived source, so its failures cannot be cleared and are not a live health signal.
@@ -44,7 +45,8 @@ export async function checkSyncFailures(engine: BrainEngine | null, opts: { sour
   const recovery = requiresManagedRetry
     ? `${resumable.length || !orphans.length ? `Fix the cause, then run ${retries.length ? retries.join(' ; ') : 'gbrain sync --no-pull --retry-failed with the same source and options'}. Completed full runs do not resolve a different unfinished cursor.` : ''}${orphanNote}`.trim()
     : "Fix the file(s) and re-run 'gbrain sync', or use 'gbrain sync --skip-failed' to acknowledge legacy file failures.";
-  return { name: 'sync_failures', status: severity.status, message: `${summary} ${details.join('; ')} ${recovery}`,
+  const legacyNote = managedBrain ? legacyLedgerNote(unresolvedLegacy) : '';
+  return { name: 'sync_failures', status: severity.status, message: `${summary} ${details.join('; ')} ${recovery}${legacyNote}`,
     remediation, remediation_status: remediation ? 'remediable' : 'blocked', ...(orphans.length ? { details: { orphans } } : {}),
     ...(engine ? {} : { message: `${summary} Durable sync state is unavailable without a database connection; the local ledger is only a compatibility mirror.` }) };
 }
