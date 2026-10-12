@@ -49,6 +49,9 @@ export const mistral: Recipe = {
   touchpoints: {
     embedding: {
       models: ['mistral-embed', 'mistral-embed-2312'],
+      // [R13] audit: mistral-embed's 8,192-token per-input context. Above the
+      // default chunk cap, so chunking is unchanged.
+      max_input_tokens: { 'mistral-embed': 8192, 'mistral-embed-2312': 8192 },
       default_dims: 1024,
       // Mistral's published list price. Advisory only — canonical embedding
       // spend accounting lives in src/core/embedding-pricing.ts.
