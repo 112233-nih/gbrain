@@ -305,7 +305,7 @@ const put_page: Operation = {
   params: {
     ...AGENT_CONTENT_PARAMS,
     slug: { type: 'string', description: 'Page slug.', required: true },
-    content: { type: 'string', required: true, description: 'Complete markdown (get_page include_content:true).' },
+    content: { type: 'string', required: true, description: 'Complete markdown.' },
     allow_empty: { type: 'boolean', required: false, description: 'Allow emptying the page.' },
     drop_timeline: { type: 'boolean', required: false, description: 'No Timeline in content: delete its entries.' },
     wait_ms: WRITE_WAIT_PARAM,
@@ -474,7 +474,7 @@ const list_pages: Operation = {
     // v0.29 — surface filter that already exists on PageFilters.
     updated_after: {
       type: 'string',
-      description: 'Only pages updated after this ISO time.',
+      description: 'Pages updated after this ISO time.',
     },
     updated_after_slug: {
       type: 'string',

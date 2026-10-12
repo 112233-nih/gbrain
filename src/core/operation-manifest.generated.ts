@@ -14,7 +14,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "remember",
     "idempotent": true,
     "outputRedaction": "no_stored_text",
-    "description": "MEMORY VERB (v1): save facts with provenance. Set `entity` (the subject) or recall misses it. Branch on `status` (inserted|duplicate|superseded); write_pending: poll get_write_request.",
+    "description": "MEMORY VERB: save facts with provenance. Set `entity` (the subject) or recall misses it. Branch on `status` (inserted|duplicate|superseded); write_pending: poll get_write_request.",
     "params": {
       "source_id": {
         "type": "string",
@@ -30,7 +30,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "request_id": {
         "type": "string",
-        "description": "Optional; reuse only to retry."
+        "description": "Reuse only to retry."
       },
       "content_origin": {
         "type": "string",
@@ -151,7 +151,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "mutating": false,
     "idempotent": true,
     "outputRedaction": "retrieval",
-    "description": "[EXPENSIVE / SLOW: LLM calls, costs money] MEMORY VERB (v1): answer a broad question across pages with citations. For lookups use recall or entity.",
+    "description": "[EXPENSIVE / SLOW: LLM calls, costs money] MEMORY VERB: answer a broad question across pages with citations. For lookups use recall or entity.",
     "params": {
       "question": {
         "type": "string",
@@ -185,11 +185,11 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "forget",
     "idempotent": true,
     "outputRedaction": "no_stored_text",
-    "description": "MEMORY VERB (v1): expire a remembered fact by its fact_id (never a page slug). Idempotent; the audit trail is kept.",
+    "description": "MEMORY VERB: expire a remembered fact by its fact_id (never a page slug). Idempotent; the audit trail is kept.",
     "params": {
       "request_id": {
         "type": "string",
-        "description": "Optional; reuse only to retry."
+        "description": "Reuse only to retry."
       },
       "id": {
         "type": "string",
@@ -306,7 +306,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "request_id": {
         "type": "string",
-        "description": "Optional; reuse only to retry."
+        "description": "Reuse only to retry."
       },
       "content_origin": {
         "type": "string",
@@ -326,7 +326,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       "content": {
         "type": "string",
         "required": true,
-        "description": "Complete markdown (get_page include_content:true)."
+        "description": "Complete markdown."
       },
       "allow_empty": {
         "type": "boolean",
@@ -389,7 +389,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "request_id": {
         "type": "string",
-        "description": "Optional; reuse only to retry."
+        "description": "Reuse only to retry."
       },
       "slug": {
         "type": "string",
@@ -415,7 +415,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "list_pages",
     "idempotent": true,
     "outputRedaction": "retrieval",
-    "description": "List pages with filters. For 'what's recent / what did I touch this week' use sort=updated_desc. Default 50 rows; a full page may be truncated: continue with updated_after + updated_after_slug from the last row.",
+    "description": "List pages with filters. For 'what's recent / what did I touch this week' use sort=updated_desc. Default 50 rows; truncated: continue with updated_after + updated_after_slug from the last row.",
     "params": {
       "type": {
         "type": "string",
@@ -435,7 +435,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "updated_after": {
         "type": "string",
-        "description": "Only pages updated after this ISO time."
+        "description": "Pages updated after this ISO time."
       },
       "updated_after_slug": {
         "type": "string",
@@ -487,7 +487,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "request_id": {
         "type": "string",
-        "description": "Optional; reuse only to retry."
+        "description": "Reuse only to retry."
       },
       "slug": {
         "type": "string",
@@ -542,7 +542,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "capture",
     "idempotent": true,
     "outputRedaction": "no_stored_text",
-    "description": "Quick note (\"just remember this\"): slugged under inbox/ by date + content hash, so recapturing is idempotent. Use put_page to control slug or type; remember for facts about entities.",
+    "description": "Quick note (\"just remember this\"): slugged under inbox/ by date + content hash, so recapturing is idempotent. put_page controls slug or type; remember is for facts about entities.",
     "params": {
       "source_id": {
         "type": "string",
@@ -558,7 +558,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "request_id": {
         "type": "string",
-        "description": "Optional; reuse only to retry."
+        "description": "Reuse only to retry."
       },
       "content_origin": {
         "type": "string",
@@ -694,7 +694,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       "expected_revision": {
         "type": "string",
         "required": true,
-        "description": "revision from get_page include_content:true."
+        "description": "From get_page include_content:true."
       },
       "edits": {
         "type": "array",
@@ -706,7 +706,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
             "old_text": {
               "type": "string",
               "required": true,
-              "description": "Exact text to replace (must occur once)."
+              "description": "Exact text to replace."
             },
             "new_text": {
               "type": "string",
@@ -722,7 +722,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "request_id": {
         "type": "string",
-        "description": "Optional; reuse only to retry."
+        "description": "Reuse only to retry."
       }
     },
     "mutating": true,
@@ -791,7 +791,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "get_write_request",
     "idempotent": true,
     "outputRedaction": "no_stored_text",
-    "description": "Read your write's receipt by request_id (after write_pending or a lost reply). Poll at retry_after_ms until final.",
+    "description": "Your write's receipt by request_id (after write_pending or a lost reply). Poll at retry_after_ms until final.",
     "params": {
       "request_id": {
         "type": "string",
@@ -813,7 +813,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "list_write_requests",
     "idempotent": true,
     "outputRedaction": "no_stored_text",
-    "description": "List your write receipts in one source, newest first, for a lost request_id.",
+    "description": "Your write receipts in one source, newest first (for a lost request_id).",
     "params": {
       "source_id": {
         "type": "string",
@@ -826,7 +826,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "before": {
         "type": "string",
-        "description": "next cursor from the previous page."
+        "description": "Previous page's next cursor."
       }
     },
     "scope": "write",
@@ -840,7 +840,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "cancel_write_request",
     "idempotent": true,
     "outputRedaction": "no_stored_text",
-    "description": "Cancel your accepted write before it publishes. Returns the actual receipt.",
+    "description": "Cancel your accepted write before it publishes; returns the receipt.",
     "params": {
       "request_id": {
         "type": "string",
@@ -862,7 +862,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "search",
     "idempotent": true,
     "outputRedaction": "retrieval",
-    "description": "Cheap hybrid search, no LLM expansion, top 20: exact tokens, names, field values. NOT proof of coverage; match: \"keyword\" pages every keyword match and takes OR across quoted names or codes (\"A\" OR \"B\" OR …): one call lists every page matching any. Name lists: entity names. Concepts/landscape: `query`; lists: list_pages; personal: get_recent_salience. return_unit: sections or conversations. fields: \"full\" adds diagnostics.",
+    "description": "Cheap hybrid search, no LLM expansion, top 20: exact tokens, names, field values. NOT proof of coverage; match: \"keyword\" pages every keyword match and takes OR across quoted names or codes (\"A\" OR \"B\" OR …): one call lists every page matching any. Name lists: entity names. Concepts/landscape or people/companies/projects by topic: `query`; lists: list_pages; personal: get_recent_salience. return_unit: sections or conversations. fields: \"full\" adds diagnostics.",
     "params": {
       "query": {
         "type": "string",
@@ -981,7 +981,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "query",
     "idempotent": true,
     "outputRedaction": "retrieval",
-    "description": "Hybrid search plus multi-query expansion for concept/landscape questions (expansion recovers synonyms). Still top-K; return_unit: sections or conversations. Lists: list_pages. Exact tokens: `search` is cheaper (no LLM call). Personal: get_recent_salience, find_anomalies; transcripts: `gbrain transcripts recent`. Do NOT assume 'crazy' means impressive (often difficult or emotionally charged). Needs an embedding key (else keyword-only); expansion needs a chat key. Fact rows: use follow_up. fields: \"full\" adds diagnostics.",
+    "description": "Hybrid search plus multi-query expansion for concept/landscape questions and people/companies/projects by topic (expansion recovers synonyms). Still top-K; return_unit: sections or conversations. Lists: list_pages. Exact tokens: `search` is cheaper (no LLM call). Personal: get_recent_salience, find_anomalies; transcripts: `gbrain transcripts recent`. Do NOT assume 'crazy' means impressive (often difficult or emotionally charged). Needs an embedding key (else keyword-only); expansion needs a chat key. Fact rows: use follow_up. fields: \"full\" adds diagnostics.",
     "params": {
       "query": {
         "type": "string",
@@ -1359,7 +1359,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "Optional; reuse only to retry."
+        "description": "Reuse only to retry."
       },
       "expected_revision": {
         "type": "string",
@@ -1401,7 +1401,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "Optional; reuse only to retry."
+        "description": "Reuse only to retry."
       },
       "expected_revision": {
         "type": "string",
@@ -1693,7 +1693,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "link_type": {
         "type": "string",
-        "description": "Follow only this link type."
+        "description": "Only this link type."
       },
       "direction": {
         "type": "string",
@@ -1777,7 +1777,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "Optional; reuse only to retry."
+        "description": "Reuse only to retry."
       },
       "expected_revision": {
         "type": "string",
@@ -1969,7 +1969,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "request_id": {
         "type": "string",
-        "description": "Optional; reuse only to retry."
+        "description": "Reuse only to retry."
       },
       "slug": {
         "type": "string",
@@ -2166,7 +2166,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "source_id": {
         "type": "string",
-        "description": "Fetch a brain-resident pack skill from this source."
+        "description": "Brain-resident pack skill from this source."
       }
     },
     "scope": "read",
@@ -2185,7 +2185,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "outputRedaction": {
       "exempt": "skill catalog files are installed instructions read verbatim; redaction would corrupt approved revisions"
     },
-    "description": "Skillpacks this brain ships, with skills and a scaffold spec to offer the user.",
+    "description": "Skillpacks this brain ships: skills and a scaffold spec to offer the user.",
     "publishGateKey": "mcp.publish_skills",
     "params": {},
     "scope": "read",
@@ -2223,7 +2223,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
   },
   {
     "name": "get_skill_asset",
-    "description": "Read an approved file from an exact skill revision (data only; never executed).",
+    "description": "Read an approved file from an exact skill revision (data, never executed).",
     "mutating": false,
     "idempotent": true,
     "outputRedaction": {
@@ -2820,7 +2820,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       "partial": {
         "type": "string",
         "required": true,
-        "description": "Partial slug or title, e.g. 'alice-ex'."
+        "description": "Partial slug or title."
       },
       "source_id": {
         "type": "string",
@@ -3571,7 +3571,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "Optional; reuse only to retry."
+        "description": "Reuse only to retry."
       },
       "expected_revision": {
         "type": "string",
@@ -3641,7 +3641,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "Optional; reuse only to retry."
+        "description": "Reuse only to retry."
       },
       "expected_revision": {
         "type": "string",
@@ -3695,7 +3695,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "Optional; reuse only to retry."
+        "description": "Reuse only to retry."
       },
       "expected_revision": {
         "type": "string",
@@ -3765,7 +3765,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "Optional; reuse only to retry."
+        "description": "Reuse only to retry."
       },
       "expected_revision": {
         "type": "string",
@@ -3840,7 +3840,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "Optional; reuse only to retry."
+        "description": "Reuse only to retry."
       },
       "expected_revision": {
         "type": "string",
@@ -3882,7 +3882,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "Optional; reuse only to retry."
+        "description": "Reuse only to retry."
       },
       "slug": {
         "type": "string",
@@ -4069,7 +4069,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "request_tools",
     "idempotent": false,
     "outputRedaction": "no_stored_text",
-    "description": "More tools: no arguments lists your catalog; {tools: [names]} returns schemas; {surface} widens it (per OAuth client or stdio session).",
+    "description": "More tools: no arguments lists your catalog; {tools: [names]} returns schemas; {surface} widens it (per client or stdio session).",
     "area": "discovery",
     "agentCallable": true,
     "params": {
@@ -4112,7 +4112,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "slugPrefix": {
         "type": "string",
-        "description": "Slug prefix, e.g. 'wiki/people'."
+        "description": "Slug prefix."
       },
       "recency_bias": {
         "type": "string",
@@ -4818,7 +4818,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "Optional; reuse only to retry. Managed extraction returns durable receipts; when omitted, each call gets a new UUID. Unmanaged extraction retains its legacy non-journaled behavior."
+        "description": "Reuse only to retry. Managed extraction returns durable receipts; when omitted, each call gets a new UUID. Unmanaged extraction retains its legacy non-journaled behavior."
       },
       "turn_text": {
         "type": "string",
@@ -4868,7 +4868,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
         ]
       }
     },
-    "description": "MEMORY VERB (v1): read saved facts by entity, since or session_id; `query` also searches pages. Remote callers see world facts only. One card: entity; reasoning: synthesize.",
+    "description": "MEMORY VERB: read saved facts by entity, since or session_id; `query` also searches pages. Remote callers see world facts only. One card: entity; reasoning: synthesize.",
     "params": {
       "entity": {
         "type": "string",
@@ -4974,7 +4974,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
         ]
       }
     },
-    "description": "MEMORY VERB (v1): core memory, budget-packed cards, open threads and hot facts for up to 8 entities, zero LLM. Call at session start and after compaction.",
+    "description": "MEMORY VERB: core memory, budget-packed cards, open threads and hot facts for up to 8 entities, zero LLM. Call at session start and after compaction.",
     "params": {
       "entities": {
         "type": "string",
@@ -4986,7 +4986,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "since": {
         "type": "string",
-        "description": "Only open-thread events after this ISO time."
+        "description": "Open-thread events after this ISO time."
       },
       "session_id": {
         "type": "string",
@@ -5037,7 +5037,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
         ]
       }
     },
-    "description": "MEMORY VERB (v1): pages, facts, thread events changed since a cursor, zero LLM. Pass session_id, cursor or since.",
+    "description": "MEMORY VERB: pages, facts, thread events changed since a cursor, zero LLM. Pass session_id, cursor or since.",
     "params": {
       "since": {
         "type": "string",
@@ -5100,7 +5100,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "Optional; reuse only to retry."
+        "description": "Reuse only to retry."
       },
       "id": {
         "type": "number",
@@ -5125,7 +5125,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "Optional; reuse only to retry."
+        "description": "Reuse only to retry."
       },
       "id": {
         "type": "number",
@@ -6183,12 +6183,12 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "mutating": true,
     "idempotent": true,
     "outputRedaction": "no_stored_text",
-    "description": "Mute a coaching or info notice (or first_run_decisions) for this client; muted: false unmutes.",
+    "description": "Mute a coaching or info notice (or first_run_decisions) for this client.",
     "params": {
       "code": {
         "type": "string",
         "required": true,
-        "description": "Notice code, the word after `[gbrain notice` in the block."
+        "description": "The word after `[gbrain notice` in the block."
       },
       "muted": {
         "type": "boolean",

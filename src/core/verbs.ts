@@ -62,7 +62,7 @@ const remember: Operation = {
   name: 'remember',
   idempotent: true,
   outputRedaction: 'no_stored_text',
-  description: 'MEMORY VERB (v1): save facts with provenance. Set `entity` (the subject) or recall misses it. Branch on `status` (inserted|duplicate|superseded); write_pending: poll get_write_request.',
+  description: 'MEMORY VERB: save facts with provenance. Set `entity` (the subject) or recall misses it. Branch on `status` (inserted|duplicate|superseded); write_pending: poll get_write_request.',
   params: {
     ...AGENT_CONTENT_PARAMS,
     fact: { type: 'string', description: 'One claim.' },
@@ -287,7 +287,7 @@ const synthesize: Operation = {
   mutating: false,
   idempotent: true,
   outputRedaction: 'retrieval',
-  description: '[EXPENSIVE / SLOW: LLM calls, costs money] MEMORY VERB (v1): answer a broad question across pages with citations. For lookups use recall or entity.',
+  description: '[EXPENSIVE / SLOW: LLM calls, costs money] MEMORY VERB: answer a broad question across pages with citations. For lookups use recall or entity.',
   params: {
     question: { type: 'string', description: 'The question.', required: true },
     since: { type: 'string', description: 'Window start (ISO 8601).' },
@@ -422,7 +422,7 @@ const forget: Operation = {
   name: 'forget',
   idempotent: true,
   outputRedaction: 'no_stored_text',
-  description: 'MEMORY VERB (v1): expire a remembered fact by its fact_id (never a page slug). Idempotent; the audit trail is kept.',
+  description: 'MEMORY VERB: expire a remembered fact by its fact_id (never a page slug). Idempotent; the audit trail is kept.',
   params: {
     request_id: WRITE_REQUEST_PARAM,
     id: { type: 'string', required: true, description: 'fact_id from remember or recall.' },
