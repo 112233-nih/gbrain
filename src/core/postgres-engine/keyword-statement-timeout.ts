@@ -7,10 +7,13 @@
  *
  * The bound is an operator mitigation, never a request parameter: a remote
  * caller cannot widen it, and the cap keeps a broad keyword query from
- * holding a backend for minutes. It is resolved once per engine connection
- * (the file plane at connect, then the DB plane on the first keyword
- * statement), so `gbrain config set` takes effect on the next connection:
- * the next CLI command, or a restart of `gbrain serve` / the workers. It
+ * holding a backend for minutes. It is resolved once per engine connection,
+ * by the first keyword statement after connect (the file plane the engine
+ * connected with, then the DB plane's `config` row), never by a request
+ * parameter; connect itself issues no statement for it, so a borrower of an
+ * in-flight pool still connects at once and a read-only command that never
+ * searches reads nothing. `gbrain config set` therefore takes effect on the
+ * next connection: the next CLI command, or a restart of the serving process. It
  * mitigates #6495 (a brain whose commonest terms cannot be ranked within the
  * bound) by letting the operator trade latency for coverage; ranking cost
  * stays proportional to the matching corpus, so a longer bound buys time,
@@ -44,16 +47,26 @@ export function keywordStatementTimeoutValueProblem(value: string): string | nul
 }
 
 /**
+ * The DB-plane read, with the key inlined instead of bound: a bound parameter
+ * makes the driver describe the statement and record its type in the shared
+ * pg-types cache, which is then written under `~/.gbrain/cache/pg-types/` at
+ * exit, and read-only commands such as `gbrain graduate --plan` must not
+ * write a byte (test/e2e/graduation-cli-zero-mutation-*.test.ts).
+ */
+// engine-sql-ok: one Postgres-only config-row read with the key inlined so the driver describes no parameter (pg-types cache); PGLite sets no statement timeout
+export const KEYWORD_STATEMENT_TIMEOUT_CONFIG_SQL = `SELECT value FROM config WHERE key = '${KEYWORD_STATEMENT_TIMEOUT_KEY}'`;
+
+/**
  * The `statement_timeout` setting value (`<ms>ms`) for one engine connection:
  * the file plane's value when set, else the DB plane's. A config table that
  * cannot be read yet (a fresh brain before its schema) yields the default.
  */
 export async function loadKeywordStatementTimeout(
-  reader: { getConfig(key: string): Promise<string | null | undefined> },
+  reader: { executeRaw<T>(sql: string): Promise<T[]> },
   fileValue: unknown,
 ): Promise<string> {
   const fileMs = keywordStatementTimeoutMs(fileValue);
   if (fileMs !== undefined) return `${fileMs}ms`;
-  const dbValue = await reader.getConfig(KEYWORD_STATEMENT_TIMEOUT_KEY).catch(() => undefined);
-  return `${resolveKeywordStatementTimeoutMs(undefined, dbValue)}ms`;
+  const rows = await reader.executeRaw<{ value: string }>(KEYWORD_STATEMENT_TIMEOUT_CONFIG_SQL).catch(() => []);
+  return `${resolveKeywordStatementTimeoutMs(undefined, rows[0]?.value)}ms`;
 }

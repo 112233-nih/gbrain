@@ -1172,7 +1172,6 @@
           "private poisonedDiscards",
           "private poolHealth",
           "private poolIncidents",
-          "private primeKeywordStatementTimeout",
           "private resolveFactsEmbeddingCast",
           "private rlsScopeBindingEnabled",
           "private runUnsafe",
