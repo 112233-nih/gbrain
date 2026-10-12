@@ -733,6 +733,27 @@ elsewhere), and never during a pending recovery or transfer
 (`recovery_required`). The setting is not a backup: the owner still never pulls
 or rebases the checkout.
 
+<a id="files-that-are-not-pages"></a>**Files that are not pages.** The owner's
+Git effect commits only the page paths it wrote (`git commit --only`) and then
+pushes HEAD. Everything else in the checkout (`MEMORY.md`, daily notes,
+`AGENTS.md`, scripts) is the operator's: `git add` and `git commit` it with
+plain git in the checkout. Those commits reach the remote on the owner's next
+push, because the owner pushes HEAD, or sooner with a hand `git push` from the
+checkout; `gbrain sources push` refuses on a managed root and its secret scan
+does not run on a hand push. A hand push and the owner's push race only by
+ordinary Git semantics (both push the same HEAD; a push the remote rejects is
+retried by the owner and, after repeated failures, parked, which
+`writer status --json` shows). Never
+`git pull --rebase`, `git reset` or `git checkout` page paths in the checkout:
+the owner never pulls, and moving files under it is what `source_changed`
+guards against; bring remote commits in with `gbrain sources refresh <source>`.
+The durability block `sources harden` writes into `AGENTS.md`/`RESOLVER.md`
+before activation says the opposite (run the push helper after every write,
+pull before writing), so `writer git-durability <source> --enable` and
+`--pat-file` rewrite that block in place to the managed variant (#5808); the
+preview reports it as `agents`, the rewrite touches nothing outside the
+markers, and the file is left for you to commit.
+
 ### Supported managed work and explicit repair
 
 Once active, ordinary authorized local atom extraction, fact fences/backstop,

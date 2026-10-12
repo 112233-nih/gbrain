@@ -426,7 +426,12 @@ without writing anything"* — your agent runs `gbrain sync --dry-run`.
 This hardening path applies to unmanaged worktrees. After activating managed
 writers, Git effects belong to the persistence outbox; generated legacy push
 helpers refuse to run rather than bypass that ownership boundary. See the
-[concurrent-write guide](concurrent-writes.md).
+[concurrent-write guide](concurrent-writes.md). On a managed root the owner
+commits and pushes page writes (`gbrain sources writer git-durability <source>
+--enable`), files that are not pages are committed with plain git and ride the
+owner's next push, the checkout is never pulled or rebased, and the durability
+block below is regenerated in its managed form by that verb; see
+[files that are not pages](../architecture/topologies.md#files-that-are-not-pages).
 
 A long-lived agent that writes to a knowledge-wiki git repo needs three
 things to never lose work: pull before it edits, push every write, and not
