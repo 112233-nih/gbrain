@@ -25,6 +25,7 @@ import { localTranscriptsNotice, recallInteropNotices, wantsTranscriptHint } fro
 import { hiddenToolHint } from './hidden-tool-hint.ts';
 import { takePostUpgradeMcpNotice } from '../core/post-upgrade-notice.ts';
 import { takeHttpBehaviorNotice, takeLocalBehaviorNotice } from '../core/behavior-change-notice.ts';
+import { takeSearchModeCoachingNotice } from '../core/search/mode-coaching.ts';
 import { takeChatFallbackHopNotices } from '../core/ai/fallback-hop-queue.ts';
 import { mcpOnboardingNotices } from '../core/onboard/mcp-onboarding.ts';
 import { takeFactsDrainNotice } from '../core/facts/drain.ts';
@@ -999,6 +1000,8 @@ export async function dispatchToolCall(
     if (opts.transport === 'stdio' && opts.remote !== false) notices.push(...await mcpOnboardingNotices({ engine, op: name, result, meta: responseMeta, config: ctx.config, render: dispatchRenderContext(opts) }));
     if (opts.transport === 'stdio' && opts.remote !== false) { const drain = takeFactsDrainNotice(); if (drain) notices.push(drain); } // Lane D facts drain
     notices.push(...await sessionSafetyNotices(engine, opts, ctx.config));
+    // Owner-only (stdio, never HTTP), once per brain; first in line so the session's coaching budget admits it.
+    if (opts.transport === 'stdio' && opts.remote !== false) { const coaching = await takeSearchModeCoachingNotice(engine, { cfg: ctx.config ?? null, principal: 'stdio' }); if (coaching) notices.unshift(coaching); }
     const out: ToolResult = toolResultWithNotices(result, admitNotices(notices, opts), dispatchRenderContext(opts));
     if (evidenceBlocks.length > 0) out.content.splice(1, 0, ...evidenceBlocks.map(text => ({ type: 'text' as const, text })));
     if (opts.transport === 'stdio') {
