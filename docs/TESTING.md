@@ -1042,30 +1042,6 @@ retire another phrase, add a row to `RETIRED`. Fixtures:
 scanned location); every pattern and the exemptions are driven in
 `test/scripts/check-retired-phrases.test.ts`.
 
-#### Shared-tree git guard
-
-`scripts/check-shared-tree-git.sh` (`bun run check:shared-tree-git`, in
-`bun run verify`, under a second) keeps agent-facing text from teaching git
-commands that are unsafe in a brain checkout several agents share (#6530).
-It scans `skills/`, `recipes/`, `templates/`, `docs/`, `plugin/`,
-`plugin-variants/` (`*.md`, `*.template`, `*.sh`) and `AGENTS.md`,
-`BOOTSTRAP_FOR_AGENTS.md` and `INSTALL_FOR_AGENTS.md`; in markdown only fenced
-code and inline code spans count. It flags `git pull --rebase`,
-`--autostash`, `git stash` (except `store`, `list`, `show`), `git add -A`,
-`--all` or `.` without `--`, `git commit -a`, `git reset --hard`, force pushes
-and any other `git push` except `--dry-run`. A line that must name one carries
-`# gbrain-allow-shared-tree-git: <reason>` on the same line, an
-`<!-- gbrain-allow-shared-tree-git: <reason> -->` line before it, or sits in a
-`-begin: <reason>` / `-end` region; a marker without a reason fails. Not
-scanned: the generated `docs/guides/error-codes.md`, the contributor docs
-about the gbrain source repo (`docs/RELEASING.md`, `docs/TESTING.md`,
-`docs/contributing/`) and historical records. It also requires the Multi-agent
-rules block to be identical in the three agent docs. The safe replacement and
-the full rules: [shared-checkout git](guides/shared-checkout-git.md).
-Fixtures: `test/fixtures/guards/check-shared-tree-git.sh/`; every form, the
-markers and the exemptions are driven in
-`test/scripts/check-shared-tree-git.test.ts`.
-
 #### Bash 3.2 parse guard
 
 macOS ships GNU bash 3.2.57 as `/bin/bash`, and its parser rejects shapes

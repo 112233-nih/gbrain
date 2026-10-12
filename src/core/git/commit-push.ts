@@ -125,8 +125,8 @@ function git(root: string, args: string[], opts: { auth?: boolean; timeoutMs?: n
 function gitOk(root: string, args: string[], what: string, opts: Parameters<typeof git>[2] = {}): string {
   const r = git(root, args, opts);
   if (r.code !== 0) {
-    throw opError('git_unavailable', `git ${what} failed in ${root}.`,
-      `${r.stderr.trim().slice(0, 300) || `exit ${r.code}`}`);
+    throw opError('git_unavailable', `git ${what} failed in ${root}: ${r.stderr.trim().slice(0, 300) || `exit ${r.code}`}`,
+      `Run git status in ${root}, fix what git reports, then rerun the same gbrain git commit-push command.`);
   }
   return r.stdout.trim();
 }
