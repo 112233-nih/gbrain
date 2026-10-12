@@ -10,6 +10,12 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [Unreleased]
+
+### Itemized changes
+
+- **`entity names[]` is 5 to 17 times faster on a large brain, with byte-identical output.** On a 55,838-page PGLite brain built from the Cat 40 Hard world M generator (seed 20261021, no embeddings), a 20-name batch's median went from 2,250 ms to 129 ms with every name found, from 1,743 ms to 155 ms with half found, and from 1,112 ms to 203 ms with none found. Profiling showed the name lookup itself dominated, not the cards: each found name ran two sequential scans of the source's pages, the alias resolver's "no other live page has this exact title" check and the card's exact-title / exact-slug / slug-suffix arm, about 50 ms each. Migration v240 adds `idx_pages_source_title_lower` (`source_id, lower(title)`) and a trigram index on `slug` (`idx_pages_slug_trgm`), built online on Postgres; the queries are unchanged and now run as index scans in about 1 ms. Single-name `entity`, context_pack cards and search's alias fan-out use the same two reads. The batch also stops assembling a full card per name it then threw away: candidate selection is now one exported function, `selectEntityCandidates`, that `buildEntityCard` and `lookupEntityNames` both call; the lead reuses the candidate row's body; siblings are read without the identity excerpt (`readSiblingIdentity`); and the private-page setting, mention policy and source pack are read once per batch (`entityLookupScope`). Parity tests compare the batch with the old full-card resolver over adversarial names (colliding aliases and titles, namespaced slugs, the same slug in two sources, private, deleted and quarantined candidates, identity siblings, stale aliases, LIKE wildcards) on PGLite and Postgres, and plan tests pin both reads to the new indexes.
+
 ## [0.60.178.0] - 2026-10-12
 
 **Batch entity lookups respect quarantine.** `entity` with `names` now hides quarantined pages from remote callers the way a single-name `entity` lookup and `get_page` already do, whichever way the name resolves, and a quarantined identity sibling no longer appears beside a page for remote callers, in batch rows or in a single-name card. Trusted local callers see the same results as before. No migration, no paid call.
