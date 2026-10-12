@@ -972,7 +972,7 @@ gbrain older than v0.60.47.0 blocks the source on the first file it refuses.
 6. Commit, sync, and read the remaining hold as JSON.
 
    ```console
-   $ git -C ~/brain/notes commit -qam "Repair frontmatter"
+   $ git -C ~/brain/notes commit -q -m "Repair frontmatter" -- notes/roundup.md notes/standup.md
    $ gbrain sync --source notes --no-pull
    0 file(s) held this run, 1 held in source notes; they do not block sync. Inspect them with 'gbrain sources status notes'; the repair preview proposes each fix and writes nothing. Preview the repair: gbrain repair frontmatter --source notes
    $ gbrain sources status notes --json
@@ -1004,7 +1004,7 @@ gbrain older than v0.60.47.0 blocks the source on the first file it refuses.
    interpretive: notes:notes/digest.md (Kept the later "title" (line 4) and dropped the earlier one (line 2))
    $ gbrain repair frontmatter --source notes --include-ambiguous --only notes/digest.md --apply --expect <hash> --yes
    repaired: notes:notes/digest path=notes/digest.md, written=true, imported=created, hold_cleared=true, committed=queued
-   $ git -C ~/brain/notes commit -qam "Keep the later digest title"
+   $ git -C ~/brain/notes commit -q -m "Keep the later digest title" -- notes/digest.md
    $ gbrain sync --source notes --no-pull
    +0 added, ~0 modified, -0 soft-deleted (recoverable 72h), R0 renamed
    $ gbrain doctor --only git_held_files,frontmatter_repairable
@@ -1321,7 +1321,7 @@ exists). An older gbrain blocked the source on the first fence it refused.
    M companies/acme-example.md
    M meetings/2026-04-03.md
    M projects/widget-launch.md
-   $ git -C ~/brain/notes commit -qam "Repair fences"
+   $ git -C ~/brain/notes commit -q -m "Repair fences" -- companies/acme-example.md meetings/2026-04-03.md projects/widget-launch.md
    $ gbrain doctor --only fence_integrity
    [OK] fence_integrity: No malformed facts or takes fence is held, stored or waiting in a checkout (2 source(s) scanned).
    ```

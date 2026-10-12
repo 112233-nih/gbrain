@@ -10,6 +10,33 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [0.60.185.0] - 2026-10-12
+
+**Agents that share one brain checkout no longer stash, revert or ship each other's half-written files when they commit and push (#6530).** Skills and the committed `scripts/brain-commit-push.sh` used to run `git pull --rebase --autostash` and repo-wide adds in the shared working tree. A rebase that crashed or conflicted left `.git/rebase-merge` holding another agent's edits in its autostash, and a later "repair" could silently revert them. New `gbrain git commit-push` commits only the paths you name, merges a rejected push with the remote in memory, and moves the checkout fast-forward only. Run `gbrain sources harden <id>` once per hardened brain to switch its helper and post-commit hook to it. Brain history now gets merge commits instead of rebased linear history. Guide: `docs/guides/shared-checkout-git.md`.
+
+### Itemized changes
+
+- **`gbrain git commit-push`** (`src/core/git/commit-push.ts`, `src/commands/git.ts`): `-m <msg> -- <paths>`, `--push-only`, `--pull [--require-clean]`, `--dry-run`, `--json`. It commits with `add -A -- <paths>` plus `commit --only` and literal pathspecs; a staged `git mv` commits both sides. A short commit lock (`brain-commit.lock`, plus the legacy `gbrain-push.lock`) covers local index/HEAD changes only. A separate publish lock (`brain-publish.lock`) covers the network push, so a slow remote never blocks commits or page write-through. A rejected push is merged with `merge-tree --write-tree -z` (a 3-way `read-tree` into a temporary index on git older than 2.38) and `commit-tree` over immutable SHAs, with up to 8 attempts and backoff while the remote moves; acceptance is confirmed at every push URL (#5138). The checkout advances with `-c merge.autoStash=false merge --ff-only` as a compare-and-swap; a dirty file the merge must change leaves it `pushed_checkout_lagging` (exit 0), and the next `--push-only` or `--pull` catches it up. Exit 4 is `push_unconfirmed`.
+- **Conflicts:** `integrate_conflict` changes nothing and asks the user. `--push-only --expect-remote <sha> --resolve <path>=ours|theirs|file:<copy>` publishes the choice. A remote that moved since the choice is reported again, file/directory and rename conflicts are refused, and raw NUL-delimited paths make non-ASCII names resolvable. The unresolved conflict is recorded in the checkout's git dir, and `put_page`'s push status reports it.
+- **The post-commit hook** runs the CLI captured at harden with `--push-only --require-clean`, never pulls, and never waits for another push. When one is running it reports `push_deferred` and leaves a request the running push honors after it releases. `BRAIN_COMMIT_LOCK_HELD` is honored only when it names the lock file's path.
+- **Callers:** the helper (`# gbrain-protocol: 2`; harden never downgrades a newer one) delegates to the CLI; without a capable CLI it does a locked, path-scoped commit plus a plain push and fails loudly. Page, facts, takes, timeline and `lint --fix` write-through and harden's scaffolding commit go through the primitive. `divergenceSafePull` (sources pull, the pull cron, harden, workspace push) and `gbrain sync`'s pull fetch, then fast-forward or merge in memory under the commit lock, for both pull strategies. Harden sets `rebase.autoStash=false`, `merge.autoStash=false` and `pull.ff=only` locally.
+- **Docs and lint:** new guide `docs/guides/shared-checkout-git.md` covers outcomes, conflicts, recovering a stuck rebase and the lock contract for host daemons. Skills, recipes and docs that taught in-tree rebase, stash or a bare push are rewritten, and one Multi-agent rules block lives in AGENTS.md, BOOTSTRAP_FOR_AGENTS.md and INSTALL_FOR_AGENTS.md. New `scripts/check-shared-tree-git.sh` (in `verify`) fails on unsafe shared-tree git in agent-facing code.
+- Tests: `test/git-commit-push-6530.serial.test.ts` has 25 real-git cases, including a forced probe (the old rebase rewrites an in-flight edit, the new protocol leaves it byte-identical) and 12 concurrent CLI writers over two clones. Hook, pull and git-remote tests are updated for the new protocol, and the CLI and export goldens are regenerated for `gbrain git`.
+
+## [0.60.184.0] - 2026-10-12
+
+**Unit and serial CI shards are packed from clean timings again.** CI splits each test lane across several machines using the recorded run time of every test file. The unit timings recorded before v0.60.183.0 carried a cold-boot penalty: three test files cleared the PGLite snapshot for every file after them in the same shard, so those files looked several minutes slower than they are. This release re-measures the unit and serial lanes from the first green master run after that fix. No product behaviour changes.
+
+### Itemized changes
+
+| Lane | Files with no recorded time, before | After | Bound | Source run |
+|---|---|---|---|---|
+| Unit | 75 of 3251 (2.3%) | 8 of 3251 (0.2%) | 5% | Test 38299951863 |
+| Serial | 7 of 392 (1.8%) | 0 of 392 (0.0%) | 10% | Test 38299951863 |
+| E2E | 14 of 565 (2.5%) | unchanged | 10% | not re-mined; no newer green full-profile run |
+
+- `scripts/test-weights.json` and `scripts/serial-weights.json`, plus their `.metadata.json` provenance files, are re-mined with `bun run weights:mine` from master Test run 38299951863, where every `test (N)` and `serial-tests` job passed. `GITHUB_EVENT_NAME=schedule bun scripts/check-weight-coverage.ts` reports OK with no dead entries.
+
 ## [0.60.183.0] - 2026-10-12
 
 **CI only: three test files stopped turning off the PGLite schema snapshot for every file that ran after them, which was making unit shards cross the 22-minute timeout on an ordinary slow runner. Nothing in gbrain itself changes.**
