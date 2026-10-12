@@ -326,7 +326,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       "content": {
         "type": "string",
         "required": true,
-        "description": "Complete markdown."
+        "description": "Complete markdown (get_page include_content:true)."
       },
       "allow_empty": {
         "type": "boolean",
@@ -626,7 +626,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       "type": {
         "type": "string",
         "required": false,
-        "description": "Schema-pack page type (default note)."
+        "description": "Page type (default note)."
       }
     },
     "scope": "write",
@@ -4079,7 +4079,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
           "type": "string",
           "description": "A tool name from the catalog."
         },
-        "description": "Tool names to fetch schemas for."
+        "description": "Tool names to fetch."
       },
       "surface": {
         "type": "string",

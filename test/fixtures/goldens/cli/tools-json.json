@@ -2,8 +2,8 @@
   "golden": {
     "exitCode": 0,
     "stderr": "",
-    "stdoutBytes": 231494,
-    "stdoutSha256": "78ab1dc6f65163ab0b701afd0a1123f275be689d1b37eba9dab98e8b334f8d90",
+    "stdoutBytes": 231502,
+    "stdoutSha256": "f552c2da394e9439d4972d5f483734afb5aff05bda352740ffb3426f6413a62f",
     "toolNames": [
       "remember",
       "entity",
@@ -497,7 +497,7 @@
               "type": "boolean"
             },
             "content": {
-              "description": "Complete markdown.",
+              "description": "Complete markdown (get_page include_content:true).",
               "type": "string"
             },
             "content_origin": {
@@ -832,7 +832,7 @@
               "type": "string"
             },
             "type": {
-              "description": "Schema-pack page type (default note).",
+              "description": "Page type (default note).",
               "type": "string"
             },
             "what": {
@@ -4902,7 +4902,7 @@
               "type": "string"
             },
             "tools": {
-              "description": "Tool names to fetch schemas for.",
+              "description": "Tool names to fetch.",
               "items": {
                 "description": "A tool name from the catalog.",
                 "type": "string"

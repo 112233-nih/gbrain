@@ -167,7 +167,7 @@ const request_tools: Operation = {
     tools: {
       type: 'array',
       items: { type: 'string', description: 'A tool name from the catalog.' },
-      description: 'Tool names to fetch schemas for.',
+      description: 'Tool names to fetch.',
     },
     surface: {
       type: 'string',

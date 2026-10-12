@@ -305,7 +305,7 @@ const put_page: Operation = {
   params: {
     ...AGENT_CONTENT_PARAMS,
     slug: { type: 'string', description: 'Page slug.', required: true },
-    content: { type: 'string', required: true, description: 'Complete markdown.' },
+    content: { type: 'string', required: true, description: 'Complete markdown (get_page include_content:true).' },
     allow_empty: { type: 'boolean', required: false, description: 'Allow emptying the page.' },
     drop_timeline: { type: 'boolean', required: false, description: 'No Timeline in content: delete its entries.' },
     wait_ms: WRITE_WAIT_PARAM,
@@ -652,7 +652,7 @@ const capture: Operation = {
     content: { type: 'string', required: true, description: 'Markdown or text (not a file path).' },
     local_file: { type: 'string', description: 'Local CLI only.', required: false },
     slug: { type: 'string', required: false, description: 'Default inbox/<date>-<hash>.' },
-    type: { type: 'string', required: false, description: 'Schema-pack page type (default note).' },
+    type: { type: 'string', required: false, description: 'Page type (default note).' },
   },
   scope: 'write',
   mutating: true,
