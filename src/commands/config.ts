@@ -1445,8 +1445,8 @@ export async function runConfig(engine: BrainEngine, args: string[]) {
     // set that already persisted.
     if (key === 'search.mode') {
       try {
-        const { runModeSwitchUx } = await import('../core/search/mode-switch-ux.ts');
-        const { isSearchMode } = await import('../core/search/mode.ts');
+        const [{ runModeSwitchUx }, { isSearchMode }] = await Promise.all([import('../core/search/mode-switch-ux.ts'), import('../core/search/mode.ts')]);
+        if (isSearchMode(value)) await engine.setConfig('search.mode_source', 'operator');
         await runModeSwitchUx({
           oldMode: oldSearchMode && isSearchMode(oldSearchMode) ? oldSearchMode : null,
           newMode: value,

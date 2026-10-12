@@ -99,6 +99,8 @@ export async function exerciseManagedEmbedding(engine: BrainEngine, scenario: Ca
           const result = await publishMutation(engine, row, prepared, localHostId());
           expect(result.state).not.toBe('committed');
         } else if (scenario === 'unchanged_replay') {
+          restoreWait();
+          restoreWait = () => {};
           expect(await run()).toMatchObject({ inserted: 1 });
           expect(await engine.executeRaw('SELECT id FROM facts WHERE source_id=$1 AND embedding IS NOT NULL', [sourceId])).toHaveLength(2);
         } else {
