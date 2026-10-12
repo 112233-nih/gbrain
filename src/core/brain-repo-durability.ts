@@ -299,7 +299,7 @@ if git push origin "$_head:refs/heads/$_branch" >>"$_log" 2>&1; then
   echo "$(date -u +%FT%TZ) [push] ok $_branch $(git rev-parse --short "$_head")" >>"$_log"; exit 0
 fi
 echo "$(date -u +%FT%TZ) [push] LOCAL-ONLY, NEEDS ATTENTION: $_branch @ $(git rev-parse --short "$_head") push rejected; run gbrain git commit-push --push-only" >>"$_log"
-echo "PUSH FAILED — the commit is local-only. Install gbrain and run: gbrain git commit-push --push-only (it merges remote commits safely). Never git pull --rebase here." >&2
+echo "PUSH FAILED — the commit is local-only. Install gbrain, then run: gbrain git commit-push --push-only (it merges remote commits safely). Never git pull --rebase here." >&2
 exit 4
 `;
 }
