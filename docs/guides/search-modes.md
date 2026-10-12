@@ -180,15 +180,18 @@ reports effective `cache_enabled: false`, and `cache stats` reports
 ### Cost intuition
 
 The table estimates only the tokens your *downstream agent* pays to read
-per query. Embedding, reranking and expansion calls can add separate charges. The
-corner-to-corner spread is ~25x once you pair mode with downstream model.
-Rough anchors at 10K queries/month, full payload, no cache savings:
+per query: an assumed payload per mode times 10K queries a month times the
+model's input rate from gbrain's pricing table (`src/core/model-pricing.ts`).
+Embedding, reranking and expansion calls are separate charges. The
+corner-to-corner spread is about 200x once you pair mode with downstream model.
+The install picker and the upgrade banner print the same matrix from
+`src/core/search/mode-advice.ts`.
 
-| Mode \ Downstream | Haiku-class (\$1/M in) | Sonnet-class (\$3/M in) | Opus-class (\$5/M in) |
+| Mode \ Downstream | Haiku 5.5 (\$0.10/M in) | Sonnet 5.5 (\$2/M in) | Opus 5.5 (\$4/M in) |
 |---|---|---|---|
-| conservative (~4K tok) | **\$40/mo** | \$120/mo | \$200/mo |
-| balanced (~10K tok) | \$100/mo | \$300/mo | \$500/mo |
-| tokenmax (~20K tok) | \$200/mo | \$600/mo | **\$1,000/mo** |
+| conservative (~4K tok) | **\$4/mo** | \$80/mo | \$160/mo |
+| balanced (~10K tok) | \$10/mo | \$200/mo | \$400/mo |
+| tokenmax (~20K tok) | \$20/mo | \$400/mo | **\$800/mo** |
 
 Scales linearly with volume. Budget for fresh retrieval on every query while
 semantic result caching is disabled; repeated searches may take longer and use
@@ -232,12 +235,21 @@ the search path, such as an evidence gate that drops results with no evidence
 for the question but, by default, never below three results and never an exact match.
 None of them changes a mode bundle. See [System One](system-one.md).
 
-The mode picker runs inside `gbrain init`. Non-TTY initialization tentatively
-applies its recommendation: `conservative` for a Haiku subagent or no detected
-expansion-capable key, otherwise `tokenmax`. Existing valid selections are
-preserved. This differs from retrieval's `balanced` fallback when no valid
-`search.mode` is stored; the picker asks agents to confirm the choice with
-their operator before continuing a real setup.
+The mode picker runs inside `gbrain init`. Non-TTY and `--json` initialization
+tentatively applies its recommendation: `tokenmax` with a chat key (Anthropic,
+OpenAI or Google), `balanced` with a ready reranker but no chat key (nothing in
+`balanced` needs a chat model), and `conservative` for a Haiku subagent or when
+neither exists. Keys count whether they are exported or saved in
+`~/.gbrain/config.json`. Existing valid selections are preserved, and the
+picker asks agents to confirm the choice with their operator before
+continuing a real setup.
+
+An agent that already knows the operator's choice records it at install time
+with `gbrain init --search-mode <conservative|balanced|tokenmax>`: no
+recommendation, no first-run `search_mode` question, and the brain records
+`search.mode_source: operator` (picker choices record `auto`; `gbrain config
+set search.mode` records `operator`). On a brain that already has a different
+mode, `--search-mode` refuses unless you also pass `--force`.
 
 ## Query instruction prefix
 
