@@ -5,6 +5,7 @@ import { pipelined } from '../page-state/transactions.ts';
 import type { BrainEngine } from '../engine.ts';
 import { OperationError, opError } from '../ops/contract.ts';
 import { readFix } from '../ops/op-fix.ts';
+import { readManagedMode } from './managed-mode.ts';
 import type { Action } from '../agent-output.ts';
 import { discoverGitRoot } from '../sync-git.ts';
 import { cliOptsToProgressOptions, getCliOptions } from '../cli-options.ts';
@@ -46,9 +47,10 @@ export function containsPath(root: string, path: string): boolean {
   const rel = relative(root, path);
   return !isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${sep}`);
 }
+export { MANAGED_MODE_SQL, managedModeFromRows, readManagedMode, readPersistenceBrain, unknownManagedModeRefusal,
+  type ManagedModeReadOptions, type ManagedModeRefusalContext, type PersistenceBrainRow } from './managed-mode.ts';
 export async function managedPersistenceEnabled(engine: SqlEngine): Promise<boolean> {
-  const [row] = await engine.executeRaw<{ enabled: boolean }>('SELECT enabled FROM persistence_brain WHERE singleton=1');
-  return row?.enabled === true;
+  return readManagedMode(engine);
 }
 /**
  * #6331: the verify-step doctor of an engine graduation runs on the fenced target before cutover sets

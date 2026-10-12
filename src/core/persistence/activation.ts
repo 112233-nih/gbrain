@@ -4,7 +4,7 @@ import type { BrainEngine } from '../engine.ts';
 import type { Action } from '../agent-output.ts';
 import { opError, OperationError } from '../ops/contract.ts';
 import { readFix } from '../ops/op-fix.ts';
-import { acquireWorktree, getWorktreeBinding, type WorktreeBinding } from './ownership.ts';
+import { acquireWorktree, getWorktreeBinding, readManagedMode, type WorktreeBinding } from './ownership.ts';
 import { localHostId, existingLocalHostId, persistenceHome, registerLocalWriter } from './identity.ts';
 import { nativeLockCapability, tryAcquireNativeLock, type NativeLockHandle } from './native-lock.ts';
 import { managedFilesystemDatastorePath, refreshManagedFilesystemRoots } from './filesystem-guard.ts';
@@ -118,8 +118,7 @@ export async function activatePersistence(engine: BrainEngine, opts: { confirmQu
       { fix: writerStatusFix('Shows whether managed persistence is now enabled and which owners are active, read-only.') });
   }
   await probe.release();
-  const [brain] = await engine.executeRaw<{ enabled: boolean }>('SELECT enabled FROM persistence_brain WHERE singleton=1');
-  if (brain?.enabled && opts.expectedState === undefined) {
+  if (await readManagedMode(engine) && opts.expectedState === undefined) {
     const [count] = await engine.executeRaw<{ count: number }>(`SELECT COUNT(*)::integer AS count FROM persistence_source_bindings b
       JOIN sources s ON s.id=b.source_id AND s.incarnation=b.source_incarnation WHERE NOT s.archived`);
     return { enabled: true, activated: false, filesystem_sources: count.count, native_lock: native, ...ALREADY_ENABLED };
@@ -154,9 +153,9 @@ export async function activatePersistence(engine: BrainEngine, opts: { confirmQu
     return await engine.transaction(async tx => {
       await tx.executeRaw("SELECT set_config('lock_timeout','2000ms',true),set_config('synchronous_commit','on',true)");
       await assertWriterAdminState(tx, opts.expectedState);
-      const [current] = await tx.executeRaw<{ enabled: boolean }>('SELECT enabled FROM persistence_brain WHERE singleton=1 FOR UPDATE');
+      const current = await readManagedMode(tx, { lock: 'update' });
       await assertWriterAdminUnlocked(tx);
-      if (current?.enabled) return { enabled: true, activated: false, filesystem_sources: initial.length, native_lock: native, ...ALREADY_ENABLED };
+      if (current) return { enabled: true, activated: false, filesystem_sources: initial.length, native_lock: native, ...ALREADY_ENABLED };
       const currentSources = await configuredSources(tx, true);
       const bindings = await validatedBindings(tx, currentSources, hostId, true);
       const identity = (rows: WorktreeBinding[]) => JSON.stringify(rows.map(row => [row.source_id,row.source_incarnation,row.worktree_id,row.owner_host_id,

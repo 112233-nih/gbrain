@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { BrainEngine } from '../engine.ts';
 import { existingLocalHostId, persistenceHome } from './identity.ts';
-import { containsPath, getWorktreeBinding } from './ownership.ts';
+import { containsPath, getWorktreeBinding, readManagedMode } from './ownership.ts';
 import { assertPhysicalRoot } from './physical-root.ts';
 import { inspectLegacyWriterLocks } from './legacy-locks.ts';
 import { UNSUPPORTED_MANAGED_BULK_WRITERS } from './maintenance.ts';
@@ -26,7 +26,7 @@ export function containerPathPreflight(paths: Record<string, string>, mountinfo?
 }
 
 export async function writerOnboardingPreflight(engine: BrainEngine, sourceId?: string) {
-  const [brain] = await engine.executeRaw<{ enabled: boolean }>('SELECT enabled FROM persistence_brain WHERE singleton=1');
+  const managed = await readManagedMode(engine);
   const rows = await engine.executeRaw<{ id: string; local_path: string | null; incarnation: string; kind: string | null }>(
     "SELECT id,local_path,incarnation,config->>'kind' AS kind FROM sources WHERE NOT archived AND ($1::text IS NULL OR id=$1) ORDER BY id", [sourceId ?? null]);
   const fallback = await engine.getConfig('sync.repo_path'), host = existingLocalHostId();
@@ -35,7 +35,7 @@ export async function writerOnboardingPreflight(engine: BrainEngine, sourceId?: 
   for (const row of rows) {
     const binding = await getWorktreeBinding(engine, row.id, host), configured = row.local_path || (row.id === 'default' ? fallback : null);
     const connector = isConnectorSourceKind(row.kind);
-    let state = !binding ? connector ? 'connector_database' : configured && writeThrough ? 'claim_required' : 'database_only' : !brain.enabled ? 'activation_required' : 'ready';
+    let state = !binding ? connector ? 'connector_database' : configured && writeThrough ? 'claim_required' : 'database_only' : !managed ? 'activation_required' : 'ready';
     let physicalError: string | undefined;
     if (binding && (binding.source_incarnation !== row.incarnation || binding.state !== 'active')) state = 'recovery_required';
     if (binding && binding.owner_host_id !== host) state = 'owner_host_required';
