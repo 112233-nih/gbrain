@@ -1637,7 +1637,7 @@
         "kind": "type",
         "name": "ChatBlock",
         "signature": [
-          "{ type: \"text\"; text: string; providerMetadata?: Record<string, unknown>; } | { type: \"reasoning\"; text: string; providerMetadata?: Record<string, unknown>; } | { type: \"tool-call\"; toolCallId: string; toolName: string; input: unknown; providerMetadata?: Record<string, unknown>; } | { type: \"tool-result\"; toolCallId: string; toolName: string; output: unknown; isError?: boolean; providerMetadata?: Record<string, unknown>; }"
+          "{ type: \"text\"; text: string; cache?: true; providerMetadata?: Record<string, unknown>; } | { type: \"reasoning\"; text: string; providerMetadata?: Record<string, unknown>; } | { type: \"tool-call\"; toolCallId: string; toolName: string; input: unknown; providerMetadata?: Record<string, unknown>; } | { type: \"tool-result\"; toolCallId: string; toolName: string; output: unknown; isError?: boolean; providerMetadata?: Record<string, unknown>; }"
         ]
       },
       {
@@ -2379,7 +2379,7 @@
         "kind": "function",
         "name": "toModelMessages",
         "signature": [
-          "(messages: ChatMessage[]) => unknown[]"
+          "(messages: ChatMessage[], cacheControl?: { type: \"ephemeral\"; ttl?: \"5m\" | \"1h\"; }) => unknown[]"
         ]
       },
       {
