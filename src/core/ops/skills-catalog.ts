@@ -83,7 +83,7 @@ const get_skill: Operation = {
   params: {
     schema_version: { type: 'number', description: '2 for an exact canonical revision.' },
     qualified_id: { type: 'string', description: 'Version 2 skill id.' },
-    expected_brain_id: { type: 'string', description: 'Version 2 brain id to assert.' },
+    expected_brain_id: { type: 'string', description: 'Brain id to assert.' },
     source_incarnation: { type: 'string', description: 'From discovery.' },
     pack_id: { type: 'string', description: 'Pack id.' },
     revision: { type: 'string', description: 'Exact revision (default: head).' },

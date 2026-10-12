@@ -14,7 +14,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "remember",
     "idempotent": true,
     "outputRedaction": "no_stored_text",
-    "description": "MEMORY VERB: save facts with provenance. Set `entity` (the subject) or recall misses it. Branch on `status` (inserted|duplicate|superseded); write_pending: poll get_write_request.",
+    "description": "MEMORY VERB (v1): save facts with provenance. Set `entity` (the subject) or recall misses it. Branch on `status` (inserted|duplicate|superseded); write_pending: poll get_write_request.",
     "params": {
       "source_id": {
         "type": "string",
@@ -151,7 +151,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "mutating": false,
     "idempotent": true,
     "outputRedaction": "retrieval",
-    "description": "[EXPENSIVE / SLOW: LLM calls, costs money] MEMORY VERB: answer a broad question across pages with citations. For lookups use recall or entity.",
+    "description": "[EXPENSIVE / SLOW: LLM calls, costs money] MEMORY VERB (v1): answer a broad question across pages with citations. For lookups use recall or entity.",
     "params": {
       "question": {
         "type": "string",
@@ -185,7 +185,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "forget",
     "idempotent": true,
     "outputRedaction": "no_stored_text",
-    "description": "MEMORY VERB: expire a remembered fact by its fact_id (never a page slug). Idempotent; the audit trail is kept.",
+    "description": "MEMORY VERB (v1): expire a remembered fact by its fact_id (never a page slug). Idempotent; the audit trail is kept.",
     "params": {
       "request_id": {
         "type": "string",
@@ -2146,7 +2146,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "expected_brain_id": {
         "type": "string",
-        "description": "Version 2 brain id to assert."
+        "description": "Brain id to assert."
       },
       "source_incarnation": {
         "type": "string",
@@ -4868,7 +4868,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
         ]
       }
     },
-    "description": "MEMORY VERB: read saved facts by entity, since or session_id; `query` also searches pages. Remote callers see world facts only. One card: entity; reasoning: synthesize.",
+    "description": "MEMORY VERB (v1): read saved facts by entity, since or session_id; `query` also searches pages. Remote callers see world facts only. One card: entity; reasoning: synthesize.",
     "params": {
       "entity": {
         "type": "string",
@@ -4974,7 +4974,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
         ]
       }
     },
-    "description": "MEMORY VERB: core memory, budget-packed cards, open threads and hot facts for up to 8 entities, zero LLM. Call at session start and after compaction.",
+    "description": "MEMORY VERB (v1): core memory, budget-packed cards, open threads and hot facts for up to 8 entities, zero LLM. Call at session start and after compaction.",
     "params": {
       "entities": {
         "type": "string",
@@ -5037,7 +5037,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
         ]
       }
     },
-    "description": "MEMORY VERB: pages, facts, thread events changed since a cursor, zero LLM. Pass session_id, cursor or since.",
+    "description": "MEMORY VERB (v1): pages, facts, thread events changed since a cursor, zero LLM. Pass session_id, cursor or since.",
     "params": {
       "since": {
         "type": "string",
