@@ -1618,6 +1618,9 @@ export class PostgresEngine implements BrainEngine {
   async markPagesAttendanceBlocked(refs: Array<{ slug: string; source_id: string; revision: string }>): Promise<number> {
     return pagesImpl.markPagesAttendanceBlocked(this.engineSql, refs);
   }
+  async countStaleFrontmatterKeyPages(opts: { sourceIds: string[] }) { return this.withScopedReadTransaction(opts.sourceIds, undefined, tx => pagesImpl.countStaleFrontmatterKeyPages(scopedRead(this.engineSqlOn(tx)), opts)); }
+  async listStaleFrontmatterKeyPages(opts: { sourceId: string; afterId: number; limit: number }) { return this.withScopedReadTransaction(undefined, opts.sourceId, tx => pagesImpl.listStaleFrontmatterKeyPages(scopedRead(this.engineSqlOn(tx)), opts)); }
+  async stripStaleFrontmatterKeys(opts: { sourceId: string; ids: number[] }) { return pagesImpl.stripStaleFrontmatterKeys(this.engineSql, opts); }
 
   // Links
   async addLink(

@@ -201,6 +201,19 @@
           "src-a"
         ]
       },
+      "countStaleFrontmatterKeyPages#default": {
+        "flagOffLanes": [
+          "pool"
+        ],
+        "flagOffOpensTransaction": false,
+        "flagOn": "scoped",
+        "flagOnLanes": [
+          "tx"
+        ],
+        "flagOnScopes": [
+          "src-a"
+        ]
+      },
       "countStalePagesForExtraction#attendance-blocked+sourceId": {
         "flagOffLanes": [
           "pool"
@@ -2198,6 +2211,19 @@
           "src-a"
         ]
       },
+      "listStaleFrontmatterKeyPages#default": {
+        "flagOffLanes": [
+          "pool"
+        ],
+        "flagOffOpensTransaction": false,
+        "flagOn": "scoped",
+        "flagOnLanes": [
+          "tx"
+        ],
+        "flagOnScopes": [
+          "src-a"
+        ]
+      },
       "listStalePagesForExtraction#afterPageId+versionTs+sourceId": {
         "flagOffLanes": [
           "pool"
@@ -3043,6 +3069,17 @@
         ],
         "flagOnScopes": []
       },
+      "stripStaleFrontmatterKeys#default": {
+        "flagOffLanes": [
+          "pool"
+        ],
+        "flagOffOpensTransaction": false,
+        "flagOn": "unscoped",
+        "flagOnLanes": [
+          "pool"
+        ],
+        "flagOnScopes": []
+      },
       "sumStaleChunkChars#default": {
         "flagOffLanes": [
           "pool"
@@ -3380,12 +3417,13 @@
       }
     },
     "static": {
-      "callSites": 27,
+      "callSites": 29,
       "directMethods": {
         "_searchKeywordCJK": 1,
         "countChunklessPagesWithContent": 1,
         "countKeywordPages": 1,
         "countStaleChunks": 1,
+        "countStaleFrontmatterKeyPages": 1,
         "countStalePagesForExtraction": 1,
         "findDuplicatePage": 1,
         "findDuplicatePages": 1,
@@ -3400,6 +3438,7 @@
         "listPages": 1,
         "listPrefixSampledPages": 1,
         "listStaleChunks": 1,
+        "listStaleFrontmatterKeyPages": 1,
         "listStalePagesForExtraction": 1,
         "readPageSnapshot": 1,
         "readPageSnapshotsBatch": 1,
@@ -3432,6 +3471,7 @@
         "countChunklessPagesWithContent": "direct",
         "countKeywordPages": "direct",
         "countStaleChunks": "direct",
+        "countStaleFrontmatterKeyPages": "direct",
         "countStalePagesForExtraction": "direct",
         "countStaleTakes": "none",
         "countUnconsolidatedFacts": "none",
@@ -3525,6 +3565,7 @@
         "listPages": "direct",
         "listPrefixSampledPages": "direct",
         "listStaleChunks": "direct",
+        "listStaleFrontmatterKeyPages": "direct",
         "listStalePagesForExtraction": "direct",
         "listStaleTakes": "none",
         "listSupersessions": "none",
@@ -3584,6 +3625,7 @@
         "softDeletePage": "none",
         "softDeletePages": "none",
         "sql": "none",
+        "stripStaleFrontmatterKeys": "none",
         "sumStaleChunkChars": "none",
         "supersedeTake": "none",
         "sweepContradictionCache": "none",

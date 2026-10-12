@@ -32,6 +32,7 @@ test/extract-endpoint-revision.serial.test.ts
 test/extract-entities-managed.test.ts
 test/extract-timeline-from-meetings-managed.test.ts
 test/fence-repair-receipts.test.ts
+test/frontmatter-reserved-keys-6454.test.ts
 test/graduation-copy.test.ts
 test/graduation-digest.test.ts
 test/graduation-drain.test.ts
@@ -111,6 +112,7 @@ test/repair-embedding-effects.test.ts
 test/repair-failed-writes-conflict-6429.test.ts
 test/repair-failed-writes-drift-w411.test.ts
 test/repair-fences.test.ts
+test/repair-frontmatter-keys-sweep-6454.test.ts
 test/repair-frontmatter.test.ts
 test/scripts/test-stress-postgres.test.ts
 test/shared-content-freshness.test.ts

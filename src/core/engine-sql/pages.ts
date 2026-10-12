@@ -785,6 +785,44 @@ export async function markPagesAttendanceBlocked(
     return result.affectedRows;
   }
 
+/**
+ * #6454: live pages whose stored frontmatter still carries one of the parser's
+ * reserved top-level keys (`type`, `title`, `tags`, `slug`; older imports kept
+ * them). Not drift since `comparableFrontmatter` (markdown.ts), but hygiene
+ * `gbrain repair frontmatter-keys` sweeps on consent. Counts per source for
+ * the doctor check; the listing pages by id for the preview-bound sweep.
+ */
+export const RESERVED_FRONTMATTER_KEYS_SQL = ['type', 'title', 'tags', 'slug'];
+const normalizeStaleKeyCount = compileRowNormalizer<{ source_id: string; n: number }>({ n: 'bigint' });
+export async function countStaleFrontmatterKeyPages(exec: ScopedRead, opts: { sourceIds: string[] }): Promise<Array<{ source_id: string; n: number }>> {
+    if (opts.sourceIds.length === 0) return [];
+    const { rows } = await exec.run<{ source_id: string; n: number | string }>(sqlFragment`
+      SELECT source_id, count(*)::bigint AS n FROM pages
+      WHERE source_id = ANY(${opts.sourceIds}::text[]) AND deleted_at IS NULL AND frontmatter ?| ${RESERVED_FRONTMATTER_KEYS_SQL}::text[]
+      GROUP BY source_id ORDER BY source_id
+    `);
+    return rows.map(row => normalizeStaleKeyCount(row));
+  }
+export async function listStaleFrontmatterKeyPages(exec: ScopedRead, opts: { sourceId: string; afterId: number; limit: number }):
+  Promise<Array<{ id: number; slug: string; keys: string[] }>> {
+    const { rows } = await exec.run<{ id: number | string; slug: string; keys: string[] }>(sqlFragment`
+      SELECT id, slug, ARRAY(SELECT k FROM unnest(${RESERVED_FRONTMATTER_KEYS_SQL}::text[]) AS k WHERE frontmatter ? k ORDER BY k) AS keys
+      FROM pages
+      WHERE source_id = ${opts.sourceId} AND deleted_at IS NULL AND frontmatter ?| ${RESERVED_FRONTMATTER_KEYS_SQL}::text[] AND id > ${opts.afterId}
+      ORDER BY id LIMIT ${opts.limit}
+    `);
+    return rows.map(row => ({ id: Number(row.id), slug: row.slug, keys: row.keys }));
+  }
+/** Strips the reserved keys from the named live pages of one source; the revision trigger advances each changed row. */
+export async function stripStaleFrontmatterKeys(exec: SqlExecutor, opts: { sourceId: string; ids: number[] }): Promise<number> {
+    if (opts.ids.length === 0) return 0;
+    const result = await exec.run(sqlFragment`
+      UPDATE pages SET frontmatter = frontmatter - ${RESERVED_FRONTMATTER_KEYS_SQL}::text[]
+      WHERE source_id = ${opts.sourceId} AND id = ANY(${opts.ids}::int[]) AND deleted_at IS NULL AND frontmatter ?| ${RESERVED_FRONTMATTER_KEYS_SQL}::text[]
+    `);
+    return result.affectedRows;
+  }
+
 export async function findByTitleFuzzy(
   exec: LegacyUnscopedRead,
   name: string,
