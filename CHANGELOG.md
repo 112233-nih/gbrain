@@ -20,6 +20,7 @@ identifiers and attribution are available in the pre-removal Git revision
 - **An already-applied correction is not a conflict.** When the working-tree bytes hash to exactly the canonical file this import would write, the import proceeds with no file write (`sync-prepare.ts`); any other newer bytes are protected as before.
 - Tests: `test/managed-sync-page-fault-holds.test.ts` adds the three probes on PGLite and Postgres (live run held and cleared by the commit, already-applied writeback, older blocked cursor converted under `--retry-failed`); each fails on the previous release.
 - Docs: [write refusals](docs/guides/write-refusals.md#worktree_dirty) describes the new hold case.
+- **A CLI call that lands while `gbrain serve` is still starting waits for the owner socket instead of failing `owner_unavailable` (`submission_status: not_sent`).** The serve takes the PGLite datastore lock before it binds its persistence socket (the MCP handshake sits in between), so a local command in that window saw a serve holder and no socket. `maybeDelegateLocalOperation` / `maybeDelegateLocalAdministration` now repeat the capability probe for up to 3 s while the same serve holds the lock; a released lock, a different holder or any other transport failure ends the wait at once, and nothing falls through to the engine path. Surfaced as a CI flake in `test/shared-skills-live-cli.test.ts`; probe in `test/persistence-local-client.test.ts` (fails on master).
 
 Fixes #6513.
 
