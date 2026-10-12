@@ -510,6 +510,26 @@ vars — incident-time escape hatches, not everyday knobs.
 
    **Say to your agent:** *"Bring my notes source up to date with its remote."*
 
+9. **Turn automatic pulls off for every source.** On an unmanaged brain,
+   autopilot's freshness sync and its per-source cycle run `git pull` for a
+   source that has a remote URL. A checkout you keep current yourself (a
+   deploy script, a mirror, a branch you rebase by hand) should not be
+   pulled behind your back:
+
+   ```bash
+   gbrain config set autopilot.git_pull false   # default: true
+   ```
+
+   Automatic syncs then index the local checkout as it is (`pull: false` on
+   every queued sync job), and the daemon prints `git_pull: off
+   (autopilot.git_pull=false)` once per tick (`{"event":"git_pull_disabled"}`
+   under `--json`). Per-source `syncEnabled: false` still removes a source from
+   automatic sync entirely; an explicit `gbrain sync --source <id>` keeps its
+   own `--pull`/`--no-pull` choice. Managed brains never pull automatically
+   whatever this key says (item 8).
+
+   **Say to your agent:** *"Stop autopilot from git-pulling my sources; I update the checkouts myself."*
+
 ## How to Verify
 
 1. **Edit a file and search for the change.** Edit a brain markdown file,

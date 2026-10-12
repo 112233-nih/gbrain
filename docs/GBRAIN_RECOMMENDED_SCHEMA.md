@@ -295,6 +295,17 @@ History of interactions, temperature, dynamic.
 - **YYYY-MM-DD** | Source — What happened.
 ```
 
+The timeline row grammar is `- **YYYY-MM-DD** | Source — Summary`. The
+`Source — Summary` delimiter is a dash with a space on each side: the em dash
+(`—`), the en dash (`–`) and the plain hyphen (` - `) are all accepted, so a
+house style that never types an em dash writes
+`- **2026-01-03** | Meeting - Agreed on the Q2 plan` and gets `source: Meeting`.
+A colon is not a delimiter: `- **2026-01-02** | Meeting: Agreed on the Q2 plan`
+still parses as a dated entry, but its source is recorded as `markdown` and the
+whole `Meeting: Agreed on the Q2 plan` text is the summary, because `Note: …`
+and `TODO: …` are ordinary prose. gbrain's own writers (`add_timeline_entry`,
+the extractors) keep writing the em dash.
+
 All sections are optional — include what you have, leave empty sections as `[No data yet]` rather than omitting them. **The structure itself is a prompt for future enrichment.** When a section says `[No data yet]`, the agent knows what to look for next time it encounters this person.
 
 The principle: facts are table stakes. Context is the value.

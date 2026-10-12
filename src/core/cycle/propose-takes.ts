@@ -294,6 +294,7 @@ async function listCandidatePages(
   engine: BrainEngine,
   scope: ScopedReadOpts,
   limit: number,
+  types: string[] | null = null,
 ): Promise<ProposeTakesPageRow[]> {
   const where = [
     'deleted_at IS NULL',
@@ -313,6 +314,11 @@ async function listCandidatePages(
     params.push(scope.sourceId);
     where.push(`source_id = $${params.length}`);
   }
+  // #5213: `cycle.propose_takes.types` narrows candidates to listed page types.
+  if (types) {
+    params.push(types);
+    where.push(`type = ANY($${params.length}::text[])`);
+  }
   params.push(limit);
   return engine.executeRaw<ProposeTakesPageRow>(
     `SELECT slug, source_id, compiled_truth
@@ -322,6 +328,30 @@ async function listCandidatePages(
       LIMIT $${params.length}`,
     params,
   );
+}
+
+export const PROPOSE_TAKES_TYPES_KEY = 'cycle.propose_takes.types';
+
+/**
+ * #5213: the page types propose_takes may scan, from `cycle.propose_takes.types`
+ * (a JSON array of type names, the `cycle.enrich_thin.types` shape). Unset,
+ * empty, unreadable or malformed means every type stays a candidate; a
+ * malformed value also prints one stderr line so a typo is visible.
+ */
+export async function proposeTakesTypes(engine: BrainEngine): Promise<string[] | null> {
+  const raw = await engine.getConfig?.(PROPOSE_TAKES_TYPES_KEY).catch(() => null) ?? null;
+  if (raw == null || raw.trim() === '') return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      const types = parsed.filter((t): t is string => typeof t === 'string' && t.trim().length > 0).map(t => t.trim());
+      if (types.length > 0) return types;
+    }
+  } catch {
+    // reported below
+  }
+  process.stderr.write(`[propose_takes] ignoring ${PROPOSE_TAKES_TYPES_KEY}: expected a JSON array of page types, e.g. gbrain config set ${PROPOSE_TAKES_TYPES_KEY} '["meeting","note"]'\n`);
+  return null;
 }
 
 /**
@@ -886,8 +916,8 @@ class ProposeTakesPhase extends BaseCyclePhase {
       };
     }
 
-    // Load pages eligible for proposal. Source-scoped per BaseCyclePhase.
-    const pages = await listCandidatePages(engine, scope, pageLimit);
+    // Load pages eligible for proposal. Source-scoped per BaseCyclePhase; #5213 types narrow it.
+    const pages = await listCandidatePages(engine, scope, pageLimit, await proposeTakesTypes(engine));
 
     if (opts.reporter) {
       opts.reporter.start('propose_takes.pages' as never, pages.length);

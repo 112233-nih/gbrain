@@ -2081,7 +2081,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "limit": {
         "type": "number",
-        "description": "Version 2 page size (1-100)."
+        "description": "Page size or ranked count (1-100)."
       },
       "cursor": {
         "type": "string",
@@ -2094,6 +2094,11 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       "section": {
         "type": "string",
         "description": "Only this routing section."
+      },
+      "query": {
+        "type": "string",
+        "description": "Version 1 host catalog: rank skills by word overlap with this task (name, triggers, description), drop the rest, cap at limit (default 10). Refused on a shared catalog.",
+        "fullSurfaceOnly": true
       }
     },
     "scope": "read",
