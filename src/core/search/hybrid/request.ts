@@ -30,6 +30,7 @@ import { resolveSearchDateBounds } from '../date-bounds.ts';
 import { type DecideSearchContext, decideMetaFor, resolveAndLaunchDecide } from '../decide-stage.ts';
 import { applySearchIntent } from '../decide-retrieval.ts';
 import { liftModeCut } from '../page-rank-cut.ts';
+import { type StageTimer, UNTIMED } from '../stage-timings.ts';
 
 /**
  * Everything the stages read, resolved once at hybridSearch entry, plus the
@@ -73,6 +74,8 @@ export interface HybridRequest {
   rerankMeta?: { model_resolved: string };
   /** Set by the relational arm when the multi-hop planner ran (meta.relational_plan). */
   relationalPlan?: import('../relational-recall.ts').RelationalPlanMeta;
+  /** The op's stage-timing collector (`opts._timings`), or the no-op timer. */
+  timer: StageTimer;
 }
 
 const DEBUG = process.env.GBRAIN_SEARCH_DEBUG === '1';
@@ -309,6 +312,7 @@ export async function resolveHybridRequest(
     expansionApplied: false,
     lastResultsCount: 0,
     lastRank1Score: undefined,
+    timer: opts?._timings ?? UNTIMED,
   };
   if (decide) req.decide = decide;
   return req;
