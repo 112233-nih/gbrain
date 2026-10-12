@@ -10,6 +10,33 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [0.60.189.0] - 2026-10-12
+
+**No Postgres statement outlives its budget now, a stalled managed sync says what is blocking it, and doctor stops misleading on managed and image-heavy brains (#6543, part 2).** v0.60.187.0 stopped the Supavisor wedge itself. This release closes the gaps the reporter hit around it. A statement that kept receiving bytes was never retired, so `/health?deep=1` stayed red forever. A sync stalled 300-600 s with "claimable here: no" no matter the cause. `repair failed-writes --apply` stopped at every pending write. Doctor recommended a `--retry-failed` that did nothing on a managed brain, and reported existing images as missing when only their letter case differed.
+
+### Itemized changes
+
+- **Per-statement age cap.** A second in-flight clock, which received bytes never restart, retires a connection whose statement runs past its budget (`pg_connection_stuck reason=age`; `reason=idle` when nothing came back). The budget is per statement:
+  - An operation that declares a longer `statement_timeout` gets that timeout plus the grace. This covers `SET LOCAL`, `set_config`, and a session `SET` on a reserved connection.
+  - A declared 0 has no cap.
+  - The driver reads these declarations from the statements it sends, so the budget holds behind a transaction pooler.
+
+  The warn line adds `reason=` and `budget_ms=`, and `/health?deep=1` judges each statement against its own budget. A guard test fails CI on any `statement_timeout` change in `src/` written in a form the driver can't read. Driver edits went through `patches/postgres@3.4.9.patch`. The ANN index build and both migration paths run past the pool budget unretired.
+- **Recovery counters.** `recovered` and `recovery_failed` appear in `/health?deep=1` and pool diagnostics, and a failed reconnect logs `pg_connection_recovery_failed`. Serve writes stuck, desync and recovery events to the pool-recovery audit, so `doctor --only pool_reap_health` sees them.
+- **A stalled sync names what is blocking it.** A new head-blocker probe names the predicate that keeps the queued head unclaimable: `refresh_fence`, `worktree_owner`, `effect_recovery`, `withdrawal_mirror`, `request_recovery`, `zombie_publication`, `lease` or `root_hold`.
+  - **Operator-required blockers:** an unowned refresh fence, or a request held by a process that reports `restart_required`. These stop the drain within one governor tick with `drain_stalled`, `cause: head_blocked`, and a `next.fix` per predicate.
+  - **Live blockers:** these keep the progress-aware wait.
+
+  The stall line gains `consumer=` and `blocked_by=`, and `claimable here` reads the head itself (`unknown` on a failed read). `sources writer status` names the blocker, and offers `cancel-write-request` only when that request can be cancelled.
+- **`repair <kind> --apply` keeps going past pending writes.** While a consumer here publishes, it keeps each pending receipt and pins the cursor before the earliest one. It admits the rest with bounded backpressure (at most half the principal outstanding cap unresolved) and settles everything against one shared wait. A stopped run lists `pending` and the same command resumes. With no live consumer, or one reporting `restart_required`, it still stops at the first pending write and names the owner.
+- **`gbrain sync` on a managed brain implies `--no-pull`.** This covers one source, `--all`, and serve-delegated runs. It prints one stderr line naming `gbrain sources refresh <id>`. The library and MCP refusal of an explicit pull stays.
+- **Doctor and image fixes:**
+  - The image importer no longer writes `type`/`title` into frontmatter, so re-imports stop re-creating `stale_frontmatter_keys`.
+  - `embed --stale --images` and doctor `image_assets` share one resolver. An exact recorded path wins. A case-only match imports under the real-case path. Ambiguous or out-of-root matches are refused.
+  - A successful managed sync settles legacy `sync-failures.jsonl` rows one at a time, against the imported commit and live pages. Doctor `sync_failures` says how many rows are legacy, and `--retry-failed` names them.
+- **Serve logs pending behavior-change notices** once per process at startup, without consuming the CLI or MCP delivery.
+- **`[persistence] phase=` lines** carry `request_id`, `operation`, `source`, `slug`, `principal` and `elapsed_ms`, and repeat suppression is per request.
+
 ## [0.60.188.0] - 2026-10-12
 
 ### Itemized changes
