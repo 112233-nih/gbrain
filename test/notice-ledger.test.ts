@@ -29,6 +29,30 @@ describe('NoticeLedger', () => {
     expect(l.admit([n('tip', 'info')], { ...s1, principal: 'client-b' })).toHaveLength(1);
   });
 
+  test('degraded_recall rides every call on stdio and CLI; a dedupe_key dedupes it per session per key; HTTP ignores the key', () => {
+    const d = (dedupe_key?: string): Notice => ({ ...n('degraded_recall', 'degraded'), ...(dedupe_key ? { dedupe_key } : {}) });
+    for (const transport of ['stdio', 'cli'] as const) {
+      const l = new NoticeLedger();
+      const a = { transport };
+      for (let i = 0; i < 3; i++) expect(l.admit([d()], a)).toHaveLength(1);
+      expect(l.admit([d('embed_unavailable:no_provider')], a)).toHaveLength(1);
+      expect(l.admit([d('embed_unavailable:no_provider')], a)).toHaveLength(0);
+      expect(l.admit([d('embed_unavailable:embedding_disabled')], a)).toHaveLength(1);
+      expect(l.admit([d()], a)).toHaveLength(1);
+      expect(l.admit([d('embed_unavailable:no_provider')], { transport, sessionId: 'other' })).toHaveLength(1);
+    }
+    const http = new NoticeLedger();
+    for (let i = 0; i < 3; i++) expect(http.admit([d('embed_unavailable:no_provider')], { transport: 'http', principal: 'p' })).toHaveLength(1);
+  });
+
+  test('a dedupe_key on a non-per-call code dedupes under the key instead of the code', () => {
+    const l = new NoticeLedger();
+    const a = { transport: 'stdio' as const };
+    expect(l.admit([{ ...n('tip', 'info'), dedupe_key: 'a' }], a)).toHaveLength(1);
+    expect(l.admit([{ ...n('tip', 'info'), dedupe_key: 'a' }], a)).toHaveLength(0);
+    expect(l.admit([{ ...n('tip', 'info'), dedupe_key: 'b' }], a)).toHaveLength(1);
+  });
+
   test('at most 2 coaching notices per session', () => {
     const l = new NoticeLedger();
     const a = { transport: 'http' as const, principal: 'p' };
