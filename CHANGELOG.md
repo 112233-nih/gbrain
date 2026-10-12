@@ -10,7 +10,7 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
-## [0.60.180.0] - 2026-10-12
+## [0.60.181.0] - 2026-10-12
 
 **`gbrain capture` works again on a brain with a running `gbrain serve` and on every thin client (#6524).** Since v0.60.162.0 (#5970) every capture through those two transports refused `invalid_params: 3 unknown parameters not declared in the capture tool schema (write operations always reject unknown parameters; nothing was written)`, and nothing was written. The CLI has stamped its own provenance on each capture since #5622 (`source_kind: capture-cli`, `source_uri: stdin|cli-positional`, `ingested_via: capture-cli`); the capture op never declared those three fields, and #5970 made dispatch reject any undeclared key on a write. A CLI with no serve running (and every Postgres brain) calls the handler directly, bypassing dispatch, which is why the breakage never reproduced on a developer's own machine while every CLI call delegated to a resident PGLite owner and every thin-client call went through dispatch and failed. The three fields are now declared on the op as trusted-local-CLI provenance; nothing else changes, so the trust posture holds: a trusted local caller's values reach the row as before, and a remote caller's are still replaced with the server-stamped `mcp:capture` at submission. No migration, no paid call.
 
@@ -21,6 +21,18 @@ identifiers and attribution are available in the pre-removal Git revision
 - Tests, each failing on the previous release with the exact refusal above: `test/capture-dispatch-provenance-6524.test.ts` dispatches the CLI's shape as a trusted local caller (row keeps `capture-cli` / `cli-positional`) and as a remote caller (row is `mcp:capture`), on PGLite and Postgres; `test/capture-cli-params-contract-6524.test.ts` checks every CLI shape (positional, `--stdin`, `--file` local, `--file` and positional on a thin client) against the server's own unknown-parameter check and pins the full-surface-only declaration; `test/capture-live-transports-6524.test.ts` runs the real `gbrain capture` subprocess against a running stdio `gbrain serve` (resident PGLite owner, delegated over IPC) and from a thin-client home against a running `gbrain serve --http`.
 
 Fixes #6524. Diagnosis by @james810408, whose report named both sides of the drift and the `fullSurfaceOnly` shape.
+
+## [0.60.180.0] - 2026-10-12
+
+**When `remember` refuses a forgotten claim, the refusal now says when and how widely it was forgotten.** An agent that re-saves a claim the user forgot gets `fact_withdrawn` as before, and the refusal now carries `withdrawn: { at, subject, visibility }`, where `subject` is the entity the claim was forgotten for or `all_entities`. The agent can tell the user "you asked me to forget that on <date>" instead of retrying. The object rides the immediate refusal, the batch item error, the failed write receipt and `get_write_request`. It covers the exact claim only, the message, code and suggestion are unchanged, and nothing is ever restored.
+
+### Itemized changes
+
+- `src/core/facts/single-prepare.ts` (`factWithdrawnRefusal`): the object comes from the withdrawal ledger only (never a purge): the named entity's withdrawal over `all_entities`, then the newest, among withdrawals whose forgotten rows the caller can read. When it cannot read them, the refusal is the one v0.60.176.0 returns, with no object. `src/core/facts/write-single.ts` applies the same rule, fail-closed when the caller is unknown.
+- `src/core/ops/contract.ts`, `src/core/agent-output.ts`, `src/core/remember-batch.ts`, `src/core/persistence/verb-errors.ts`: `withdrawn` on `OperationError`, the agent envelope (stdio, HTTP, CLI) and batch item errors.
+- `src/core/facts/withdrawal.ts`, `src/core/persistence/coordinator.ts`, `src/core/persistence/service.ts`, `src/core/ops/persistence.ts`: a refusal at preparation stores the object in the receipt's versioned `error_detail`, read back by the failed response, replay and `get_write_request`.
+- `src/core/verbs.ts` (`ERROR_SCHEMA.withdrawn`), the conformance fixture for re-remembering a forgotten claim, the `gbrain errors fact_withdrawn` row, MEMORY_VERBS v1 "remember withdrawn refusal detail (additive)".
+- Tests: `test/withdrawn-detail.test.ts` (PGLite) and `test/e2e/withdrawn-detail-postgres.test.ts` (Postgres) share `test/helpers/withdrawn-detail-scenarios.ts`; `test/agent-contract-goldens.test.ts` pins one object on stdio, HTTP and CLI.
 
 ## [0.60.179.0] - 2026-10-12
 
