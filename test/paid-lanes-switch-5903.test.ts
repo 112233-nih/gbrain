@@ -9,7 +9,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { load } from 'js-yaml';
@@ -72,12 +72,38 @@ describe('#5903 GBRAIN_PAID_LANES switches every paid lane off', () => {
     const gate = heavyJobs['hermes-door'].steps.find((s) => s.id === 'paidgate');
     expect(gate?.env?.GBRAIN_PAID_LANES).toBe('${{ vars.GBRAIN_PAID_LANES }}');
     const run = gate!.run!;
-    const switchOff = run.indexOf('if [ "$GBRAIN_PAID_LANES" = "0" ]; then');
+    const switchOff = run.indexOf('if [ "${GBRAIN_PAID_LANES:-}" = "0" ]; then');
     const secretCheck = run.indexOf('if [ -z "$ANTHROPIC_API_KEY" ]; then');
     expect(switchOff).toBeGreaterThan(-1);
     expect(switchOff).toBeLessThan(secretCheck);
     expect(run.slice(switchOff, secretCheck)).toContain('echo "paid=false" >> "$GITHUB_OUTPUT"');
     expect(run.slice(switchOff, secretCheck)).toContain('exit 0');
+  });
+
+  test("hermes paidgate with the variable at '0' is a visible skip even with the secret set", () => {
+    const hermes = heavyJobs['hermes-door'] as Job & { env: Record<string, string> };
+    const gate = hermes.steps.find((s) => s.id === 'paidgate')!;
+    const home = mkdtempSync(join(tmpdir(), 'paid-lanes-5903-hermes-'));
+    try {
+      const bin = join(home, 'bin');
+      mkdirSync(bin);
+      writeFileSync(join(bin, 'hermes'), `#!/bin/sh\necho 'Hermes Agent v${hermes.env.HERMES_VERSION} (2026.8.3)'\n`, { mode: 0o755 });
+      const output = join(home, 'output');
+      const summary = join(home, 'summary');
+      const result = spawnSync('bash', ['-euo', 'pipefail', '-c', gate.run!], {
+        env: {
+          PATH: `${bin}:${process.env.PATH}`, ...hermes.env, ANTHROPIC_API_KEY: 'set', GBRAIN_PAID_LANES: '0',
+          GITHUB_EVENT_NAME: 'schedule', GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary,
+        },
+        encoding: 'utf8',
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(readFileSync(output, 'utf8')).toContain('paid=false');
+      expect(result.stderr).toContain("paid lanes disabled by the repository variable GBRAIN_PAID_LANES='0'");
+      expect(readFileSync(summary, 'utf8')).toContain('paid leg skipped (paid lanes disabled)');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   test('OpenCode credentialed lane stays keyless-only when the variable is 0', () => {

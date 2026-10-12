@@ -361,7 +361,7 @@ jobs:
             echo "::error::hermes version drift — expected v$HERMES_VERSION in: $version_output" >&2
             exit 1
           fi
-          if [ "$GBRAIN_PAID_LANES" = "0" ]; then
+          if [ "${GBRAIN_PAID_LANES:-}" = "0" ]; then
             # Same visible-skip shape as the missing secret below, with its own
             # line: the operator switched every paid lane off on purpose.
             echo "paid=false" >> "$GITHUB_OUTPUT"

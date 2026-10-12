@@ -51,7 +51,7 @@ const QUIET_TOLERANCE = 1.25;
 let engine: PGLiteEngine;
 
 function walk(dir: string, ext: string, out: string[] = []): string[] {
-  for (const n of readdirSync(dir)) { const p = join(dir, n); if (statSync(p).isDirectory()) walk(p, ext, out); else if (n.endsWith(ext)) out.push(p); }
+  for (const n of readdirSync(dir).sort()) { const p = join(dir, n); if (statSync(p).isDirectory()) walk(p, ext, out); else if (n.endsWith(ext)) out.push(p); }
   return out;
 }
 
