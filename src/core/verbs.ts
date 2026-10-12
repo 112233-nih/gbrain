@@ -987,5 +987,15 @@ export const ERROR_SCHEMA: Record<string, unknown> = {
     protocol_version: { type: 'integer', const: MEMORY_VERBS_VERSION },
     write_request: WRITE_RECEIPT_SCHEMA,
     write_error: { type: 'string', enum: [...WRITE_ERROR_CODES] },
+    withdrawn: {
+      type: 'object',
+      required: ['at', 'subject', 'visibility'],
+      description: 'Additive, on a fact_withdrawn refusal: when and for which subject (an entity slug, or all_entities) the exact claim was forgotten. Absence carries no meaning.',
+      properties: {
+        at: { type: 'string' },
+        subject: { type: 'string' },
+        visibility: { type: 'string', enum: ['world', 'private'] },
+      },
+    },
   },
 };

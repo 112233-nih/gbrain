@@ -38,6 +38,7 @@ import { assertKnowledgePublicationAllowed } from '../shared-skills/knowledge-gu
 import { classifyMirrorPage, sourceMirrorReadOnly } from './mirror-read-only.ts';
 import { databaseRefusal, ownerExceptionFailure, withAttempt, type PublicationFailure, type PublicationFailureDetail, type PublicationStage } from './publication-failure.ts';
 import { fenceFailureDetail } from '../fence-repair/refusal.ts';
+import { withdrawalFailureDetail } from '../facts/withdrawal.ts';
 import { faultPoint, withFaultPoints } from './fault-points.ts';
 import { recordPublicationFenceTrend } from '../fence-repair/census-store.ts';
 
@@ -126,8 +127,8 @@ export { fileHash as persistenceFileHash, publishFile as publishPersistenceFile 
 function requestError(error: unknown): PublicationFailure {
   if (error instanceof OperationError) {
     // #6188: a typed fence refusal keeps its location in the bounded detail, which outlives receipt compaction.
-    const fence = fenceFailureDetail(error);
-    return { code: error.code, message: error.message, ...(fence ? { detail: fence } : {}) };
+    const detail = fenceFailureDetail(error) ?? withdrawalFailureDetail(error);
+    return { code: error.code, message: error.message, ...(detail ? { detail } : {}) };
   }
   const refusal = databaseRefusal(error);
   if (refusal) return refusal;
