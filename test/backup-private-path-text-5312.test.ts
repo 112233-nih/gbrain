@@ -12,6 +12,8 @@ import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+// test-reads-source-ok[structural]: the row is the refusal's wording and the PowerShell script's shape, both string
+// literals that only execute on win32; there is no Linux runtime path that surfaces either.
 const source = readFileSync(join(import.meta.dir, '..', 'src', 'core', 'backup', 'private-path.ts'), 'utf8');
 const refusal = source.match(/new AgentInstallError\('private_backup_path_unavailable', (["'])(.*?)\1\)/)?.[2] ?? '';
 

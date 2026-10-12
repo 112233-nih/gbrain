@@ -13,8 +13,11 @@ import { join } from 'node:path';
 import { STUB_PACKAGE, STUB_VERSION, type StubRegistryOptions, startStubRegistry, stubNpmEnv } from '../helpers/npm-stub-registry.ts';
 
 const SCRIPT = join(import.meta.dir, '..', '..', 'scripts', 'ci-install-openclaw.sh');
+// The script is an npm install; GitHub's runner images carry npm, a stock Ubicloud CI VM (nodejs without npm) does not.
+const NPM = Bun.which('npm');
+if (!NPM) console.warn('[ci-install-openclaw] skipped: npm is not on PATH, so the installer script cannot run here');
 
-describe('scripts/ci-install-openclaw.sh', () => {
+describe.skipIf(!NPM)('scripts/ci-install-openclaw.sh', () => {
   const cleanups: Array<() => void> = [];
   afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup(); });
 
