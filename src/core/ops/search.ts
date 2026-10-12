@@ -474,6 +474,7 @@ async function buildRetrievalResponseMeta(
       ...(m.answerability ? { answerability: m.answerability } : {}),
       ...(m.relational_plan ? { relational_plan: m.relational_plan } : {}),
       ...(m.rerank_gate ? { rerank_gate: m.rerank_gate } : {}),
+      ...(m.page_rank_cut ? { page_rank_cut: m.page_rank_cut } : {}),
     } : {}),
     ...((m?.degraded !== undefined || degraded.length > 0) ? { degraded } : {}),
     projection_readiness: readiness,
@@ -751,6 +752,7 @@ const search: Operation = {
       salience: p.salience as 'off' | 'on' | 'strong' | undefined,
       recency: p.recency as 'off' | 'on' | 'strong' | undefined,
       decide: { remote: ctx.remote !== false },
+      ...(plan?.rankCut ? { pageRankCut: plan.rankCut } : {}),
     };
     const primary = await hybridSearchCached(ctx.engine, queryText, {
       ...searchOpts, onMeta: (m) => { capturedMeta = m; }, explain: p.explain === true, explainTarget: explainPrep?.trace,
@@ -979,6 +981,7 @@ const query: Operation = {
       until: typeof p.until === 'string' ? p.until : undefined,
       // v0.32.x search-lite: token budget + cache opt-outs.
       tokenBudget: !plan && typeof p.token_budget === 'number' ? (p.token_budget as number) : undefined,
+      ...(plan?.rankCut ? { pageRankCut: plan.rankCut } : {}),
       useCache: typeof p.use_cache === 'boolean' ? (p.use_cache as boolean) : undefined,
       intentWeighting: typeof p.intent_weighting === 'boolean' ? (p.intent_weighting as boolean) : undefined,
       // v0.36 cross-modal routing param.

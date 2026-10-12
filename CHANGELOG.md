@@ -10,14 +10,15 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
-## [Unreleased] - memory proof wave 2 W3, confidence-gated reranking (#6445)
+## [Unreleased] - memory proof wave 2 W3 + W5, confidence-gated reranking and the page-unit ranking cut (#6445)
 
-**Search can skip the cross-encoder when retrieval already found the answer. It is off by default; `shadow` measures how often that happens without changing results.**
+**Search can skip the cross-encoder when retrieval already found the answer, and a page-unit call's own budget can size its ranked hits. Both are off by default; `shadow` measures how often the skip would happen without changing results.**
 
 ### Itemized changes
 
 - `search.reranker.gate` (off by default) grades search candidates before the cross-encoder. `shadow` records how often the reranker was paying for an answer retrieval already found, in the response's `rerank_gate` metadata, on `--explain` and in a new `rerank_gate` section of `gbrain search stats`, and leaves results unchanged. `on` skips the cross-encoder when the top result is a strong vector match (cosine at least `search.evidence_cosine_floor` and `search.reranker.gate_min_gap` ahead of every other page); that skip is reported as `rerank_gate.skipped`, not as a degradation. The cache key now includes the gate keys and `search.evidence_cosine_floor`.
 - `scripts/bench-rerank-gate-latency.ts` measures the gate's latency: recall plus query per question with the gate off and on, warm-up, alternating arm order and fixed concurrency, reporting the mean saving per skipped query and the p95 change.
+- `search.page_rank_budget_ratio` (off by default) lets a `return_unit: "page"` call's own budget size the ranked hit list. Today ranking cuts hits to the mode's `search.tokenBudget` whatever the caller asked for, so under tokenmax delivery is handed far more pages than fit and returns them as slivers. With a ratio set, `search`, `query` and `recall` cut to `min(mode cut, ratio × caller budget)` and report it as `page_rank_cut`. Calls without a budget and other units are unchanged.
 
 ## [0.60.169.0] - 2026-10-11
 

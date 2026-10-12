@@ -36,6 +36,7 @@ import { loadFenceChunkOverlay, markFenceChunk, splitFenceOverlay, type FenceChu
 import { stripChunkHeader } from '../chunkers/code.ts';
 import { OperationError } from '../ops/contract.ts';
 import { blockDateHeaders, evidenceDateHeaderEnabled } from './evidence-date.ts';
+import { resolvePageRankCut, type PageRankCut } from './page-rank-cut.ts';
 export { pagePlanHits } from './page-plan-hits.ts';
 import { applyEffectiveDate } from '../utils.ts';
 import { configPacking, MIN_EXPLICIT_AUTO_BUDGET, parseAutoPacking, type AutoPacking } from './evidence-packing.ts';
@@ -130,6 +131,8 @@ export interface EvidencePlan {
   budgetClamped?: { requested: number; max: number };
   /** `search.evidence_date_header` is on: each block starts with its date header line. */
   dateHeader?: true;
+  /** W5: page unit + caller budget + `search.page_rank_budget_ratio` set (page-rank-cut.ts). */
+  rankCut?: PageRankCut;
 }
 
 /** The cap runs only under `auto`, with a budget the caller passed and a packing other than `off`. */
@@ -263,6 +266,7 @@ export async function resolveEvidencePlan(engine: BrainEngine, input: ResolvePla
       budget = max;
     }
   }
+  const rankCut = unit === 'page' && budgetExplicit ? await resolvePageRankCut(engine, budget) : undefined;
   return {
     requestedUnit: unit,
     unit,
@@ -273,6 +277,7 @@ export async function resolveEvidencePlan(engine: BrainEngine, input: ResolvePla
     packing,
     ...(budgetClamped ? { budgetClamped } : {}),
     ...(await evidenceDateHeaderEnabled(engine) ? { dateHeader: true as const } : {}),
+    ...(rankCut ? { rankCut } : {}),
   };
 }
 

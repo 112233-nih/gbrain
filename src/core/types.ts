@@ -2185,6 +2185,8 @@ export interface HybridSearchMeta {
    * only when `search.reranker.gate` is not `off`.
    */
   rerank_gate?: import('./search/hybrid/rerank-gate.ts').RerankGateMeta;
+  /** W5: the page-unit ranking cut that replaced the mode's tokenBudget, with the hits before and after it. */
+  page_rank_cut?: import('./search/page-rank-cut.ts').PageRankCutMeta;
   /**
    * v0.32.x (search-lite): token budget enforcement metadata. Omitted when
    * no budget was applied (backward-compatible with pre-search-lite

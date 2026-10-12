@@ -26,7 +26,7 @@ import { OperationError, opError, verbError } from './contract.ts';
 import { invalidParam, paramUse } from './op-fix.ts';
 import { assertExplicitSourceLive, federatedSearchScope, parseSourceIdParam, sourceScopeOpts, stampEvidenceSafe } from './context.ts';
 import { markKeywordHits } from '../search/evidence.ts';
-import { hybridSearchCached, stampContentFlags } from '../search/hybrid.ts';
+import { hybridSearchCached, stampContentFlags, type HybridSearchOpts } from '../search/hybrid.ts';
 import { dedupResults } from '../search/dedup.ts';
 import { bumpLastRetrievedAt } from '../last-retrieved.ts';
 import { packToBudget, estimateTokens, resultTokens } from '../search/token-budget.ts';
@@ -38,6 +38,7 @@ import { ENTITY_HINTS_CAP } from '../facts/extract.ts';
 import { parseTtlShorthand } from '../facts/ttl-parse.ts';
 import { MEMORY_VERBS_VERSION } from '../verbs.ts';
 import type { SearchResult } from '../types.ts';
+import type { PageRankCutMeta } from '../search/page-rank-cut.ts';
 import type { BrainEngine, FactRow } from '../engine.ts';
 import { MIN_TRUST_PARAM, resolveReadEligibility } from '../eligibility/policy.ts';
 import { hasScope } from '../scope.ts';
@@ -477,7 +478,10 @@ const recall: Operation = {
     let searchResults: SearchResult[] = [];
     let searchDegraded: string | undefined;
     let delivery: DeliveryMeta | undefined;
+    let pageRankCut: PageRankCutMeta | undefined;
     const evidencePlan = queryText ? await recallEvidencePlan(ctx, p) : null;
+    const rankCutOpts: Pick<HybridSearchOpts, 'pageRankCut' | 'onMeta'> = evidencePlan?.rankCut
+      ? { pageRankCut: evidencePlan.rankCut, onMeta: (m) => { pageRankCut = m.page_rank_cut; } } : {};
     if (queryText) {
       // #3242 parity (#4707): the page-search arm widens an unqualified
       // no-grant caller across the transport-computed federated set, exactly
@@ -489,7 +493,7 @@ const recall: Operation = {
       // untrusted callers with the excludePrivate resolved above.
       const keywordOnly = await recallKeywordOnlyReason(ctx);
       if (keywordOnly) {
-        searchResults = await keylessRecallRows(ctx, queryText, limit, excludePrivate, searchScope);
+        searchResults = await keylessRecallRows(ctx, queryText, limit, excludePrivate, searchScope, rankCutOpts);
         searchDegraded = keywordOnly;
       } else {
         searchResults = await hybridSearchCached(ctx.engine, queryText, {
@@ -499,6 +503,7 @@ const recall: Operation = {
           requireSafeChunks: ctx.remote !== false,
           takesHoldersAllowList: readHolders(ctx),
           ...searchScope,
+          ...rankCutOpts,
         });
       }
       bumpLastRetrievedAt(ctx.engine, searchResults.map(r => r.page_id));
@@ -608,6 +613,7 @@ const recall: Operation = {
         : {}),
       ...(budgetPacking ? { budget_packing: budgetPacking } : {}),
       ...(delivery ? { delivery } : {}),
+      ...(pageRankCut ? { page_rank_cut: pageRankCut } : {}),
     };
   },
 };
@@ -1316,11 +1322,12 @@ async function recallKeywordOnlyReason(ctx: OperationContext): Promise<string | 
 async function keylessRecallRows(
   ctx: OperationContext, queryText: string, limit: number, excludePrivate: boolean,
   searchScope: { sourceId?: string; sourceIds?: string[]; minTrust?: TrustTier },
+  rankCutOpts: Pick<HybridSearchOpts, 'pageRankCut' | 'onMeta'> = {},
 ): Promise<SearchResult[]> {
   if (await keylessChainQuestion(ctx, queryText)) {
     return hybridSearchCached(ctx.engine, queryText, {
       limit, expansion: false, excludePrivate, requireSafeChunks: ctx.remote !== false,
-      takesHoldersAllowList: readHolders(ctx), ...searchScope,
+      takesHoldersAllowList: readHolders(ctx), ...searchScope, ...rankCutOpts,
     });
   }
   const rows = dedupResults(await ctx.engine.searchKeyword(queryText, { limit, excludePrivate, requireSafeChunks: ctx.remote !== false, ...searchScope }));

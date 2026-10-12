@@ -29,6 +29,7 @@ import { resolveCjkKeywordDeadlineMs } from '../cjk-keyword-deadline.ts';
 import { resolveSearchDateBounds } from '../date-bounds.ts';
 import { type DecideSearchContext, decideMetaFor, resolveAndLaunchDecide } from '../decide-stage.ts';
 import { applySearchIntent } from '../decide-retrieval.ts';
+import { applyPageRankCut, type PageRankCutMeta } from '../page-rank-cut.ts';
 
 /**
  * Everything the stages read, resolved once at hybridSearch entry, plus the
@@ -72,6 +73,8 @@ export interface HybridRequest {
   rerankMeta?: { model_resolved: string };
   /** Set by the relational arm when the multi-hop planner ran (meta.relational_plan). */
   relationalPlan?: import('../relational-recall.ts').RelationalPlanMeta;
+  /** W5: the page-unit ranking cut folded into resolvedMode.tokenBudget (meta.page_rank_cut). */
+  pageRankCut?: PageRankCutMeta;
 }
 
 const DEBUG = process.env.GBRAIN_SEARCH_DEBUG === '1';
@@ -93,7 +96,7 @@ export async function resolveHybridRequest(
   // (#4359) hybridSearchCached threads its already-loaded snapshot; reuse it.
   const { loadSearchModeConfig, resolveSearchMode } = await import('../mode.ts');
   const modeInput = opts?._searchModeInput ?? await loadSearchModeConfig(engine);
-  const resolvedMode = resolveSearchMode({
+  const { knobs: resolvedMode, meta: pageRankCut } = applyPageRankCut(resolveSearchMode({
     // T4/D5 — per-call mode selector (e.g. `--mode tokenmax`). The op layer
     // only passes this for trusted/local callers; remote callers leave it
     // undefined and fall through to the server-configured mode (no cost
@@ -143,7 +146,7 @@ export async function resolveHybridRequest(
       // W3 — rerank gate per-call thread-through (eval A/B; knobsHash `rrg=`).
       reranker_gate: normalizeRerankGate(opts?.rerankGate),
     },
-  });
+  }), opts?.pageRankCut);
 
   // System One: resolve the decide context and launch S2 now, alongside the
   // regex classifier (undefined when every slot is off: no decide work).
@@ -310,6 +313,7 @@ export async function resolveHybridRequest(
     lastRank1Score: undefined,
   };
   if (decide) req.decide = decide;
+  if (pageRankCut) req.pageRankCut = pageRankCut;
   return req;
 }
 
@@ -344,7 +348,10 @@ export async function applyIdentityBoosts(req: HybridRequest, list: SearchResult
   // never waits.
 export function emitHybridMeta(req: HybridRequest, armMeta: HybridSearchMeta): void {
   const { engine, opts } = req;
-  const rawMeta = req.keywordCandidates ? { ...armMeta, keyword_candidates: req.keywordCandidates } : armMeta;
+  const cutMeta: HybridSearchMeta = req.pageRankCut
+    ? { ...armMeta, page_rank_cut: { ...req.pageRankCut, candidates: armMeta.retrieved_count, ...(armMeta.token_budget ? { kept: armMeta.token_budget.kept } : {}) } }
+    : armMeta;
+  const rawMeta = req.keywordCandidates ? { ...cutMeta, keyword_candidates: req.keywordCandidates } : cutMeta;
   const decide = decideMetaFor(req.decide);
   const answerability = req.decide?.answerability;
   const meta: HybridSearchMeta = decide || req.rerankMeta || answerability || req.relationalPlan

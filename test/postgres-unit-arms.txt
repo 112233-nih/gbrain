@@ -113,6 +113,7 @@ test/repair-failed-writes-drift-w411.test.ts
 test/repair-fences.test.ts
 test/repair-frontmatter.test.ts
 test/scripts/test-stress-postgres.test.ts
+test/search/page-rank-cut.test.ts
 test/search/rerank-gate-hybrid.test.ts
 test/search/rerank-gate-skip.test.ts
 test/search/rerank-gate-telemetry.test.ts

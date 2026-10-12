@@ -103,6 +103,18 @@ Per-call params on `search`, `query`, `recall`:
   `query`'s `token_budget` still prunes chunks (chunk mode), and `recall`'s
   `budget_tokens` / `budget_policy` still pack chunks (facts first), so any of
   them keeps an implied `auto` on `chunk`.
+- Page-unit ranking cut (off by default): ranking cuts its hits to the search
+  mode's `search.tokenBudget` (4,000 under conservative, none under tokenmax)
+  before delivery packs whole pages, whatever the caller's budget. With
+  `gbrain config set search.page_rank_budget_ratio <ratio>` (a positive
+  number, for example `0.5`), a `return_unit: "page"` call that passes its own
+  budget on `search`, `query` or `recall` cuts ranked hits to
+  `min(mode cut, ratio × budget)` instead, so delivery is not handed more pages
+  than it can deliver whole. The response reports it as `page_rank_cut`
+  (`ratio`, `caller_budget`, `mode_cut` (null under tokenmax), `applied_cut`,
+  `candidates`, `kept`). A page call without a budget, every other unit, and
+  recall's keyword-only arm are unchanged. `gbrain config unset
+  search.page_rank_budget_ratio` turns it off.
 
 Think reads `think.return_unit` (default `auto`) and never
 `search.return_unit`, so changing search's default does not change `think`.
@@ -143,7 +155,7 @@ applies to `search`, `query`, `recall`, `think` and `assemble_evidence`.
 Config keys: `search.return_unit`, `search.return_window`,
 `search.return_budget_default`, `search.return_budget_conversation`,
 `search.return_budget_max_remote`, `search.evidence_date_header`, `search.auto_packing`,
-`think.return_unit`. Kill switch:
+`search.page_rank_budget_ratio`, `think.return_unit`. Kill switch:
 `gbrain config set search.return_unit chunk` and
 `gbrain config set think.return_unit chunk` (or pass `return_unit: "chunk"`
 per call).

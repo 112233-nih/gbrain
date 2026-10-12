@@ -1413,6 +1413,7 @@ export const KNOWN_CONFIG_KEYS: readonly string[] = [
   'search.entity_anchoring', // entity-anchored retrieval for entity-scoped current-state query/search (default off; search/entity-anchor.ts)
   'search.query_facts_arm', // query adds matching active facts as rows in spare capacity (default on; search/facts-arm.ts)
   'search.temporal_fact_reserve', // temporal-cue queries reserve up to 15% of the token budget for question-ranked dated facts (default off; search/facts-arm.ts)
+  'search.page_rank_budget_ratio', // W5: page unit + caller token_budget cuts ranked hits to min(mode cut, ratio x budget) (default off; search/page-rank-cut.ts)
   'think.return_unit',
   // Models tier system (v0.31.12)
   'models.default',
