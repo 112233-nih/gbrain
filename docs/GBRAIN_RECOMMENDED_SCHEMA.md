@@ -184,6 +184,8 @@ aliases: ["Jenny Shao", "Jenny G. Shao", "JennyGShao", "jennifer.shao@company.co
 
 Aliases include: misspellings from meeting transcripts, maiden names, nicknames, email addresses, social handles, and phonetic variants. When the enrich skill encounters a new name variant for a known entity, it adds the variant to aliases — it does NOT create a new page.
 
+Phone numbers are not aliases. A connector-rendered person page (Google Contacts) carries them under `phones:` in E.164 form, as exact identifiers for a deliberate `entity_identity_link` join; a digit string in `aliases` would match mentions it has nothing to do with.
+
 ### Deduplication protocol
 
 Before creating any new page, the agent must:
