@@ -17,7 +17,7 @@ import { assertManagedFilesystemWrite } from './persistence/filesystem-guard.ts'
  */
 import { execFileSync } from './spawn.ts';
 import { lstatSync, existsSync, readdirSync } from 'fs';
-import { join } from 'path';
+import { isAbsolute, join } from 'path';
 import { isInternalUrl } from './url-safety.ts';
 import { execFileBounded } from './bounded-child-exec.ts';
 import { gitChildEnv } from './git-env.ts';
@@ -553,7 +553,8 @@ function gitStateExists(repoPath: string, name: string): boolean {
     const p = execFileSync('git', ['-C', repoPath, 'rev-parse', '--git-path', name], {
       stdio: ['ignore', 'pipe', 'ignore'], timeout: 10_000, env: gitChildEnv({ ...GIT_ENV }),
     }).toString().trim();
-    return existsSync(p.startsWith('/') ? p : join(repoPath, p));
+    // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- `p` is git's own answer to `rev-parse --git-path <literal>` for the checkout at repoPath (MERGE_HEAD, rebase-merge, rebase-apply); no caller passes user input, and the result is only tested for existence.
+    return existsSync(isAbsolute(p) ? p : join(repoPath, p));
   } catch { return false; }
 }
 
