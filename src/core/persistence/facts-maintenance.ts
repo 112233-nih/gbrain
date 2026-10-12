@@ -38,6 +38,8 @@ export interface ManagedFactsResult {
   inserted: number; duplicate: number; superseded: number; fact_ids: number[]; entity_slugs: string[]; write_requests: WriteReceipt[];
   /** #6506: candidates the automatic extraction skipped because the exact claim was forgotten in this source and visibility. */
   withdrawn_skipped?: number;
+  /** #6333 shadow: same-page rewordings the managed preparer counted; nothing was dropped. */
+  would_dedup_same_page?: number;
 }
 export interface ManagedFactOrigin { slug: string; pageId: number; revision: string; }
 export type FrozenExtractedFact = Omit<NewFact, 'embedding' | 'valid_from' | 'valid_until' | 'expired_at'> & {
@@ -296,6 +298,7 @@ async function collectManagedFacts(engine: BrainEngine, session: ManagedFactsSes
       result.superseded += Number(out.superseded ?? 0);
       result.fact_ids.push(...(out.fact_ids as number[] ?? []));
       if (out.withdrawn_skipped) result.withdrawn_skipped = (result.withdrawn_skipped ?? 0) + Number(out.withdrawn_skipped);
+      if (out.would_dedup_same_page) result.would_dedup_same_page = (result.would_dedup_same_page ?? 0) + Number(out.would_dedup_same_page);
       if (out.inserted && out.fenced) result.entity_slugs.push(row.slug);
     }
   }

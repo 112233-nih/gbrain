@@ -192,6 +192,7 @@ const extract_facts: Operation = {
       fact_ids: r.fact_ids,
       ...(r.write_requests ? { write_requests: r.write_requests } : {}),
       ...(r.withdrawn_skipped ? { withdrawn_skipped: r.withdrawn_skipped } : {}),
+      ...(r.would_dedup_same_page ? { would_dedup_same_page: r.would_dedup_same_page } : {}),
       ...hintAccounting,
     };
   },

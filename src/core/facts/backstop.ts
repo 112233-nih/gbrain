@@ -50,6 +50,7 @@ import { isAvailable } from '../ai/gateway.ts';
 import { withAIInvocationPreflight } from '../ai/invocation-guard.ts';
 import { decideSingleFact } from './single-prepare.ts';
 import { cosineVerdict, dedupCapturedFacts, withCaptureDrops, wouldDedupSamePage } from './capture-dedup.ts';
+import { warnSamePageShadow } from './same-page-shadow.ts';
 import { readSupersessionThreshold } from './supersession-threshold.ts';
 import { assertAmbientCaptureAdmissible, type FactsBackstopSource } from './capture-sources.ts';
 import { appendContextNote, type InferredVia } from './subject-infer.ts';
@@ -227,10 +228,6 @@ function warnOnce(key: string, msg: string): void {
   console.warn(msg);
 }
 /** #6333 [UC2] shadow only: name the pair the same-page rewording rule would have deduplicated; the fact is inserted as today. */
-function warnSamePageShadow(sessionId: string | null, matchedId: number, score: number): void {
-  // eslint-disable-next-line no-console
-  console.warn(`[facts-backstop] #6333 shadow: new fact in session ${sessionId} rewords fact ${matchedId} (cosine ${score.toFixed(3)}); both kept`);
-}
 /** Test-only: reset the once-per-process warning memo. */
 export function __resetBackstopWarningsForTests(): void {
   _warnedKeys.clear();
