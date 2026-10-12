@@ -10,6 +10,12 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [Unreleased]
+
+### Itemized changes
+
+- **`query` expands only when the search mode says so (GBRA-81 item 1b).** The `query` operation used to send `expand: true` on every call, so every mode, `balanced` included, made one expansion LLM call before retrieval. It now leaves `expand` unset unless the caller passes it, so the resolved mode decides: on in `tokenmax`, off in `balanced` and `conservative`. `expand: true` (CLI `--expand`) forces it and `expand: false` (`--no-expand`) skips it; `gbrain config set search.expansion true` restores it by default for a brain, and a `search.expansion` value set earlier, which `query` ignored, now takes effect. The expander stays wired whenever expansion can resolve on, so `tokenmax` still expands. CRAG's caller-expanded check reads `expansion_applied`; eval capture records the raw `expand` param (null when unset) and `gbrain eval replay` maps null to the mode default. The tool description, the concept-search hint, `gbrain search modes`, `search tune`, top-level help, the picker copy and the docs say the same, and a guard test rejects "in every mode" / "always expands" phrasing in `src/` and `docs/`. `test/search/operation-expansion-contract.serial.test.ts` is rewritten to pin the new contract.
+
 ## [0.60.178.0] - 2026-10-12
 
 **Batch entity lookups respect quarantine.** `entity` with `names` now hides quarantined pages from remote callers the way a single-name `entity` lookup and `get_page` already do, whichever way the name resolves, and a quarantined identity sibling no longer appears beside a page for remote callers, in batch rows or in a single-name card. Trusted local callers see the same results as before. No migration, no paid call.

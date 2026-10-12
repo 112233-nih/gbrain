@@ -264,11 +264,11 @@ Per-query cost @ 10K queries/mo (typical single-user volume):
 >   3) tokenmax (recommended default — preserves v0.31.x retrieval shape) —
 >      no budget, 50 chunks. Best for Opus/frontier models.
 >
-> Expansion is command-specific, not mode-specific: `gbrain search` and the
-> memory verbs do not expand; `gbrain query` expands in every mode unless you
-> pass `--no-expand` (`expand: false` over MCP). The `search.expansion` bundle
-> setting does not change these shipped command paths. See
-> [search modes](docs/guides/search-modes.md) for the current contract.
+> Expansion follows the mode for `gbrain query` only: on in `tokenmax`, off in
+> `balanced` and `conservative`; `--expand` (`expand: true` over MCP) forces it
+> and `--no-expand` (`expand: false`) skips it. `gbrain search` and the memory
+> verbs never expand. See [search modes](docs/guides/search-modes.md) for the
+> current contract.
 >
 > Cost depends on BOTH the mode AND the downstream model you run. See the
 > matrix above for the 9-cell breakdown.

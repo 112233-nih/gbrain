@@ -41,23 +41,22 @@ and maintenance commands remain available.
 | `reranker` (cross-encoder)    | off            | `voyage:rerank-2.5` | `voyage:rerank-2.5` |
 | `autocut` (rerank-cliff cut)  | off            | off        | off            |
 
-The `expansion` row is not decisive for any shipped verb today: `gbrain query`
-(the only verb that can expand) expands by default in every mode — pass
-`--no-expand` / `expand: false` to opt out — while `gbrain search`, the memory
-verbs and the eval harnesses pin expansion per call. The bundle value (and the
-`search.expansion` config key) only reaches a core-library caller that leaves `expansion`
-unset AND wires an `expandFn`; none ship today. `gbrain search modes` reports
-the bundle value and prints the operation-level exception before its knob table.
+The `expansion` row is `gbrain query`'s default: `query` (the only verb that
+can expand) expands when a call leaves `expand` unset and the resolved row is
+on, so it expands by default in `tokenmax` and not in `balanced` or
+`conservative`. `--expand` / `expand: true` forces expansion in any mode and
+`--no-expand` / `expand: false` skips it in any mode. The `search.expansion`
+config key overrides the row like any other knob. `gbrain search`, the memory
+verbs and the eval harnesses pin expansion per call, so `search` never
+expands, even with `search.expansion=true`. `gbrain search modes` reports the
+resolved row.
 
-This preserves the existing query contract: changing modes does not silently
-enable or disable expansion. `query` defaults to `expand: true`; explicit
-`expand: false` (CLI `--no-expand`) wins even in `tokenmax`. `search` never
-expands, even with `search.expansion=true`. Keyless retrieval takes the
-keyword-only path before expansion; configured embedding and expansion
-providers are prerequisites. Image-only retrieval also skips expansion.
-Check response metadata `expansion_applied` for actual variant use, not just
-the requested setting. A configured cloud expander receives the query;
-its model's input/output charges are separate from downstream reading costs.
+Keyless retrieval takes the keyword-only path before expansion; configured
+embedding and expansion providers are prerequisites. Image-only retrieval also
+skips expansion. Check response metadata `expansion_applied` for actual
+variant use, not just the requested setting. A configured cloud expander
+receives the query; its model's input/output charges are separate from
+downstream reading costs.
 
 - **`conservative`** — smallest payloads. Pairs naturally with a cheap
   downstream model (Haiku-class) or a high query volume.
@@ -70,9 +69,9 @@ Seven of the knobs deserve a sentence:
 - **`expansion`** rewrites your query into multiple variants via a cheap
   LLM call when available (the historical Haiku estimate is roughly $1.50 per
   1K queries; actual charges depend on model and token counts). It can recover
-  alternate phrasings but can also hurt precision. `gbrain query` requests
-  expansion in every mode unless `--no-expand`;
-  this knob does not turn it off (see the caption under the table).
+  alternate phrasings but can also hurt precision. It is `gbrain query`'s
+  default when a call leaves `expand` unset (see the caption under the table);
+  `--expand` / `--no-expand` win per call.
 - **`expansion_variant_budget`** (config key
   `search.expansion_variant_budget`) is the total RRF weight the expansion
   variants share at fusion time (`weight_i = b / n_voting_arms`; the original

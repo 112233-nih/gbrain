@@ -134,7 +134,7 @@ This matrix estimates the downstream agent's input cost for reading retrieved
 chunks. Embedding, reranking and expansion can add separate provider charges.
 GBrain's semantic result caching is temporarily disabled; budget for fresh retrieval.
 When configured, gbrain query adds ~$1.50 per 1K queries under the historical
-Haiku expansion call estimate, in every mode — --no-expand skips it;
+Haiku expansion call estimate when it expands (tokenmax, or --expand) — --no-expand skips it;
 gbrain search never expands. Actual expansion cost depends on model and tokens.
 
 Per-query cost @ 10K queries/mo (full search payload, no cache savings):
@@ -164,8 +164,9 @@ it does not skip retrieval or downstream generation.
                     Best for: Opus/frontier models, broad retrieval,
                     low-volume high-stakes work.
 
-gbrain query requests expansion in every mode unless you pass --no-expand.
-gbrain search never expands. Neither inherits search.expansion. Actual
+gbrain query expands only when the mode says so (tokenmax) or with --expand;
+--no-expand skips it.
+gbrain search never expands, even with search.expansion=true. Actual
 expansion needs configured embedding and expansion providers; keyless
 retrieval sends no expansion request. Cloud expansion sends the query
 to the configured provider and may incur its model's input/output charges.
@@ -261,7 +262,7 @@ export async function runModePicker(
     console.log('');
     console.log('   (scales linearly: ×10 for 100K queries/mo, ÷10 for 1K)');
     console.log('   25x corner-to-corner spread. Natural diagonal pairings span ~4x.');
-    console.log('   query requests expansion in every mode; --no-expand opts out. search never expands.');
+    console.log('   query expands only when the mode says so (tokenmax); --expand forces it, --no-expand skips it. search never expands.');
     console.log('   Keyless retrieval skips expansion; configured cloud providers may add separate charges.');
     console.log('');
     console.log('To change later: gbrain config set search.mode <mode>');
