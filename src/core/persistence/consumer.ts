@@ -694,7 +694,7 @@ export class PersistenceConsumer implements PersistenceConsumerLike {
     return { ceilingMs,
       onOverdue: () => {
         if (clock) clock.waitingOn = 'publication_deadline';
-        this.log('publication', 'publication_deadline', `request ${row.request_id}: publishing past the ${ceilingMs} ms ceiling; its transaction's server-side timeouts end it on Postgres`, '', row);
+        this.log('publication', 'publication_deadline', `request ${row.request_id}: publishing past the ${ceilingMs} ms ceiling; on Postgres its transaction-local timeouts end it only if the server sees the transaction idle, not when the client connection is wedged`, '', row);
       },
       onStuck: settled => {
         this.stuckPublications.set(row.id, { request_id: row.request_id, stuck_at: new Date().toISOString() });
