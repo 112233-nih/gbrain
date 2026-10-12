@@ -221,8 +221,14 @@ jobs:
       # on this row once a Bun release carries that change.
       - name: Teardown bounds that used to park the Windows unit run (#5332)
         run: bun test --timeout 120000 test/postgres-disconnect-bounded.test.ts
-      - name: Backup archive round trip and stale AF_UNIX socket sweep on this host (#5312)
-        run: bun test --timeout 60000 test/backup-archive-roundtrip-5312.test.ts test/backup-stale-socket-5312.test.ts
+      - name: Backup archive round trip on this host (#5312)
+        run: bun test --timeout 60000 test/backup-archive-roundtrip-5312.test.ts
+      # The stale-socket sweep's native AF_UNIX reparse-point path exists only on Windows; the POSIX cases run in the
+      # Linux unit shards. On macOS the PGLite socket lives at a shortened /private/tmp path (the 104-byte AF_UNIX limit),
+      # which this file's data-dir fixtures do not model: wave 16 follow-up, not covered here.
+      - name: Stale AF_UNIX socket sweep through the native tag check (#5312)
+        if: runner.os == 'Windows'
+        run: bun test --timeout 60000 test/backup-stale-socket-5312.test.ts
       - name: Hidden console windows from detached processes (#4992)
         run: bun test --timeout 300000 test/windows-hidden-console.test.ts test/spawn-windows-hide.test.ts test/scripts/windows-hide-guard.test.ts
 

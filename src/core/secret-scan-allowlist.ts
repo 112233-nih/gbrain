@@ -16,6 +16,7 @@ export const SCAN_ALLOW_FILENAME = '.gbrain-scan-allow';
  */
 export function loadWorkspaceAllowlist(workspaceRoot: string): string[] {
   try {
+    // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal -- workspaceRoot is the operator's own workspace path and the file name is a constant; no caller-supplied segment (moved unchanged from secret-scan.ts in wave 16)
     const p = join(workspaceRoot, SCAN_ALLOW_FILENAME);
     if (!existsSync(p)) return [];
     return readFileSync(p, 'utf-8')
@@ -62,6 +63,7 @@ export function globToRegExp(glob: string): RegExp {
       re += c;
     }
   }
+  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- `re` is built here from the operator's workspace allowlist glob with every non-wildcard character escaped (`*` → `[^/]*`, `**` → `.*`, `?` → `[^/]`); no caller input reaches it (moved unchanged from secret-scan.ts in wave 16)
   const compiled = new RegExp(`^${re}$`);
   GLOB_REGEX_CACHE.set(glob, compiled);
   return compiled;
