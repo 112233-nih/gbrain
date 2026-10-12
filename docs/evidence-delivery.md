@@ -108,18 +108,23 @@ Per-call params on `search`, `query`, `recall`:
   and each delivered block costs what delivery counted (text and title, in
   `delivery.tokenizer`), so the facts and blocks together fill
   `budget_tokens` and no delivered block is dropped afterwards.
-- Page-unit ranking cut (off by default): ranking cuts its hits to the search
-  mode's `search.tokenBudget` (4,000 under conservative, none under tokenmax)
-  before delivery packs whole pages, whatever the caller's budget. With
-  `gbrain config set search.page_rank_budget_ratio <ratio>` (a positive
-  number, for example `0.5`), a `return_unit: "page"` call that passes its own
-  budget on `search`, `query` or `recall` cuts ranked hits to
-  `min(mode cut, ratio × budget)` instead, so delivery is not handed more pages
-  than it can deliver whole. The response reports it as `page_rank_cut`
-  (`ratio`, `caller_budget`, `mode_cut` (null under tokenmax), `applied_cut`,
-  `candidates`, `kept`). A page call without a budget, every other unit, and
-  recall's keyword-only arm are unchanged. `gbrain config unset
-  search.page_rank_budget_ratio` turns it off.
+- Page-unit ranking cut (off by default): ranking cuts its hits by chunk
+  tokens against the search mode's `search.tokenBudget` (4,000 under
+  conservative, none under tokenmax), whatever the caller's budget, so under
+  tokenmax delivery is handed more pages than it can deliver whole (slivers)
+  and under a mode cut small pages under-fill the budget. With
+  `gbrain config set search.page_rank_cut whole_pages`, a `return_unit:
+  "page"` call that passes its own budget on `search`, `query` or `recall`
+  lifts the mode cut and delivery walks the ranked pages, costing each at what
+  it would deliver whole (text, title and date header in
+  `delivery.tokenizer`, within the block char cap). It stops once they fill
+  `search.page_rank_cut_factor` (default 1.0) × the budget the pages share;
+  the page that crosses it stays only if its matching span still fits what
+  the whole pages before it leave. Later pages are dropped as `rank_cut`.
+  `delivery.page_rank_cut` reports `mode`, `factor`, `caller_budget`,
+  `target`, `applied_cost` (the kept pages' whole cost), `candidates` and
+  `kept`. A page call without a budget and every other unit are unchanged.
+  `gbrain config unset search.page_rank_cut` turns it off.
 
 Think reads `think.return_unit` (default `auto`) and never
 `search.return_unit`, so changing search's default does not change `think`.
@@ -160,7 +165,7 @@ applies to `search`, `query`, `recall`, `think` and `assemble_evidence`.
 Config keys: `search.return_unit`, `search.return_window`,
 `search.return_budget_default`, `search.return_budget_conversation`,
 `search.return_budget_max_remote`, `search.evidence_date_header`, `search.auto_packing`,
-`search.page_rank_budget_ratio`, `think.return_unit`. Kill switch:
+`search.page_rank_cut`, `search.page_rank_cut_factor`, `think.return_unit`. Kill switch:
 `gbrain config set search.return_unit chunk` and
 `gbrain config set think.return_unit chunk` (or pass `return_unit: "chunk"`
 per call).

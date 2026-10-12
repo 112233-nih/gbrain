@@ -38,7 +38,6 @@ import { ENTITY_HINTS_CAP } from '../facts/extract.ts';
 import { parseTtlShorthand } from '../facts/ttl-parse.ts';
 import { MEMORY_VERBS_VERSION } from '../verbs.ts';
 import type { SearchResult } from '../types.ts';
-import type { PageRankCutMeta } from '../search/page-rank-cut.ts';
 import type { BrainEngine, FactRow } from '../engine.ts';
 import { MIN_TRUST_PARAM, resolveReadEligibility } from '../eligibility/policy.ts';
 import { hasScope } from '../scope.ts';
@@ -498,10 +497,8 @@ const recall: Operation = {
     let searchResults: SearchResult[] = [];
     let searchDegraded: string | undefined;
     let delivery: DeliveryMeta | undefined;
-    let pageRankCut: PageRankCutMeta | undefined;
     const evidencePlan = queryText ? await recallEvidencePlan(ctx, p) : null;
-    const rankCutOpts: Pick<HybridSearchOpts, 'pageRankCut' | 'onMeta'> = evidencePlan?.rankCut
-      ? { pageRankCut: evidencePlan.rankCut, onMeta: (m) => { pageRankCut = m.page_rank_cut; } } : {};
+    const rankCutOpts: Pick<HybridSearchOpts, 'pageRankCut'> = evidencePlan?.rankCut ? { pageRankCut: evidencePlan.rankCut } : {};
     if (queryText) {
       // #3242 parity (#4707): the page-search arm widens an unqualified
       // no-grant caller across the transport-computed federated set, exactly
@@ -633,7 +630,6 @@ const recall: Operation = {
         : {}),
       ...(budgetPacking ? { budget_packing: budgetPacking } : {}),
       ...(delivery ? { delivery } : {}),
-      ...(pageRankCut ? { page_rank_cut: pageRankCut } : {}),
     };
   },
 };
@@ -1342,7 +1338,7 @@ async function recallKeywordOnlyReason(ctx: OperationContext): Promise<string | 
 async function keylessRecallRows(
   ctx: OperationContext, queryText: string, limit: number, excludePrivate: boolean,
   searchScope: { sourceId?: string; sourceIds?: string[]; minTrust?: TrustTier },
-  rankCutOpts: Pick<HybridSearchOpts, 'pageRankCut' | 'onMeta'> = {},
+  rankCutOpts: Pick<HybridSearchOpts, 'pageRankCut'> = {},
 ): Promise<SearchResult[]> {
   if (await keylessChainQuestion(ctx, queryText)) {
     return hybridSearchCached(ctx.engine, queryText, {

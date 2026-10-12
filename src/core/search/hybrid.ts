@@ -910,7 +910,7 @@ export interface HybridSearchOpts extends SearchOpts {
    * in BOTH the inner search and the cache resolver (knobs hash `rrg=`).
    */
   rerankGate?: import('./crag.ts').RerankGateMode;
-  /** W5: page-unit ranking cut (page-rank-cut.ts), min()'d into tokenBudget in the inner search and the cache resolver. */
+  /** W5: page-unit ranking cut (page-rank-cut.ts): lifts the mode's tokenBudget in the inner search and the cache resolver; delivery cuts by whole pages. */
   pageRankCut?: import('./page-rank-cut.ts').PageRankCut;
   /**
    * explain_target (explain-target.ts): when set, each pipeline stage records

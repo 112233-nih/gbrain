@@ -1,18 +1,20 @@
 /**
- * W5 — `search.page_rank_budget_ratio`: with `return_unit: "page"` and a
- * caller budget, ranking cuts its hits to min(mode cut, ratio x budget)
- * instead of the mode's `search.tokenBudget` alone.
+ * W5 — `search.page_rank_cut: whole_pages`: with `return_unit: "page"` and a
+ * caller budget, delivery stops adding page candidates once their whole
+ * delivered pages fill `factor x budget`, and ranking lifts the mode's
+ * chunk-token cut so it cannot stop earlier.
  *
- * Protects: the key unset (or invalid) leaves query/search/recall exactly as
- * before; on, the cut is ratio x caller budget under tokenmax (no mode cut)
- * and the smaller of the two under conservative; a page call without a
- * budget and a chunk-unit call never engage it; `page_rank_cut` reports
- * ratio, caller budget, mode cut, applied cut, candidates and kept.
- * Forced probe: with the key off, two caller budgets give the same ranking
- * cut (the old path ignored the caller); on, the cut follows the budget.
+ * Protects: off (unset, `off`, anything else) leaves query/search/recall
+ * exactly as before; on, small pages fill at least 95% of the budget (even
+ * under conservative's 4000-token mode cut) and large pages are delivered
+ * whole, a few of them, like the old 0.40 ratio; a page call without a budget
+ * and a chunk-unit call never engage it; `delivery.page_rank_cut` reports
+ * mode, factor, caller budget, target, applied cost, candidates and kept.
+ * Forced probe: the fixed-ratio path (a 0.40 x budget chunk-token cut, which
+ * is what `search.page_rank_budget_ratio` folded into `search.tokenBudget`)
+ * under-fills the small-page fixture.
  * Seams: query/search run keyword-only (embeddings off), so no model call;
- * recall's hybrid page arm runs on a fixture embed transport (the keyword-only
- * recall arm is a direct keyword read with no ranking cut to replace).
+ * recall's hybrid page arm runs on a fixture embed transport.
  * PGLite always, Postgres when DATABASE_URL is set.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -21,7 +23,7 @@ import { PGLiteEngine } from '../../src/core/pglite-engine.ts';
 import { operations, type OperationContext } from '../../src/core/operations.ts';
 import { submitPageMutation } from '../../src/core/persistence/page-mutations.ts';
 import { disposePersistenceConsumer } from '../../src/core/persistence/service.ts';
-import { applyPageRankCut, PAGE_RANK_BUDGET_RATIO_KEY, resolvePageRankCut } from '../../src/core/search/page-rank-cut.ts';
+import { cutWholePages, liftModeCut, PAGE_RANK_CUT_FACTOR_KEY, PAGE_RANK_CUT_KEY, resolvePageRankCut } from '../../src/core/search/page-rank-cut.ts';
 import { __setEmbedTransportForTests, configureGateway, resetGateway } from '../../src/core/ai/gateway.ts';
 import { LEGACY_EMBEDDING_CONFIG } from '../helpers/legacy-embedding-config.ts';
 import { resolveSearchMode } from '../../src/core/search/mode.ts';
@@ -29,26 +31,33 @@ import { isolatedPersistencePostgres } from '../helpers/persistence-postgres.ts'
 import { testBackends } from '../helpers/test-backends.ts';
 
 const op = (name: string) => operations.find(o => o.name === name)!;
-const QUERY = 'garden tomato harvest';
+const SMALL = 'orchard apple picking';
+const LARGE = 'garden tomato harvest';
+const BUDGET = 8000;
 
-describe('page rank cut: min() with the mode cut', () => {
-  test('applyPageRankCut takes the smaller cut and reports both', () => {
+describe('page rank cut: the mode cut is lifted only for a cut', () => {
+  test('liftModeCut', () => {
     const conservative = resolveSearchMode({ mode: 'conservative' });
-    const tokenmax = resolveSearchMode({ mode: 'tokenmax' });
     expect(conservative.tokenBudget).toBe(4000);
-    expect(tokenmax.tokenBudget).toBeUndefined();
-    expect(applyPageRankCut(conservative, undefined)).toEqual({ knobs: conservative });
-    const cut = { ratio: 0.5, caller_budget: 8100, tokens: 4050 };
-    expect(applyPageRankCut(tokenmax, cut).knobs.tokenBudget).toBe(4050);
-    expect(applyPageRankCut(tokenmax, cut).meta).toEqual({ ratio: 0.5, caller_budget: 8100, mode_cut: null, applied_cut: 4050 });
-    expect(applyPageRankCut(conservative, cut).meta).toEqual({ ratio: 0.5, caller_budget: 8100, mode_cut: 4000, applied_cut: 4000 });
-    expect(applyPageRankCut(conservative, { ratio: 0.5, caller_budget: 2000, tokens: 1000 }).knobs.tokenBudget).toBe(1000);
+    expect(liftModeCut(conservative, undefined)).toBe(conservative);
+    expect(liftModeCut(conservative, { mode: 'whole_pages', factor: 1, caller_budget: BUDGET }).tokenBudget).toBeUndefined();
   });
 
+  test('cutWholePages: whole pages up to the target; the crossing page only if its floor fits what is left', () => {
+    const cut = { mode: 'whole_pages' as const, factor: 1, caller_budget: 1000 };
+    const pages = (...ws: Array<[number, number]>) => ws.map(([w, f], i) => ({ i, w, f }));
+    const run = (ps: Array<{ i: number; w: number; f: number }>, budget = 1000, c = cut) =>
+      cutWholePages(ps, budget, c, p => p.w, p => p.f);
+    expect(run(pages([400, 50], [400, 50], [400, 150], [100, 10])).kept.map(p => p.i)).toEqual([0, 1, 2]);
+    expect(run(pages([400, 50], [400, 50], [400, 250], [100, 10])).kept.map(p => p.i)).toEqual([0, 1]);
+    expect(run(pages([500, 50], [500, 50], [100, 10])).meta).toEqual({ ...cut, target: 1000, applied_cost: 1000, candidates: 3, kept: 2 });
+    expect(run(pages([3000, 400], [100, 10])).kept.map(p => p.i)).toEqual([0]);
+    expect(run(pages([400, 50], [400, 50], [400, 250]), 1000, { ...cut, factor: 1.5 }).meta).toMatchObject({ target: 1500, applied_cost: 1200, kept: 3 });
+  });
 });
 
 for (const backend of testBackends()) {
-  describe(`${backend}: page rank cut through query, search and recall`, () => {
+  describe(`${backend}: whole-page cut through query, search and recall`, () => {
     let engine: BrainEngine;
     let close: () => Promise<void> = async () => {};
     let meta: Record<string, any> | null = null;
@@ -61,11 +70,14 @@ for (const backend of testBackends()) {
       const out = await op(name).handler(ctx(), { expand: false, ...params });
       return { out: out as any, meta: meta as Record<string, any> | null };
     };
+    const page = (query: string, extra: Record<string, unknown> = {}) =>
+      call('query', { query, return_unit: 'page', token_budget: BUDGET, limit: 50, mode: 'tokenmax', ...extra });
     const slugs = (rows: Array<{ slug: string }>) => rows.map(r => r.slug);
-    const ratio = async (value: string | null) => {
-      if (value === null) await engine.unsetConfig(PAGE_RANK_BUDGET_RATIO_KEY);
-      else await engine.setConfig(PAGE_RANK_BUDGET_RATIO_KEY, value);
+    const set = async (key: string, value: string | null) => {
+      if (value === null) await engine.unsetConfig(key);
+      else await engine.setConfig(key, value);
     };
+    const cutMode = (value: string | null) => set(PAGE_RANK_CUT_KEY, value);
 
     beforeAll(async () => {
       if (backend === 'pglite') {
@@ -79,11 +91,18 @@ for (const backend of testBackends()) {
         engine = pg.engine;
         close = pg.close;
       }
-      for (let i = 0; i < 40; i++) {
-        await submitPageMutation(ctx(), { operation: 'put_page', params: { slug: `notes/garden-${i}`,
-          content: `---\ntype: note\ntitle: Garden note ${i}\n---\nThe garden tomato harvest note ${i}. ` + 'We planted tomatoes and basil in the garden beds this season. '.repeat(20) } });
+      // Small pages (BEAM-like): about 250 tokens, one chunk each.
+      for (let i = 0; i < 48; i++) {
+        await submitPageMutation(ctx(), { operation: 'put_page', params: { slug: `notes/orchard-${i}`,
+          content: `---\ntype: note\ntitle: Orchard note ${i}\n---\nThe orchard apple picking note ${i}. ` + 'We walked the rows and filled crates with ripe fruit before noon. '.repeat(14) } });
       }
-    }, 180_000);
+      // Large pages (sessions): about 3,000 tokens, many chunks each.
+      for (let i = 0; i < 12; i++) {
+        const paras = Array.from({ length: 12 }, (_, k) => `Day ${k} of session ${i}: the garden tomato harvest went on. ` + 'We picked, sorted and stored the vines while talking through the plan. '.repeat(16));
+        await submitPageMutation(ctx(), { operation: 'put_page', params: { slug: `sessions/garden-${i}`,
+          content: `---\ntype: note\ntitle: Garden session ${i}\n---\n` + paras.join('\n\n') } });
+      }
+    }, 300_000);
 
     afterAll(async () => {
       resetGateway();
@@ -91,86 +110,123 @@ for (const backend of testBackends()) {
       await close();
     });
 
-    test('an unset, non-numeric, zero or negative ratio is off', async () => {
-      await ratio(null);
-      expect(await resolvePageRankCut(engine, 8100)).toBeUndefined();
-      for (const bad of ['', 'half', '0', '-0.5', 'Infinity']) {
-        await ratio(bad);
-        expect(await resolvePageRankCut(engine, 8100)).toBeUndefined();
+    test('only whole_pages is on; a factor that is not a positive number reads as 1.0', async () => {
+      for (const v of [null, '', 'off', 'whole-page', 'true']) {
+        await cutMode(v);
+        expect(await resolvePageRankCut(engine, BUDGET)).toBeUndefined();
       }
-      await ratio('0.5');
-      expect(await resolvePageRankCut(engine, 8100)).toEqual({ ratio: 0.5, caller_budget: 8100, tokens: 4050 });
+      await cutMode('whole_pages');
+      for (const bad of [null, '', 'big', '0', '-1', 'Infinity']) {
+        await set(PAGE_RANK_CUT_FACTOR_KEY, bad);
+        expect(await resolvePageRankCut(engine, BUDGET)).toEqual({ mode: 'whole_pages', factor: 1, caller_budget: BUDGET });
+      }
+      await set(PAGE_RANK_CUT_FACTOR_KEY, '1.25');
+      expect(await resolvePageRankCut(engine, BUDGET)).toEqual({ mode: 'whole_pages', factor: 1.25, caller_budget: BUDGET });
+      await set(PAGE_RANK_CUT_FACTOR_KEY, null);
     });
 
-    test('off: the key unset or invalid changes nothing, and the caller budget never reaches ranking (forced probe)', async () => {
-      await ratio(null);
-      const base = await call('query', { query: QUERY, return_unit: 'page', token_budget: 8100, mode: 'conservative' });
-      expect(base.meta!.page_rank_cut).toBeUndefined();
-      expect(base.meta!.token_budget.budget).toBe(4000);
-      const small = await call('query', { query: QUERY, return_unit: 'page', token_budget: 2000, mode: 'conservative' });
-      expect(small.meta!.token_budget.budget).toBe(4000);
-      const tm = await call('query', { query: QUERY, return_unit: 'page', token_budget: 8100, mode: 'tokenmax' });
-      expect(tm.meta!.token_budget).toBeUndefined();
-      expect(tm.meta!.page_rank_cut).toBeUndefined();
-      await ratio('not-a-number');
-      const invalid = await call('query', { query: QUERY, return_unit: 'page', token_budget: 8100, mode: 'conservative' });
-      expect(slugs(invalid.out)).toEqual(slugs(base.out));
-      expect(invalid.meta!.page_rank_cut).toBeUndefined();
-      expect(invalid.meta!.token_budget).toEqual(base.meta!.token_budget);
+    test('off: unset, `off` or an unknown value leaves rows and delivery identical', async () => {
+      await cutMode(null);
+      const base = await page(SMALL);
+      expect(base.meta!.delivery.page_rank_cut).toBeUndefined();
+      for (const v of ['off', 'nonsense']) {
+        await cutMode(v);
+        const again = await page(SMALL);
+        expect(slugs(again.out)).toEqual(slugs(base.out));
+        expect(again.meta!.delivery).toEqual(base.meta!.delivery);
+        expect(again.meta!.token_budget).toEqual(base.meta!.token_budget);
+      }
     });
 
-    test('on: tokenmax cuts to ratio x caller budget and reports candidates and kept', async () => {
-      await ratio(null);
-      const off = await call('query', { query: QUERY, return_unit: 'page', token_budget: 8100, mode: 'tokenmax' });
-      await ratio('0.5');
-      const on = await call('query', { query: QUERY, return_unit: 'page', token_budget: 8100, mode: 'tokenmax' });
-      const cut = on.meta!.page_rank_cut;
-      expect(cut).toMatchObject({ ratio: 0.5, caller_budget: 8100, mode_cut: null, applied_cut: 4050 });
-      expect(on.meta!.token_budget.budget).toBe(4050);
-      expect(cut.kept).toBe(on.meta!.token_budget.kept);
+    test('small pages fill at least 95% of the budget; the fixed 0.40 ratio under-fills (forced probe)', async () => {
+      await cutMode(null);
+      // The old ratio folded min(mode cut, 0.40 x budget) into search.tokenBudget, a chunk-token cut.
+      await set('search.tokenBudget', String(0.4 * BUDGET));
+      const ratio = await page(SMALL);
+      await set('search.tokenBudget', null);
+      expect(ratio.meta!.delivery.budget_used).toBeLessThan(0.6 * BUDGET);
+
+      await cutMode('whole_pages');
+      const on = await page(SMALL);
+      const cut = on.meta!.delivery.page_rank_cut;
+      expect(cut).toMatchObject({ mode: 'whole_pages', factor: 1, caller_budget: BUDGET, target: BUDGET });
+      expect(on.meta!.delivery.budget_used).toBeGreaterThanOrEqual(0.95 * BUDGET);
+      expect(on.meta!.delivery.budget_used).toBeLessThanOrEqual(BUDGET);
+      expect(cut.kept).toBe(on.meta!.delivery.blocks);
       expect(cut.candidates).toBeGreaterThan(cut.kept);
-      expect(on.out.length).toBeLessThan(off.out.length);
-      expect(slugs(on.out)).toEqual(slugs(off.out).slice(0, on.out.length));
+      expect(cut.applied_cost).toBeGreaterThanOrEqual(0.95 * BUDGET);
+      expect(on.out.every((r: any) => r.delivered.truncated === false)).toBe(true);
     });
 
-    test('on: conservative keeps the smaller of its own cut and ratio x budget', async () => {
-      await ratio('0.5');
-      const big = await call('query', { query: QUERY, return_unit: 'page', token_budget: 8100, mode: 'conservative' });
-      expect(big.meta!.page_rank_cut).toMatchObject({ mode_cut: 4000, applied_cut: 4000 });
-      const small = await call('query', { query: QUERY, return_unit: 'page', token_budget: 2000, mode: 'conservative' });
-      expect(small.meta!.page_rank_cut).toMatchObject({ caller_budget: 2000, mode_cut: 4000, applied_cut: 1000 });
-      expect(small.meta!.token_budget.budget).toBe(1000);
+    test('the mode cut never under-fills: conservative (4000) still fills small pages', async () => {
+      await cutMode(null);
+      const off = await page(SMALL, { mode: 'conservative' });
+      expect(off.meta!.token_budget.budget).toBe(4000);
+      expect(off.meta!.delivery.budget_used).toBeLessThan(0.6 * BUDGET);
+      await cutMode('whole_pages');
+      const on = await page(SMALL, { mode: 'conservative' });
+      expect(on.meta!.token_budget).toBeUndefined();
+      expect(on.meta!.delivery.budget_used).toBeGreaterThanOrEqual(0.95 * BUDGET);
     });
 
-    test('on: no caller budget, or the chunk unit, is unchanged', async () => {
-      await ratio(null);
-      const pageOff = await call('query', { query: QUERY, return_unit: 'page', mode: 'conservative' });
-      const chunkOff = await call('query', { query: QUERY, token_budget: 3000, mode: 'conservative' });
-      await ratio('0.5');
-      const pageOn = await call('query', { query: QUERY, return_unit: 'page', mode: 'conservative' });
-      const chunkOn = await call('query', { query: QUERY, token_budget: 3000, mode: 'conservative' });
-      expect(pageOn.meta!.page_rank_cut).toBeUndefined();
-      expect(chunkOn.meta!.page_rank_cut).toBeUndefined();
+    test('large pages: the same whole pages the 0.40 ratio delivered, without its slivers', async () => {
+      await cutMode(null);
+      await set('search.tokenBudget', String(0.4 * BUDGET));
+      const ratio = await page(LARGE);
+      await set('search.tokenBudget', null);
+      await cutMode('whole_pages');
+      const on = await page(LARGE);
+      const cut = on.meta!.delivery.page_rank_cut;
+      expect(cut.kept).toBeLessThanOrEqual(4);
+      const whole = (rows: any[]) => rows.filter((r) => r.delivered.truncated === false).map((r) => r.slug);
+      expect(whole(on.out)).toEqual(whole(ratio.out));
+      expect(cut.kept).toBeLessThanOrEqual(ratio.meta!.delivery.blocks);
+      expect(on.out.slice(0, -1).every((r: any) => r.delivered.truncated === false)).toBe(true);
+      expect(on.meta!.delivery.budget_used).toBeGreaterThanOrEqual(0.9 * BUDGET);
+      expect(slugs(on.out)).toEqual(slugs(ratio.out).slice(0, on.out.length));
+    });
+
+    test('factor scales the target', async () => {
+      await cutMode('whole_pages');
+      await set(PAGE_RANK_CUT_FACTOR_KEY, '0.5');
+      const half = await page(SMALL);
+      await set(PAGE_RANK_CUT_FACTOR_KEY, null);
+      const full = await page(SMALL);
+      expect(half.meta!.delivery.page_rank_cut).toMatchObject({ factor: 0.5, target: BUDGET / 2 });
+      expect(half.meta!.delivery.page_rank_cut.kept).toBeLessThan(full.meta!.delivery.page_rank_cut.kept);
+    });
+
+    test('no caller budget, or the chunk unit, is unchanged', async () => {
+      await cutMode(null);
+      const pageOff = await call('query', { query: SMALL, return_unit: 'page', limit: 50, mode: 'conservative' });
+      const chunkOff = await call('query', { query: SMALL, token_budget: 3000, limit: 50, mode: 'conservative' });
+      await cutMode('whole_pages');
+      const pageOn = await call('query', { query: SMALL, return_unit: 'page', limit: 50, mode: 'conservative' });
+      const chunkOn = await call('query', { query: SMALL, token_budget: 3000, limit: 50, mode: 'conservative' });
+      expect(pageOn.meta!.delivery.page_rank_cut).toBeUndefined();
       expect(slugs(pageOn.out)).toEqual(slugs(pageOff.out));
+      expect(pageOn.meta!.token_budget).toEqual(pageOff.meta!.token_budget);
       expect(slugs(chunkOn.out)).toEqual(slugs(chunkOff.out));
       expect(chunkOn.meta!.token_budget).toEqual(chunkOff.meta!.token_budget);
+      expect(chunkOn.meta!.delivery?.page_rank_cut).toBeUndefined();
     });
 
-    test('on: search and recall page paths take the same cut', async () => {
-      await ratio('0.5');
-      const s = await call('search', { query: QUERY, return_unit: 'page', token_budget: 2000, mode: 'conservative' });
-      expect(s.meta!.page_rank_cut).toMatchObject({ caller_budget: 2000, mode_cut: 4000, applied_cut: 1000 });
+    test('search and recall page paths take the same cut', async () => {
+      await cutMode('whole_pages');
+      const s = await call('search', { query: SMALL, return_unit: 'page', token_budget: BUDGET, limit: 50, mode: 'tokenmax' });
+      expect(s.meta!.delivery.page_rank_cut).toMatchObject({ mode: 'whole_pages', caller_budget: BUDGET });
+      expect(s.meta!.delivery.budget_used).toBeGreaterThanOrEqual(0.95 * BUDGET);
       embeddingDisabled = false;
       configureGateway({ ...LEGACY_EMBEDDING_CONFIG, env: { OPENAI_API_KEY: 'fixture-key' } });
       __setEmbedTransportForTests((async ({ values }: { values: string[] }) =>
         ({ embeddings: values.map(() => [1, ...Array(LEGACY_EMBEDDING_CONFIG.embedding_dimensions - 1).fill(0)]) })) as never);
       try {
-        const r = await call('recall', { query: QUERY, return_unit: 'page', budget_tokens: 2000 });
+        const r = await call('recall', { query: SMALL, return_unit: 'page', budget_tokens: 2000, limit: 50 });
         expect(r.out.search_degraded).toBeUndefined();
-        expect(r.out.page_rank_cut).toMatchObject({ ratio: 0.5, caller_budget: 2000, applied_cut: 1000 });
-        await ratio(null);
-        const rOff = await call('recall', { query: QUERY, return_unit: 'page', budget_tokens: 2000 });
-        expect(rOff.out.page_rank_cut).toBeUndefined();
+        expect(r.out.delivery.page_rank_cut).toMatchObject({ mode: 'whole_pages', caller_budget: 2000 });
+        await cutMode(null);
+        const rOff = await call('recall', { query: SMALL, return_unit: 'page', budget_tokens: 2000, limit: 50 });
+        expect(rOff.out.delivery.page_rank_cut).toBeUndefined();
       } finally {
         embeddingDisabled = true;
         __setEmbedTransportForTests(null);
