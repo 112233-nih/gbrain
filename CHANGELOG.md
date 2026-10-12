@@ -10,7 +10,7 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
-## [Unreleased: withdrawn refusal detail, version stamped at merge] - 2026-10-12
+## [0.60.180.0] - 2026-10-12
 
 **When `remember` refuses a forgotten claim, the refusal now says when and how widely it was forgotten.** An agent that re-saves a claim the user forgot gets `fact_withdrawn` as before, and the refusal now carries `withdrawn: { at, subject, visibility }`, where `subject` is the entity the claim was forgotten for or `all_entities`. The agent can tell the user "you asked me to forget that on <date>" instead of retrying. The object rides the immediate refusal, the batch item error, the failed write receipt and `get_write_request`. It covers the exact claim only, the message, code and suggestion are unchanged, and nothing is ever restored.
 
