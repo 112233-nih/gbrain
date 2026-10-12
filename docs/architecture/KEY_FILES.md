@@ -86,5 +86,6 @@ link it here rather than raising the cap.
 | [Open loops](key-files/open-loops-engine.md) | detect, extract, store |
 | [Always-loaded core memory](key-files/core-memory.md) | Core tier, write-path guard and lock order, delivery lanes, pressure notice |
 | [Workspace push and backup coverage](key-files/workspace-push-and-backup.md) | Workspace push, hook push backstops, backup verdicts |
+| [Secret and sensitivity scanning](key-files/secret-scan.md) | Format-based secret detection, allowlist, scan work counters, sensitivity scan |
 | [Ambient capture consent gate](key-files/ambient-capture.md) | `memory.auto_writeback` capture lanes |
 | [Quarantine](key-files/quarantine.md) | Gate-marker strip; quarantined pages in facts, reads, writes |
