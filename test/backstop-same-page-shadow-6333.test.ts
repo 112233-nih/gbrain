@@ -78,7 +78,7 @@ beforeAll(async () => {
   configureGateway({ embedding_model: 'openai:text-embedding-3-small', embedding_dimensions: DIMS, env: { OPENAI_API_KEY: 'test' } });
 });
 
-afterAll(async () => { await engine.disconnect(); });
+afterAll(async () => { resetGateway(); await engine.disconnect(); });
 
 afterEach(() => {
   __setChatTransportForTests(null);
