@@ -86,7 +86,13 @@ Each item is re-checked against the page's current state just before it is
 written, and the write is bound to the revision it just read, so an edit made
 after planning is kept and repaired too. An item that no longer needs the
 repair, or whose page changes during the write, is counted as `skipped` and
-left for the next run. No kind deletes data except `stale-atoms`, which
+left for the next run. An item the write refuses for its own reasons (its slug
+is one the grammar no longer accepts, `invalid_params`; its file and database
+copy disagree and neither is overwritten, `source_changed`) is listed in
+`failed[]` with its reason and left exactly as it was, and the run goes on to
+the next item. A failed item is not retried by a resumed run (a later success
+moves the cursor past it); it is retried by the next full scan, which is the
+printed `apply_command` once the run has completed. No kind deletes data except `stale-atoms`, which
 soft-deletes the atoms it retires, and `managed-sync-orphans`, which deletes
 only sync bookkeeping rows nothing current can resume ([Managed sync
 orphans](#managed-sync-orphans)). Retired atoms stay recoverable through the
@@ -107,11 +113,14 @@ gives each a fresh row number); it never deletes or rewrites a page.
 | `--only <path>`, `--skip <path>` | `frontmatter` only: select source-relative files (repeatable). The hash covers the selection, so pass the same flags to the apply. |
 | `--diff` | `frontmatter` only: print every per-file diff instead of one sample per class (`--json` always carries all of them). |
 | `--yes` | `frontmatter --apply` only: the user agreed to the previewed file changes (destructive consent). Without it a terminal asks, and a run without a terminal exits 3 with the consent payload. |
-| `--json` | Print `{ scope, mode, results[], paid_kinds }`, one result per kind with `paid`, `affected`, `sample`, `residuals`, `cost`, `capacity`, `resumed_from`, `applied`, `skipped`, `complete`, `stopped` and `apply_command`, plus `explicit_kinds[]` when the run skipped explicit-only kinds. |
+| `--json` | Print `{ scope, mode, results[], paid_kinds }`, one result per kind with `paid`, `affected`, `sample`, `residuals`, `cost`, `capacity`, `resumed_from`, `applied`, `skipped`, `failed[]` (`item`, `source_id`, `slug`, `reason`, `message`, `retry: "next_full_scan"`), `complete`, `stopped` and `apply_command`, plus `explicit_kinds[]` when the run skipped explicit-only kinds. |
 
 The command exits 1 when a run stops early (capacity, a pending write, or a
-held writer). A `--limit` batch that leaves work behind exits 0, so scripts
-should also check `results[].complete`.
+held writer) and when any item failed (`failed[]` is not empty; `complete`
+still means every pending item was attempted). A `--limit` batch that leaves
+work behind exits 0, so scripts should also check `results[].complete`.
+`gbrain doctor --remediate` reports a repair step with failed items as
+`failed`, never `completed`.
 
 ## What each kind fixes
 
