@@ -103,6 +103,7 @@ Every hold and error has three fields, from one table
 | `database_contention` | connection | retry | no | three reruns in a row stop on it |
 | `write_capacity` | connection | retry | no | writer status shows the cap held by requests that never settle |
 | `storage_error` | connection | retry | no | the same error after a rerun (then it is not a dropped connection) |
+| `graduation_in_progress` | connection | retry | no | gbrain migrate --status --json reports no running move and the fence still refuses |
 | `preparation_systemic` | systemic | upgrade, retry | yes | always |
 | `drain_stalled` | systemic | none | yes | always |
 | `recovery_required` | systemic | none | yes | always |

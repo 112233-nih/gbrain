@@ -51,8 +51,11 @@ export interface SyncStatusHold extends SyncFaultVerdict {
 
 export interface SyncStatusError extends SyncFaultVerdict {
   code: string;
+  /** A refinement of `code`: a lane fault (`cancelled`), or #6513 the closed `reason` of a database refusal. */
   detail?: string;
   message: string;
+  /** #6513: the receipt's public failure detail (origin, sqlstate, raiser, table, the closed reason; never message text). */
+  write_error_detail?: Record<string, unknown>;
   slug?: string;
   path?: string;
   request_id?: string;
@@ -136,11 +139,13 @@ export async function readSyncStatus(engine: BrainEngine, sourceId: string): Pro
   const repairable = records.filter(record => contentHoldDisposition(record, auto).action === 'repair').length;
   const failures = (await readManagedSyncFailures(engine, [sourceId])).filter(failure => failure.code !== 'sync_incomplete');
   const failure = failures[0];
-  const laneFault = failure?.code === 'cancelled' ? laneFaultInMessage(failure.message) : null;
+  const reason = typeof failure?.write_error_detail?.reason === 'string' ? failure.write_error_detail.reason : null;
+  const laneFault = (failure?.code === 'cancelled' ? laneFaultInMessage(failure.message) : null) ?? reason;
   const retired = failure || header ? null : await retiredCursorStands(engine, sourceId, source.incarnation);
   const repairPreview: Action = { argv: ['gbrain', 'repair', 'managed-sync-orphans', '--source', sourceId], consent: [], actor: 'agent', requires_exclusive: false,
     why: 'Previews the sync bookkeeping nothing current can resume or clear (an old incarnation\'s cursor and failure rows, stale mirror rows) with the hash its --apply takes; writes nothing.' };
-  const lastError: SyncStatusError | null = failure ? { code: failure.code, ...(laneFault ? { detail: laneFault } : {}), message: failure.message, path: failure.path, phase: failure.phase, first_seen: failure.first_seen, attempts: failure.attempts,
+  const lastError: SyncStatusError | null = failure ? { code: failure.code, ...(laneFault ? { detail: laneFault } : {}), message: failure.message, ...(failure.write_error_detail ? { write_error_detail: failure.write_error_detail } : {}),
+    path: failure.path, phase: failure.phase, first_seen: failure.first_seen, attempts: failure.attempts,
     ...(failure.request_id ? { request_id: failure.request_id } : {}), ...classifySyncFault({ code: failure.code, detail: laneFault, message: failure.message }) }
     : retired ? { code: 'cursor_incarnation_retired', message: `An unfinished sync cursor of ${sourceId} was recorded under an incarnation the source no longer has; no current sync selects it, and it says nothing about whether the current files are imported. `
       + `Retire it with ${repairPreview.argv!.join(' ')} (preview, then --apply with the printed hash).`, phase: 'resume', first_seen: retired.first_seen, attempts: 1, ...classifySyncFault({ code: 'cursor_incarnation_retired' }) } : null;
