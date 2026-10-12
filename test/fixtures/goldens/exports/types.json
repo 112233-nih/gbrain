@@ -1898,7 +1898,7 @@
         "kind": "type",
         "name": "ToolLoopStopReason",
         "signature": [
-          "\"length\" | \"unrecoverable\" | \"end\" | \"refusal\" | \"content_filter\" | \"max_turns\" | \"aborted\""
+          "\"length\" | \"unrecoverable\" | \"end\" | \"refusal\" | \"content_filter\" | \"max_turns\" | \"aborted\" | \"empty_response\""
         ]
       },
       {
