@@ -23,6 +23,7 @@ import {
 } from '../core/embed-stall.ts';
 import { createProgress, type ProgressReporter } from '../core/progress.ts';
 import { getCliOptions, cliOptsToProgressOptions } from '../core/cli-options.ts';
+import { StaleChunkProgress } from '../core/embed-stale-progress.ts';
 import { assertEmbeddingEnabled } from '../core/embedding-dim-check.ts';
 import { writeCliError } from '../cli/cli-error.ts';
 import { countRestampOnlyChunks, invalidateStaleSignatureEmbeddingsGuarded } from '../core/embedding-invalidation.ts';
@@ -984,19 +985,16 @@ export async function runEmbed(engine: BrainEngine, args: string[], selectedConf
   // all work. Minion handlers call runEmbedCore directly with their own
   // onProgress (see jobs.ts).
   const progress = createProgress(cliOptsToProgressOptions(getCliOptions()));
-  let progressStarted = false;
-  opts.onProgress = (done, total, _embedded) => {
-    if (!progressStarted) {
-      progress.start('embed.pages', total);
-      progressStarted = true;
-    }
-    progress.tick(1);
+  let progressDone: number | null = null;
+  opts.onProgress = (done, total) => {
+    if (progressDone === null) progress.start('embed.pages', total); else progress.setTotal?.(total);
+    progress.tick(done - (progressDone ?? 0)); progressDone = done;
   };
 
   if (costCap) opts.signal = costCap.signal;
   try {
     const result = costCap ? await costCap.metered(() => runEmbedCore(engine, opts)) : await runEmbedCore(engine, opts);
-    if (progressStarted) progress.finish();
+    if (progressDone !== null) progress.finish();
     const capped = costCap?.hit();
     if (capped) {
       noteEmbedCostStop(result, capped, args);
@@ -1023,7 +1021,7 @@ export async function runEmbed(engine: BrainEngine, args: string[], selectedConf
     if (result.reason === 'time_budget') slog(embedBudgetStopVerdict(result));
     return result;
   } catch (e) {
-    if (progressStarted) progress.finish();
+    if (progressDone !== null) progress.finish();
     const capped = costCap?.hit();
     if (capped) {
       const stopped: EmbedResult = { embedded: 0, skipped: 0, would_embed: 0, total_chunks: 0, pages_processed: 0, failures: 0, failure_samples: [], dryRun: false, chunkless_pages_healed: 0 };
@@ -1794,6 +1792,7 @@ async function embedAllStale(
       ? { ...sourceOpt, signature, ...(includeNullSig && { includeNullSignature: true }) }
       : sourceOpt,
   );
+  const staleProgress = new StaleChunkProgress(staleCount);
   if (staleCount === 0) {
     await reportArchived();
     if (!staleOpts?.quiet) {
@@ -1923,7 +1922,7 @@ async function embedAllStale(
     if (remaining === 0) return false;
     if (result.embedded === lastReentryEmbedded) return false; // no forward progress
     lastReentryEmbedded = result.embedded;
-    reentries++;
+    reentries++; staleProgress.reentered(remaining);
     afterPageId = 0;
     afterChunkIndex = -1;
     afterUpdatedAt = null;
@@ -1962,7 +1961,7 @@ async function embedAllStale(
         if (await maybeReenter()) continue;
         break;
       }
-      totalChunksLoaded += batch.length;
+      totalChunksLoaded += batch.length; staleProgress.listed(batch.length);
 
       // Advance cursor to last row in this batch.
       const last = batch[batch.length - 1];
@@ -1994,11 +1993,13 @@ async function embedAllStale(
       const keys = allKeys.filter(k => (_embedFailureCounts.get(k) ?? 0) < QUARANTINE_AFTER);
       if (keys.length < allKeys.length) {
         serr(`\n  [embed] skipping ${allKeys.length - keys.length} page(s) quarantined after ${QUARANTINE_AFTER} consecutive failed embed attempts (this process); set frontmatter.embed_skip to skip permanently, or restart to retry`);
+        for (const k of allKeys) if (!keys.includes(k)) staleProgress.pageDone(byKey.get(k)!.length, 0);
       }
       result.total_chunks += batch.length;
 
       async function embedOneKey(key: string) {
         let stale = byKey.get(key)!;
+        const census = stale.length;
         const keySourceId = stale[0]?.source_id ?? 'default';
         const slug = stale[0].slug;
         try {
@@ -2088,12 +2089,11 @@ async function embedAllStale(
           recordFailure(result, stale.length, slug, e);
           serr(`\n  Error embedding ${slug}: ${e instanceof Error ? e.message : e}`);
           noteEmbedQuarantineFailure(key, slug);
+        } finally {
+          const tally = staleProgress.pageDone(census, stale.length); onProgress?.(tally.done, tally.total, result.embedded);
         }
         processedPageKeys.add(key);
         result.pages_processed++;
-        // Use staleCount as the estimated total for progress (not exact after
-        // pagination starts, but directionally correct).
-        onProgress?.(processedPageKeys.size, Math.ceil(staleCount / PAGE_SIZE) * keys.length, result.embedded);
         // Cooperative DB-contention pace between keys (no-op when unpaced).
         // E-4 (Codex P1): pace() is subject to the EXTERNAL abort only, NOT the
         // wall-clock budget — a contended DB's sleep must not be cut by the
