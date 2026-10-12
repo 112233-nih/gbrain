@@ -214,6 +214,7 @@ describe('escalation ladders through the gateway with the stub transport', () =>
   }, 120_000);
   afterEach(resetGateway);
   afterAll(async () => {
+    resetGateway();
     for (const { engine } of engines) await engine.disconnect();
     await closePostgres?.();
     rmSync(dbDir, { recursive: true, force: true });
