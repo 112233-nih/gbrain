@@ -66,6 +66,11 @@ for an edge needed immediately, then verify it with `get_links` or a graph query
 Check the write receipt and the graph separately; a saved page is not proof of
 graph reconciliation. See [graph setup](../../INSTALL_FOR_AGENTS.md#step-45-wire-the-knowledge-graph).
 
+A timeline entry has no update or remove operation: `add_timeline_entry`
+returns the rendered bullet, and editing or deleting that bullet in the page's
+Timeline section through `edit_page` (with `expected_revision`) refreshes or
+removes its row, because the page is the system of record for timeline rows.
+
 ## Where text goes
 
 Local storage does not mean every enabled feature runs locally. Keyless keyword

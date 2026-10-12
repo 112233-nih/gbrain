@@ -24,7 +24,7 @@ const add_timeline_entry: Operation = {
   name: 'add_timeline_entry',
   idempotent: true,
   outputRedaction: 'retrieval',
-  description: 'Append a dated entry to a page timeline. Replaying the same entry changes nothing. A page\'s Timeline section needs no call.',
+  description: 'Append a dated entry to a page timeline. Replaying the same entry changes nothing. A page\'s Timeline section needs no call. The receipt returns the rendered bullet; to change or remove an entry, edit that bullet in the page\'s Timeline section with edit_page (expected_revision from get_page include_content:true): the row follows the page.',
   params: {
     request_id: WRITE_REQUEST_PARAM,
     ...MERGE_PRECONDITION_PARAMS,
@@ -72,7 +72,7 @@ const get_timeline: Operation = {
   mutating: false,
   idempotent: true,
   outputRedaction: 'retrieval',
-  description: 'Get timeline entries for a page, optionally filtered by date window',
+  description: 'Get timeline entries for a page, optionally filtered by date window. To change or remove an entry, edit its bullet in the page\'s Timeline section with edit_page (expected_revision from get_page include_content:true): the row follows the page.',
   params: {
     slug: { type: 'string', required: true, description: 'Slug of the page whose timeline entries to return.' },
     after: { type: 'string', description: 'Return entries on or after this date (YYYY-MM-DD)' },

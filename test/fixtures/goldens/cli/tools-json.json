@@ -2,8 +2,8 @@
   "golden": {
     "exitCode": 0,
     "stderr": "",
-    "stdoutBytes": 230679,
-    "stdoutSha256": "dc9a2b59ffbb454139bd202eb28d827cd45dc57b91605771d154625920306eda",
+    "stdoutBytes": 231070,
+    "stdoutSha256": "d28c9613d378d0cb35ea4c24191fd61efcb7cd9cf465b890e9853cf6cb8eab93",
     "toolNames": [
       "remember",
       "entity",
@@ -2138,7 +2138,7 @@
         "scope": "read"
       },
       {
-        "description": "Append a dated entry to a page timeline. Replaying the same entry changes nothing. A page's Timeline section needs no call.",
+        "description": "Append a dated entry to a page timeline. Replaying the same entry changes nothing. A page's Timeline section needs no call. The receipt returns the rendered bullet; to change or remove an entry, edit that bullet in the page's Timeline section with edit_page (expected_revision from get_page include_content:true): the row follows the page.",
         "idempotent": true,
         "local_only": false,
         "mutating": true,
@@ -2199,7 +2199,7 @@
         "scope": "write"
       },
       {
-        "description": "Get timeline entries for a page, optionally filtered by date window",
+        "description": "Get timeline entries for a page, optionally filtered by date window. To change or remove an entry, edit its bullet in the page's Timeline section with edit_page (expected_revision from get_page include_content:true): the row follows the page.",
         "idempotent": true,
         "local_only": false,
         "mutating": false,
