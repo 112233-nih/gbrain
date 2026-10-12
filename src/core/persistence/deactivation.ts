@@ -30,7 +30,7 @@ import type { BrainEngine } from '../engine.ts';
 import { configDir } from '../config.ts';
 import { opError, OperationError } from '../ops/contract.ts';
 import { readFix } from '../ops/op-fix.ts';
-import { acquireWorktree, getWorktreeBinding } from './ownership.ts';
+import { acquireWorktree, getWorktreeBinding, readPersistenceBrain, type PersistenceBrainRow } from './ownership.ts';
 import { existingLocalHostId } from './identity.ts';
 import type { NativeLockHandle } from './native-lock.ts';
 import { assertWriterAdminState } from './admin-intent.ts';
@@ -78,19 +78,11 @@ export interface DeactivationReport {
   local_markers?: LocalMarkerReport;
 }
 
-interface BrainRow { brain_id: string; enabled: boolean; mode_epoch: string | number; skill_bundles_enabled: boolean | null; writer_protocol_floor: number | null }
+type BrainRow = PersistenceBrainRow;
 
-async function readBrain(engine: BrainEngine, lock = false): Promise<BrainRow> {
-  const [brain] = await engine.executeRaw<BrainRow>(`SELECT brain_id, enabled, mode_epoch,
-      (to_jsonb(persistence_brain)->>'skill_bundles_enabled')::boolean AS skill_bundles_enabled,
-      (to_jsonb(persistence_brain)->>'writer_protocol_floor')::int AS writer_protocol_floor
-    FROM persistence_brain WHERE singleton=1${lock ? ' FOR UPDATE' : ''}`);
-  if (!brain) {
-    throw opError('writer_not_initialized', 'Persistence identity is missing.',
-      'This brain has no persistence identity row, so there is no managed mode to read or deactivate. List the pending migrations that create it and ask the user before applying them.',
-      { fix: { argv: ['gbrain', 'apply-migrations', '--dry-run', '--json'], consent: [], actor: 'agent', why: 'Lists the pending migrations without applying them.', requires_exclusive: false } });
-  }
-  return brain;
+/** #6482: the shared fail-closed read; a missing, duplicated or non-boolean singleton refuses `storage_error`. */
+function readBrain(engine: BrainEngine, lock = false): Promise<BrainRow> {
+  return readPersistenceBrain(engine, lock ? { lock: 'update' } : {});
 }
 
 /** Every piece of work that keeps the brain from quiescing, with its CLI exit. Read-only. */
@@ -322,9 +314,7 @@ export async function cleanupRetiredManagedMarkers(engine: BrainEngine): Promise
   const report: LocalMarkerReport = { state: 'cleared', removed: [], pending: [] };
   const [present] = await engine.executeRaw<{ present: boolean }>("SELECT to_regclass('persistence_topology_changes') IS NOT NULL AS present");
   if (!present?.present) return report;
-  const [brain] = await engine.executeRaw<{ brain_id: string; enabled: boolean; mode_epoch: string | null }>(
-    "SELECT brain_id, enabled, to_jsonb(persistence_brain)->>'mode_epoch' AS mode_epoch FROM persistence_brain WHERE singleton=1");
-  if (!brain) return report;
+  const brain = await readPersistenceBrain(engine);
   const current = Number(brain.mode_epoch ?? 1);
   const retired = await readRetired(engine, brain.brain_id);
   if (!retired.epochs.size && !retired.worktrees.size) return report;
