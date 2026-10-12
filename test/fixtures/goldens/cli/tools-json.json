@@ -2,8 +2,8 @@
   "golden": {
     "exitCode": 0,
     "stderr": "",
-    "stdoutBytes": 230679,
-    "stdoutSha256": "dc9a2b59ffbb454139bd202eb28d827cd45dc57b91605771d154625920306eda",
+    "stdoutBytes": 230965,
+    "stdoutSha256": "3e00a7ce055b60f677e86bee01d09fd205763f9ca776f8f6f301575c4b05d3af",
     "toolNames": [
       "remember",
       "entity",
@@ -2513,6 +2513,7 @@
         "parameters": {
           "cursor": "string?",
           "limit": "number?",
+          "query": "string?",
           "schema_version": "number?",
           "section": "string?",
           "source_id": "string?"
@@ -2525,8 +2526,12 @@
               "type": "string"
             },
             "limit": {
-              "description": "Version 2 page size (1-100).",
+              "description": "Page size or ranked count (1-100).",
               "type": "number"
+            },
+            "query": {
+              "description": "Version 1 host catalog: rank skills by word overlap with this task (name, triggers, description), drop the rest, cap at limit (default 10). Refused on a shared catalog.",
+              "type": "string"
             },
             "schema_version": {
               "description": "2 for the source-qualified catalog.",
