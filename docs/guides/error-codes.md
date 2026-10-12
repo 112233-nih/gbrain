@@ -164,6 +164,16 @@ More: [docs/guides/google-connect.md#troubleshooting](../../docs/guides/google-c
 |---|---|---|---|---|---|---|
 | The autopilot job is bound to a different brain. | The request itself was wrong or no longer matches the brain; nothing was changed. | Correct the request using the message above, then retry. | agent | `repeat the read that failed` | 1 | no |
 
+### backup_dump_failed
+
+<a id="backup_dump_failed"></a>
+
+| Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
+|---|---|---|---|---|---|---|
+| `gbrain backup create` could not dump the PGLite data dir: an entry PGLite cannot read (a socket, FIFO or symlink that is not a dead gbrain socket) is still inside it. | The backup removes only gbrain's own IPC sockets, and only when nothing listens on them; a live gbrain socket, a foreign socket or FIFO, or a symlink is left in place and named in the message, because the database lock proves no other PGLite owner, not who owns an arbitrary endpoint. | Stop the process that uses each named entry (or move the entry out of the data dir), then rerun the same `gbrain backup create` command. Do not delete an entry something is still listening on. Run: gbrain doctor --json | agent | `gbrain doctor --json` | 1 | no |
+
+More: [docs/guides/in-agent-setup.md#6-back-up-the-complete-local-database](../../docs/guides/in-agent-setup.md#6-back-up-the-complete-local-database)
+
 ### benchmark_duplicate_task_id
 
 <a id="benchmark_duplicate_task_id"></a>
