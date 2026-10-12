@@ -37,7 +37,7 @@ import { execFileSync, execSync } from './spawn.ts';
 import { execFileBounded } from './bounded-child-exec.ts';
 import {
   GIT_ENV, GIT_ENV_AUTH, divergenceSafePull, detectDefaultBranch, pushProbe,
-  type PullOutcome, type PushProbeResult,
+  type PullOutcome, type PullStrategy, type PushProbeResult,
 } from './git-remote.ts';
 import { findResolverFile, RESOLVER_FILENAMES } from './resolver-filenames.ts';
 import { redactSecretsInText } from './minions/handlers/shell-redact.ts';
@@ -81,6 +81,7 @@ export interface HardenOpts {
   repoPath: string;
   sourceId: string;
   branch?: string;          // default: detectDefaultBranch
+  pullStrategy?: PullStrategy; // sources.config.pull_strategy (#5429); default rebase
   pat?: string;             // already-loaded token; never logged
   installCron?: boolean;    // default true
   verify?: boolean;         // default true
@@ -1025,10 +1026,10 @@ export async function hardenBrainRepo(opts: HardenOpts): Promise<DurabilityRepor
   if (currentBranch(repoPath) === 'HEAD') {
     push('pull', { status: 'needs_attention', detail: 'detached HEAD — checkout a branch before hardening' });
   } else if (dryRun) {
-    push('pull', { status: 'skipped', detail: `dry-run — would fetch + pull --rebase origin/${branch}` });
+    push('pull', { status: 'skipped', detail: `dry-run — would fetch + pull ${opts.pullStrategy === 'merge' ? '--no-rebase' : '--rebase'} origin/${branch}` });
   } else {
     // 1. pull current state
-    try { push('pull', pullDetail(divergenceSafePull(repoPath, branch))); }
+    try { push('pull', pullDetail(divergenceSafePull(repoPath, branch, { strategy: opts.pullStrategy }))); }
     catch (e) { push('pull', { status: 'needs_attention', detail: `fetch/pull failed: ${(e as Error).message.slice(0, 140)}` }); }
   }
 

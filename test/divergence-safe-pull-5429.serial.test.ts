@@ -3,7 +3,10 @@
  * but the pull it ran honoured a repository or user `rebase.autoStash=true`,
  * so an edit made between the dirty check and the pull was stashed and
  * replayed onto the rebased tree. The pull now carries `--no-autostash` in
- * every mode.
+ * every mode. Second half: a per-source `pull_strategy: merge` for brains
+ * whose intermediate snapshot commits conflict under rebase replay while a
+ * merge of the two tips is clean; a merge conflict is aborted with
+ * `merge --abort` and the tree is restored byte for byte.
  *
  * Local file transport is enabled via GBRAIN_GIT_ALLOW_FILE_TRANSPORT=1 (the
  * durable SSRF flags refuse it otherwise); the spy sits on node:child_process,
@@ -11,7 +14,7 @@
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import * as childProcess from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { divergenceSafePull } from '../src/core/git-remote.ts';
@@ -54,13 +57,39 @@ function commitFile(work: string, name: string, body: string, message: string): 
   return git(work, 'rev-parse', 'HEAD');
 }
 
+/** Every tracked and untracked file under the work tree (not .git) with its bytes: the byte-identical witness. */
+function treeBytes(work: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const walk = (dir: string, rel: string) => {
+    for (const name of readdirSync(dir).sort()) {
+      if (name === '.git') continue;
+      const path = join(dir, name);
+      if (statSync(path).isDirectory()) walk(path, `${rel}${name}/`);
+      else out[`${rel}${name}`] = readFileSync(path, 'latin1');
+    }
+  };
+  walk(work, '');
+  return out;
+}
+
+/** The repo in `work` has the origin at A→B (page.md = v2) and a local A→L1 (v1b)→L2 (v2): rebase replays L1 onto B and conflicts; a merge of the tips is clean. */
+function tipEquivalentDivergence(): { work: string; remoteHead: string; localHead: string } {
+  const { bare, work } = makePair();
+  const other = secondClone(bare);
+  const remoteHead = commitFile(other, 'page.md', 'v2\n', 'remote: v2');
+  git(other, 'push', '-q', 'origin', 'main');
+  commitFile(work, 'page.md', 'v1b\n', 'local snapshot');
+  const localHead = commitFile(work, 'page.md', 'v2\n', 'local: v2');
+  return { work, remoteHead, localHead };
+}
+
 beforeAll(() => { process.env.GBRAIN_GIT_ALLOW_FILE_TRANSPORT = '1'; });
 afterAll(() => { delete process.env.GBRAIN_GIT_ALLOW_FILE_TRANSPORT; });
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'gd-5429-')); });
 afterEach(() => { rmSync(root, { recursive: true, force: true }); });
 
 describe('--no-autostash (#5429, bug fix)', () => {
-  test('the pull git runs carries --no-autostash', () => {
+  test('the pull git runs carries --no-autostash, in rebase mode and in merge mode', () => {
     const { bare, work } = makePair();
     const other = secondClone(bare);
     commitFile(other, 'remote.txt', 'r\n', 'remote');
@@ -69,6 +98,7 @@ describe('--no-autostash (#5429, bug fix)', () => {
     const spy = spyOn(childProcess, 'execFileSync');
     try {
       divergenceSafePull(work, 'main');
+      divergenceSafePull(work, 'main', { strategy: 'merge' });
     } finally {
       for (const call of spy.mock.calls) {
         const args = call[1] as string[] | undefined;
@@ -76,9 +106,10 @@ describe('--no-autostash (#5429, bug fix)', () => {
       }
       spy.mockRestore();
     }
-    expect(pulls).toHaveLength(1);
-    expect(pulls[0]!.slice(pulls[0]!.indexOf('pull'))).toContain('--no-autostash');
+    expect(pulls).toHaveLength(2);
+    for (const argv of pulls) expect(argv.slice(argv.indexOf('pull'))).toContain('--no-autostash');
     expect(pulls[0]!.slice(pulls[0]!.indexOf('pull'))).toContain('--rebase');
+    expect(pulls[1]!.slice(pulls[1]!.indexOf('pull'))).toContain('--no-rebase');
   });
 
   test('git itself: with rebase.autoStash=true the old argv stashes and replays a dirty edit; --no-autostash refuses and leaves the stash list empty', () => {
@@ -106,12 +137,68 @@ describe('--no-autostash (#5429, bug fix)', () => {
     }
   });
 
-  test('a dirty tree with rebase.autoStash=true is skipped_dirty, nothing stashed', () => {
-    const { work } = makePair();
-    git(work, 'config', 'rebase.autoStash', 'true');
-    writeFileSync(join(work, 'README.md'), 'dirty\n');
-    expect(divergenceSafePull(work, 'main')).toEqual({ status: 'skipped_dirty' });
-    expect(git(work, 'stash', 'list')).toBe('');
-    expect(readFileSync(join(work, 'README.md'), 'utf8')).toBe('dirty\n');
+  test('a dirty tree with rebase.autoStash=true is skipped_dirty in both modes, nothing stashed', () => {
+    for (const strategy of ['rebase', 'merge'] as const) {
+      const { work } = makePair();
+      git(work, 'config', 'rebase.autoStash', 'true');
+      writeFileSync(join(work, 'README.md'), 'dirty\n');
+      expect(divergenceSafePull(work, 'main', { strategy })).toEqual({ status: 'skipped_dirty' });
+      expect(git(work, 'stash', 'list')).toBe('');
+      expect(readFileSync(join(work, 'README.md'), 'utf8')).toBe('dirty\n');
+    }
+  });
+});
+
+describe('pull_strategy: merge (#5429, feature)', () => {
+  test('tip-equivalent divergence: rebase mode conflict_aborted, merge mode advanced with both histories as ancestors', () => {
+    const rebase = tipEquivalentDivergence();
+    const before = treeBytes(rebase.work);
+    const out = divergenceSafePull(rebase.work, 'main');
+    expect(out.status).toBe('conflict_aborted');
+    expect(git(rebase.work, 'rev-parse', 'HEAD')).toBe(rebase.localHead);
+    expect(existsSync(join(rebase.work, '.git', 'rebase-merge'))).toBe(false);
+    expect(treeBytes(rebase.work)).toEqual(before);
+
+    const merge = tipEquivalentDivergence();
+    const merged = divergenceSafePull(merge.work, 'main', { strategy: 'merge' });
+    expect(merged.status).toBe('advanced');
+    if (merged.status !== 'advanced') throw new Error('unreachable');
+    expect(merged.from).toBe(merge.localHead);
+    const head = git(merge.work, 'rev-parse', 'HEAD');
+    expect(merged.to).toBe(head);
+    expect(git(merge.work, 'merge-base', '--is-ancestor', merge.remoteHead, head)).toBe('');
+    expect(git(merge.work, 'merge-base', '--is-ancestor', merge.localHead, head)).toBe('');
+    expect(readFileSync(join(merge.work, 'page.md'), 'utf8')).toBe('v2\n');
+    expect(existsSync(join(merge.work, '.git', 'MERGE_HEAD'))).toBe(false);
+  });
+
+  test('merge mode fast-forwards when the local branch is behind and reports up_to_date when level', () => {
+    const { bare, work } = makePair();
+    const other = secondClone(bare);
+    const remoteHead = commitFile(other, 'remote.txt', 'r\n', 'remote');
+    git(other, 'push', '-q', 'origin', 'main');
+    const out = divergenceSafePull(work, 'main', { strategy: 'merge' });
+    expect(out.status).toBe('advanced');
+    expect(git(work, 'rev-parse', 'HEAD')).toBe(remoteHead);
+    expect(divergenceSafePull(work, 'main', { strategy: 'merge' })).toEqual({ status: 'up_to_date' });
+  });
+
+  test('a real content conflict in merge mode: merge --abort, MERGE_HEAD gone, HEAD and tree byte-identical', () => {
+    const { bare, work } = makePair();
+    const other = secondClone(bare);
+    commitFile(other, 'page.md', 'remote line\n', 'remote');
+    git(other, 'push', '-q', 'origin', 'main');
+    const head = commitFile(work, 'page.md', 'local line\n', 'local');
+    const before = treeBytes(work);
+    const out = divergenceSafePull(work, 'main', { strategy: 'merge' });
+    expect(out.status).toBe('conflict_aborted');
+    if (out.status !== 'conflict_aborted') throw new Error('unreachable');
+    expect(out.detail).toContain('merge');
+    expect(existsSync(join(work, '.git', 'MERGE_HEAD'))).toBe(false);
+    expect(existsSync(join(work, '.git', 'MERGE_MSG'))).toBe(false);
+    expect(existsSync(join(work, '.git', 'rebase-merge'))).toBe(false);
+    expect(git(work, 'rev-parse', 'HEAD')).toBe(head);
+    expect(git(work, 'status', '--porcelain')).toBe('');
+    expect(treeBytes(work)).toEqual(before);
   });
 });
