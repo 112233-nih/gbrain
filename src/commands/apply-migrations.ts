@@ -669,26 +669,14 @@ async function runLockedMigrations(
 
   doc.database = dbProbe;
   doc.plan = Object.fromEntries(Object.entries(plan).map(([state, entries]) => [state, entries.map((migration: Migration) => migration.version)]));
-  // Bug 3 — surface wedged migrations as a loud, actionable error.
-  if (plan.wedged.length > 0) {
-    for (const m of plan.wedged) {
-      console.error(
-        `\nMigration v${m.version} is WEDGED (${MAX_CONSECUTIVE_PARTIALS}+ consecutive partials with no completion). ` +
-        `Check ~/.gbrain/upgrade-errors.jsonl for the last failure reasons, fix the underlying issue, then run:\n` +
-        `  gbrain apply-migrations --force-retry ${m.version}\n` +
-        `Then run \`gbrain apply-migrations\` again (it asks for any approval the migration needs).`,
-      );
-    }
-    // Don't exit — applied/partial/pending are still worth reporting and running.
-  }
+  reportWedgedMigrations(plan.wedged);
 
   if (cli.specificMigration && plan.applied.length + plan.partial.length + plan.pending.length + plan.pending_fresh_install.length + plan.skippedFuture.length + plan.declined.length === 0) {
     console.error(`No migration registered with version "${cli.specificMigration}". Run \`gbrain apply-migrations --list\` to see registered versions.`);
     fail('invalid', unknownMigrationError(cli.specificMigration));
     return 2;
   }
-  // #6466: an explicit run of a declined migration refuses (T1) instead of
-  // overriding brain-level config every machine on the database shares.
+  // #6466: an explicit run of a declined migration refuses (T1) instead of overriding brain-level config every machine shares.
   if (cli.specificMigration && plan.declined.length > 0 && !cli.list && !cli.dryRun) {
     fail('declined', migrationDeclinedError(plan.declined[0]!));
     return writeCliError(report.failure, COMMAND, { json: cli.json });
@@ -948,6 +936,18 @@ async function preflightSchema(
     };
   }
   return { schemaBehind, dbProbe };
+}
+
+/** Bug 3 — surface wedged migrations as a loud, actionable error; the run continues (applied/partial/pending are still reported and run). */
+function reportWedgedMigrations(wedged: readonly Migration[]): void {
+  for (const m of wedged) {
+    console.error(
+      `\nMigration v${m.version} is WEDGED (${MAX_CONSECUTIVE_PARTIALS}+ consecutive partials with no completion). ` +
+      `Check ~/.gbrain/upgrade-errors.jsonl for the last failure reasons, fix the underlying issue, then run:\n` +
+      `  gbrain apply-migrations --force-retry ${m.version}\n` +
+      `Then run \`gbrain apply-migrations\` again (it asks for any approval the migration needs).`,
+    );
+  }
 }
 
 function requireDbError(dbProbe: DbProbeOutcome): OperationError {
