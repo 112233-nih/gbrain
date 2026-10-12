@@ -273,6 +273,18 @@ process gets there first. On PGLite a resident process holds the datastore, so
 the drain refuses before opening it (also for a mounted PGLite brain selected
 with `--brain`).
 
+A queue row that no longer matches its live page (a legacy or hand-edited
+row, or a page recreated under a new source incarnation) is healed under the
+page lock instead of being counted again: a stale-revision row is re-keyed to
+the page's current revision and rebuilt in the same pass, a row for a page
+that is already projected or for a dead incarnation is deleted (`superseded`
+in the summary), and only the exact row the drain listed is touched, so a
+newer row the page trigger queued meanwhile survives. A page whose content
+changes while it is being rebuilt is listed once under `failed` with a
+`revision_conflict:` reason, stays queued at its new revision, and is
+rebuilt on the next run. The drain continues while a pass rebuilt, removed,
+failed or deferred a row and stops on a pass that did nothing.
+
 Verify: `gbrain doctor` shows `text_projection_readiness` ok.
 
 <a id="embedding-key-source"></a>
