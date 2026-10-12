@@ -8800,6 +8800,18 @@ and a claim forgotten without an entity is withdrawn for every entity. To link
 a fact saved without an entity, do not forget it; remember it with `entity`
 and `replaces` set to its id.
 
+#### remember withdrawn refusal detail (additive)
+
+A `fact_withdrawn` refusal may carry `withdrawn: { at, subject, visibility }`:
+`at` is when the claim was forgotten (ISO 8601), `subject` the entity slug it
+was forgotten for or `all_entities` (forgotten without an entity), and
+`visibility` the forgotten fact's. When several withdrawals match, the one for
+the named entity wins over `all_entities`, then the newest. The same object
+rides the immediate refusal, the `items[]` error, the failed write receipt and
+`get_write_request`. It covers the exact normalized claim only, never a
+paraphrase, and its absence carries no meaning: the message prefix, code and
+suggestion are unchanged.
+
 #### remember replaces (additive)
 
 `replaces` (string): the `fact_id` this fact replaces, caller-directed: the
