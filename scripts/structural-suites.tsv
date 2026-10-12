@@ -257,7 +257,7 @@ test/pglite-repair-command.serial.test.ts	gbrain pglite-repair — interactive c
 test/pglite-wal-repair.serial.test.ts	WAL auto-repair — real-brain regression (#223/#1670/#2575)	6	source-surface-helper
 test/physical-root-birth-tolerance-6501.test.ts	physical root birth drift (${kind})	5	readFileSync
 test/physical-root-birth-tolerance-6501.test.ts	samePhysicalBirth (#6501)	5	readFileSync
-test/postgres-driver-vendor.test.ts	vendored Postgres driver packaging	3	readFileSync
+test/postgres-driver-vendor.test.ts	vendored Postgres driver packaging	4	readFileSync
 test/postgres-engine.test.ts	postgres-engine / search date filtering	2	source-surface-helper
 test/postgres-engine.test.ts	postgres-engine / search path timeout isolation	7	source-surface-helper
 test/private-visibility.test.ts	shared private predicate lives once (#4352 remediation)	1	readFileSync
