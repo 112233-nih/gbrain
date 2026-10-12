@@ -79,6 +79,7 @@ import { configureGatewayIfUninitialized, isAvailable, withBudgetTracker } from 
 import { insertDerivedFacts, writeDerivedFacts } from '../core/persistence/derived-facts.ts';
 import { managedPersistenceEnabled } from '../core/persistence/ownership.ts';
 import { clearConversationFacts, enqueueManagedPage, flushManagedBatch, managedConversationPublisher, startManagedPage, stopsRun, type ManagedConversationPublisher } from '../core/facts/conversation-publication.ts';
+import { ConversationRunClaims, listConversationPagesBySlug } from '../core/facts/conversation-enumeration.ts';
 import { BudgetTracker, BudgetExhausted, loadPricingOverrides, type BudgetReason, type NoPricingGuidance } from '../core/budget/budget-tracker.ts';
 import { noPricingMessage } from '../core/budget/no-pricing.ts';
 import { conversationFactsCostCap } from '../core/facts/conversation-budget.ts';
@@ -364,6 +365,8 @@ export interface ExtractConversationFactsResult {
   pages_pending?: number;
   /** Managed brains: pages whose extraction generation is blocked until the page changes (no model call). */
   pages_blocked?: number;
+  /** Pages the run listed more than once and extracted once (#6500). */
+  pages_skipped_duplicate_listing?: number;
   budget_exhausted?: boolean;
   budget_reason?: BudgetReason;
   budget_model?: string;
@@ -1431,7 +1434,12 @@ export async function runExtractConversationFactsCore(
      * page rather than blocking. A hard error from processPage propagates
      * up; the pool's onError='continue' captures it into failures[].
      */
+    const claims = new ConversationRunClaims();
     const processPageWithLock = async (page: Page): Promise<void> => {
+      if (!claims.claim(sourceId, page.slug)) {
+        state.result.pages_skipped_duplicate_listing = (state.result.pages_skipped_duplicate_listing ?? 0) + 1;
+        return;
+      }
       const lockId = extractConversationFactsLockId(sourceId, page.slug);
       if (opts.force) {
         state.cpMap.delete(cpMapKey(sourceId, page.slug));
@@ -1526,26 +1534,17 @@ export async function runExtractConversationFactsCore(
       await processPageWithLock(page);
     } else {
       // Multi-page enumeration: paginate per-type at small batch size to
-      // bound memory (Eng-v2 C8 — 10 × 25MB = 250MB worst case).
+      // bound memory (Eng-v2 C8 — 10 × 25MB = 250MB worst case), by slug
+      // keyset so every page is listed once (#6500, conversation-enumeration.ts).
       // v0.41.15.0 (D9): inner per-page loop replaced with runSlidingPool
       // so parallel workers can claim pages from the batch. The pool
       // honors AbortSignal at each claim boundary and threads
       // BudgetExhausted abort (D13) automatically.
       let processedPagesCount = 0;
       pageLoop: for (const type of concreteTypes) {
-        let offset = 0;
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
+        for await (const batch of listConversationPagesBySlug(engine, { type, sourceId, batchSize: PAGE_LIST_BATCH })) {
           if (signal?.aborted) throw new Error('aborted');
           if (opts.limit && processedPagesCount >= opts.limit) break pageLoop;
-
-          const batch = await engine.listPages({
-            type,
-            sourceId,
-            limit: PAGE_LIST_BATCH,
-            offset,
-          });
-          if (batch.length === 0) break;
 
           let claimable = batch.filter(page => isConversationFactsEligiblePage(page, concreteTypes, strictEligibility));
           result.pages_skipped += batch.length - claimable.length;
@@ -1595,8 +1594,6 @@ export async function runExtractConversationFactsCore(
           for (const failure of poolResult.failures) recordPageFailure(result, sourceId, failure.label, failure.error);
 
           processedPagesCount += claimable.length;
-          offset += batch.length;
-          if (batch.length < PAGE_LIST_BATCH) break;
 
           // Persist checkpoint between batches so a crash mid-walk
           // doesn't lose all progress.
