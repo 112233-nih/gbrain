@@ -24,7 +24,9 @@
  */
 import { realpathSync } from 'node:fs';
 import { opError, OperationError } from '../core/ops/contract.ts';
-import { renderCliError, type Action } from '../core/agent-output.ts';
+import { cliRenderContext, renderCliError, renderNotice, type Action, type Notice } from '../core/agent-output.ts';
+import { writeCliNotices } from '../core/interop-notices.ts';
+import { setupFirstRunNotices } from './init-first-run.ts';
 import { writeJsonDocument } from '../core/cli-force-exit.ts';
 import { configDir, gbrainPath, loadConfig, type GBrainConfig } from '../core/config.ts';
 import { resolveGbrainBin } from '../core/gbrain-bin.ts';
@@ -350,7 +352,7 @@ export async function runSetup(args: string[]): Promise<number> {
     }
 
     const brainCreate = !cfg;
-    const initArgv = [launcher, 'init', '--pglite', ...(consent.providers.value === 'accepted' ? [] : ['--no-embedding']), ...(out.json ? ['--json'] : [])];
+    const initArgv = [launcher, 'init', '--pglite', ...(consent.providers.value === 'accepted' ? [] : ['--no-embedding']), '--json'];
     if (flags.dryRun) {
       const steps: SetupStep[] = [
         { step: 'receipt', action: found.prior?.status === 'installed' && found.hooksCurrent && (found.mcp.state === 'current' || !!pluginOwner) && !brainCreate ? 'keep' : 'write', detail: found.receiptPath },
@@ -362,7 +364,7 @@ export async function runSetup(args: string[]): Promise<number> {
       return finish(out, { dryRun: true, target, consent, steps, states: [], verify: null, notices: [], notes });
     }
 
-    let notices: unknown[] = [];
+    let notices: Notice[] = [];
     const result = await applyClaudeSetup(plan, consent, {
       pluginOwner, brainCreated: brainCreate, abortAfter: process.env.GBRAIN_SETUP_ABORT_AFTER,
       beforeMcp: brainCreate ? async () => {
@@ -370,11 +372,15 @@ export async function runSetup(args: string[]): Promise<number> {
         const child = Bun.spawnSync(initArgv, { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', env: process.env });
         const initOut = child.stdout?.toString() ?? '';
         process.stderr.write(child.stderr?.toString() ?? '');
-        if (!out.json) process.stdout.write(initOut);
-        if (child.exitCode !== 0) throw new Error(`\`${initArgv.join(' ')}\` exited ${child.exitCode}; nothing else was written. Fix the init error above, then run setup again.`);
-        if (out.json) {
-          try { notices = (JSON.parse(initOut) as { notices?: unknown[] }).notices ?? []; } catch { process.stderr.write(initOut); }
+        if (child.exitCode !== 0) {
+          process.stderr.write(initOut);
+          throw new Error(`\`${initArgv.join(' ')}\` exited ${child.exitCode}; nothing else was written. Fix the init error above, then run setup again.`);
         }
+        try {
+          const doc = JSON.parse(initOut) as { path?: string; notices?: unknown[] };
+          if (doc.path) say(out, `Brain ready at ${doc.path}`);
+          notices = setupFirstRunNotices(doc.notices ?? [], 'Claude Code');
+        } catch { process.stderr.write(initOut); }
       } : undefined,
     });
     for (const s of result.steps) say(out, `  ${s.action.padEnd(8)} ${s.step.padEnd(7)} ${s.detail}`);
@@ -428,7 +434,7 @@ async function runRemove(flags: SetupFlags, receipt: ClaudeSetupReceipt | null, 
 
 async function finish(out: Out, doc: {
   dryRun: boolean; remove?: boolean; target?: Target; consent?: SetupConsent; steps: SetupStep[]; states: string[];
-  verify: { ok: boolean; reason: string; message: string } | null; notices: unknown[]; notes: string[]; preserved?: unknown[];
+  verify: { ok: boolean; reason: string; message: string } | null; notices: Notice[]; notes: string[]; preserved?: unknown[];
 }): Promise<number> {
   const state = doc.states.at(-1) ?? null;
   if (out.json) {
@@ -437,12 +443,13 @@ async function finish(out: Out, doc: {
       ...(doc.target ? { target: doc.target } : {}), ...(doc.consent ? { consent: doc.consent } : {}),
       steps: doc.steps, preserved: doc.preserved ?? [], states: doc.states, state, verify: doc.verify,
       capability: capabilityRows('claude-code')[0], capability_table_version: SETUP_CAPABILITY_TABLE_VERSION,
-      notes: doc.notes, notices: doc.notices,
+      notes: doc.notes, notices: doc.notices.map((n) => renderNotice(n, cliRenderContext())),
     }, null, 2)}\n`, (t) => process.stdout.write(t));
     return 0;
   }
   if (doc.verify) say(out, `Verify: ${doc.verify.ok ? 'ok' : 'not verified'} (${doc.verify.reason}): ${doc.verify.message}`);
   if (state) say(out, `State: ${state} (${doc.states.join(' -> ')}). Native push is not claimed until an observed event reaches a fresh session.`);
   if (state && !doc.remove) say(out, 'Next: open a new Claude Code session (config is read at session start) and check that /mcp lists gbrain.');
+  writeCliNotices(doc.notices);
   return 0;
 }

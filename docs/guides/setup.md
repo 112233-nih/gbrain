@@ -48,6 +48,20 @@ the recorded answers; a flag changes one.
 
 Provider keys in the environment do not change these defaults.
 
+## First-run settings
+
+When setup creates the brain, it prints init's first-run settings once, after
+the wiring and its check (an `[AGENT]` block at the end of the output, or
+`notices` in `--json`): the search mode init applied, with the cost matrix,
+and automatic saving (`memory.auto_writeback`, off until the user turns it
+on). Setup leaves out init's wiring question and its copy-paste quickstart,
+because it has just done both. Memory works without an answer, so the agent
+relays these settings in the reply that reports the install, as the settings
+in effect and how to change them, and applies a choice whenever the user makes
+one. Automatic saving is separate from the capture decision above; while
+unanswered it comes back in a later session until the user answers or mutes
+it.
+
 ## States
 
 Setup reports how far the wiring is proven:
