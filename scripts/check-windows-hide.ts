@@ -96,7 +96,6 @@ const NOT_YET_MIGRATED: Record<string, string> = {
   'src/core/fence-repair/uncommitted.ts': 'not yet migrated',
   'src/core/git-first-commit.ts': 'not yet migrated',
   'src/core/git-head.ts': 'not yet migrated',
-  'src/core/git-remote.ts': 'not yet migrated',
   'src/core/git-visible-files.ts': 'not yet migrated',
   'src/core/google/access.ts': 'not yet migrated',
   'src/core/harness/install.ts': 'not yet migrated',

@@ -15,7 +15,7 @@ import { assertManagedFilesystemWrite } from './persistence/filesystem-guard.ts'
  * reachable only via Tailscale, set GBRAIN_ALLOW_PRIVATE_REMOTES=1; loud
  * stderr warning at use site is the operator's signal.
  */
-import { execFileSync } from 'child_process';
+import { execFileSync } from './spawn.ts';
 import { lstatSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { isInternalUrl } from './url-safety.ts';
@@ -571,7 +571,10 @@ export type PullOutcome =
  * Divergence-safe pull: `fetch` + `pull --rebase`, never leaving a mid-rebase.
  *
  *  - Dirty working tree  → `skipped_dirty` (NORMAL mid-session state, not an
- *    error; never auto-stashes, never touches in-progress edits).
+ *    error; never auto-stashes, never touches in-progress edits). The pull
+ *    itself carries `--no-autostash` (#5429): a repository or user
+ *    `rebase.autoStash=true` would otherwise stash edits made between the
+ *    dirty check and the pull and replay them onto the rebased tree.
  *  - Rebase conflict     → `git rebase --abort`, verify no rebase state remains,
  *    return `conflict_aborted` ("manual attention needed"). Never throws past
  *    this — the repo is always left clean (possibly un-advanced).
@@ -597,7 +600,7 @@ export function divergenceSafePull(
   });
 
   try {
-    runGit(repoPath, ssrf, 'pull', [...GIT_SSRF_SUBCOMMAND_FLAGS, '--rebase', 'origin', branch], 'pull', {
+    runGit(repoPath, ssrf, 'pull', [...GIT_SSRF_SUBCOMMAND_FLAGS, '--rebase', '--no-autostash', 'origin', branch], 'pull', {
       timeoutMs, env: { ...GIT_ENV_AUTH },
     });
   } catch (e) {
