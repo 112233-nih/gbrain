@@ -29,6 +29,7 @@ The resolved provider + dimensions get persisted to `~/.gbrain/config.json` atom
 | `google` | `GOOGLE_GENERATIVE_AI_API_KEY` | 768 | 0.025 | no | no |
 | `azure-openai` | `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT` | 1536 | 0.13 | no | no |
 | `minimax` | `MINIMAX_API_KEY` | 1536 | 0.07 | no | no |
+| `mistral` | `MISTRAL_API_KEY` | 1024 | 0.10 | no | no |
 | `dashscope` | `DASHSCOPE_API_KEY` | 1024 | varies | no | no |
 | `zhipu` | `ZHIPUAI_API_KEY` | 1024 | varies | no | no |
 | `ollama` | (none — runs locally) | 768 | 0 | yes | no |
@@ -141,6 +142,12 @@ Enterprise OpenAI behind Azure tenancy. Required env: `AZURE_OPENAI_API_KEY`, `A
 Unlike vanilla OpenAI, Azure uses `api-key:` header (not `Authorization: Bearer`) and a templated URL with `?api-version=` query param — gbrain handles both via the recipe's resolveAuth + resolveOpenAICompatConfig overrides.
 
 Models: `text-embedding-3-large`, `text-embedding-3-small`, `text-embedding-ada-002` (your Azure deployment must serve the requested model).
+
+### Mistral AI
+
+Set `MISTRAL_API_KEY`. Model: `mistral-embed` (fixed 1024 dims; the API rejects any dimension parameter, so leave `--embedding-dimensions` at 1024). Chat and expansion run on the same key (`mistral:mistral-large-latest`, `mistral:mistral-small-latest`; unpriced in gbrain's tables, so a user cost cap needs `gbrain pricing set`), so a brain can keep embed + expansion + chat on one provider.
+
+Region: `api.mistral.ai` (the default) is EU-hosted by default, but Mistral's terms allow a request to be served outside the EU unless your organization disables transfers; the default endpoint carries no regional-inference assurance. Inference pinned to the EU is Mistral's opt-in regional endpoint, billed at 1.1x list price: `gbrain config set provider_base_urls.mistral https://api.eu.mistral.ai/v1`, then verify with `gbrain config get provider_base_urls.mistral`. gbrain does not switch to it for you, and ships no separate `mistral-eu` recipe.
 
 ### MiniMax (海螺AI)
 
