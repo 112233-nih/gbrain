@@ -608,6 +608,7 @@ export async function runPhaseSynthesizeConcepts(
       cost_delta: estimatedSpendUsd,
       round_completed_delta: failures.length === 0 && publicationDeferred.length === 0 && publicationHeld.length === 0 ? 1 : 0,
       halt_delta: failures.length > 0 ? 1 : 0,
+      halt_reason: 'item_error',
     });
   }
 

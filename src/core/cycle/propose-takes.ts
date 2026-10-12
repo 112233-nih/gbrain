@@ -50,7 +50,7 @@ import { createGlobalLlmHaltTracker, haltedClassOf, type GlobalLlmErrorClass } f
 import { normalizeModelId } from '../model-id.ts';
 import { writeReceipt } from '../extract/receipt-writer.ts';
 import { managedPersistenceEnabled } from '../persistence/ownership.ts';
-import { upsertExtractRollup, classifyRunStop } from '../extract/rollup-writer.ts';
+import { upsertExtractRollup, classifyRunStop, providerHaltReason } from '../extract/rollup-writer.ts';
 import { GBrainError } from '../types.ts';
 import { isConfigTruthy } from '../config.ts';
 import { matchingCloseBracket } from '../llm-json.ts';
@@ -1120,8 +1120,8 @@ class ProposeTakesPhase extends BaseCyclePhase {
         budget_exhausted: result.budget_exhausted === true,
         deadline_hit: result.deadline_hit === true,
         error:
-          result.aborted_global_error !== undefined ||
-          result.aborted_failure_streak === true,
+          result.aborted_global_error !== undefined ? providerHaltReason(result.aborted_global_error) ?? 'item_error'
+            : result.aborted_failure_streak === true ? 'item_error' : false,
       }),
     });
 

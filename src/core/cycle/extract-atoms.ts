@@ -77,7 +77,7 @@ import type { MaintenanceWriteWait } from '../persistence/maintenance-wait.ts';
 import { connectorAtomExclusionSql } from './connector-atoms.ts';
 import { resolveExtractAtomsCostGate, resolveEmbedModelForCostGate, settleExtractAtomsCostGate } from './extract-atoms-cost-gate.ts';
 import { writeReceipt } from '../extract/receipt-writer.ts';
-import { classifyRunStop, upsertExtractRollup } from '../extract/rollup-writer.ts';
+import { classifyRunStop, providerHaltReason, upsertExtractRollup } from '../extract/rollup-writer.ts';
 import { abortableSleep } from '../retry.ts';
 import { throwIfAborted } from '../abort-check.ts';
 import { createHash } from 'crypto';
@@ -1419,7 +1419,7 @@ export async function runPhaseExtractAtoms(
       kind: 'atoms',
       source_id: sourceId,
       cost_delta: estimatedSpendUsd,
-      ...classifyRunStop({ deadline_hit: stoppedEarly, error: hardFailureCount > 0 }),
+      ...classifyRunStop({ deadline_hit: stoppedEarly, error: hardFailureCount > 0 ? providerHaltReason(abortedGlobalError) ?? 'item_error' : false }),
     });
   }
 

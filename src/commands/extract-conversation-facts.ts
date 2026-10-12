@@ -1747,7 +1747,7 @@ async function writeRunReceiptAndRollup(
     cost_delta: result.spent_usd ?? 0,
     ...classifyRunStop({
       budget_exhausted: halted,
-      error: result.pages_failed > 0 || result.budget_reason === 'no_pricing',
+      error: result.budget_reason === 'no_pricing' ? 'no_pricing' : result.pages_failed > 0 ? 'item_error' : false,
     }),
   });
 }
