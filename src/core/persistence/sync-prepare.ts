@@ -315,6 +315,20 @@ async function recordSliceCursor(tx: BrainEngine, row: WriteRequest, p: { syncOp
   if (settled) await clearSyncSlice(tx, row.source_id, row.source_incarnation, p.syncOptions);
   else await writeSyncSlice(tx, row.source_id, row.source_incarnation, p.syncOptions, p.slice!);
 }
+/**
+ * Whether the import must rewrite its file with `canonicalFile` (its sanitized form). Working-tree bytes that are the
+ * pinned bytes (or differ only by line endings) take the write; bytes that already are the canonical file need none
+ * (#6513: gbrain's own writeback, published before the request that carried it settled); any other newer bytes are
+ * refused, and the run holds the file `worktree_dirty` (sync-page-fault.ts `pinnedWorktreeConflict`).
+ */
+function canonicalWritebackNeeded(row: WriteRequest, p: SyncIntent, pinned: string, canonicalFile: string | null): canonicalFile is string {
+  if (canonicalFile === null) return false;
+  if (p.lineEndingOnly || p.rawHash === sha256(pinned)) return true;
+  if (p.rawHash === sha256(canonicalFile)) return false;
+  throw syncPublicationRefusal('source_changed', 'Canonical sanitization cannot overwrite newer working-tree bytes.', row, p,
+    `The canonical correction for ${row.slug} would overwrite newer working-tree bytes; preserve the local edit and commit it.`);
+}
+
 export async function prepareManagedSyncMutation(unbounded: BrainEngine, row: WriteRequest, _config: GBrainConfig, clock?: ClaimPhaseClock,
   screening?: { unsaved: true }): Promise<PreparedMutation> {
   const engine = boundedReads(unbounded, clock);
@@ -557,12 +571,7 @@ export async function prepareManagedSyncMutation(unbounded: BrainEngine, row: Wr
   enterClaimStep(clock, 'mirror_check', undefined, 'db');
   const mirrorReadOnly = overlay && await sourceMirrorReadOnly(engine, row.source_id);
   const canonicalFile = overlay && !mirrorReadOnly ? serializePageToMarkdown(renderedPage, tags) : null;
-  // #6513: working-tree bytes that already are this import's canonical correction (gbrain's own writeback, published
-  // before the request that carried it settled) need no second write; any other newer bytes are protected as before.
-  const writebackApplied = canonicalFile !== null && !p.lineEndingOnly && p.rawHash !== sha256(p.content) && p.rawHash === sha256(canonicalFile);
-  const writeback = canonicalFile !== null && !writebackApplied;
-  if (writeback && !p.lineEndingOnly && p.rawHash !== sha256(p.content)) throw syncPublicationRefusal('source_changed', 'Canonical sanitization cannot overwrite newer working-tree bytes.', row, p,
-    `The canonical correction for ${row.slug} would overwrite newer working-tree bytes; preserve the local edit and commit it.`);
+  const writeback = canonicalWritebackNeeded(row, p, p.content, canonicalFile);
   // A rename projects against the moved page (same id), so its pinned timeline rows carry over.
   enterClaimStep(clock, 'canonical_projections', undefined, 'db');
   const project = await prepareCanonicalProjections(engine, ready.parsedPage, row.slug, row.source_id, base, p.companyApproval ? 'immutable' : 'file');
@@ -572,7 +581,7 @@ export async function prepareManagedSyncMutation(unbounded: BrainEngine, row: Wr
     ...(renamed ? { additionalPageKeys: [{ sourceId: row.source_id, slug: renamed.slug }] } : {}),
     validate: async tx => { await validate(tx); await ready.validate(tx); },
     deferEmbedding: p.processingOptions?.noEmbed,
-    ...(writeback ? { file: { root, path: join(root, p.path), content: canonicalFile!, expectedBeforeHash: p.rawHash } } : {}),
+    ...(writeback ? { file: { root, path: join(root, p.path), content: canonicalFile, expectedBeforeHash: p.rawHash } } : {}),
     ...(mirrorReadOnly ? { databaseOnlyReason: 'mirror_read_only' as const } : {}),
     apply: async (tx, preimage) => {
       let applied = ready;
