@@ -25,6 +25,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { BrainEngine } from '../src/core/engine.ts';
 import type { OperationContext } from '../src/core/operations.ts';
+import { testWaitMs } from './helpers/wait-for.ts';
 import { PGLiteEngine } from '../src/core/pglite-engine.ts';
 import { activatePersistence } from '../src/core/persistence/activation.ts';
 import { writerOnboardingPreflight } from '../src/core/persistence/onboarding.ts';
@@ -58,6 +59,17 @@ afterAll(async () => {
   for (const engine of engines) { await disposePersistenceConsumer(engine); await engine.disconnect(); }
   await closePostgres?.(); rmSync(dataDir, { recursive: true, force: true });
 });
+
+async function settledEffects(engine: BrainEngine): Promise<void> {
+  const deadline = Date.now() + testWaitMs(30_000);
+  while (true) {
+    const open = await engine.executeRaw<{ id: string; kind: string; state: string }>(
+      "SELECT id::text AS id, kind, state FROM persistence_effects WHERE state<>'committed' OR recovery IS NOT NULL ORDER BY id");
+    if (!open.length) return;
+    if (Date.now() > deadline) throw new Error(`effects did not settle: ${JSON.stringify(open)}`);
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+}
 
 type Outcome = { state: string; code?: string; detail?: string; suggestion?: string; write_through?: { skipped?: string } };
 const outcome = (promise: Promise<unknown>): Promise<Outcome> => promise.then(
@@ -135,8 +147,10 @@ async function databaseOnlyActivation(engine: BrainEngine): Promise<void> {
       expect(existsSync(root)).toBe(true);
 
       // Deactivation clears the list; back in classic mode the ordinary PGLite first-write claim applies again.
+      // The brain must quiesce first: the committed writes' embedding effects drain asynchronously, and a running
+      // effect blocks deactivation (deleting queued rows raced the consumer picking one up).
       await engine.setConfig('sync.write_through', 'false');
-      await engine.executeRaw("DELETE FROM persistence_effects WHERE state='queued'");
+      await settledEffects(engine);
       expect(await deactivatePersistence(engine, { requestId: randomUUID() })).toMatchObject({ mode: 'classic', deactivated: true });
       expect(await engine.getConfig(DATABASE_ONLY_SOURCES_KEY)).toBeNull();
     });
