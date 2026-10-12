@@ -93,3 +93,22 @@ describe('mute_notice op', () => {
     }
   });
 });
+
+describe('claim, memoize and self-deduped codes (D4)', () => {
+  test('claim is true once per key; memoize computes once per key', async () => {
+    const ledger = new NoticeLedger();
+    expect([ledger.claim('a'), ledger.claim('a'), ledger.claim('b')]).toEqual([true, false, true]);
+    let calls = 0;
+    const compute = async () => ++calls;
+    expect([await ledger.memoize('k', compute), await ledger.memoize('k', compute), await ledger.memoize('j', compute)]).toEqual([1, 1, 2]);
+  });
+
+  test('a self-deduped code skips admit\'s per-code dedupe but still honors mute', () => {
+    const ledger = new NoticeLedger();
+    const n = { code: 'grant_blocked_operations', kind: 'info' as const, why: 'w' };
+    const audience = { transport: 'http' as const, principal: 'p' };
+    expect(ledger.admit([n], audience)).toHaveLength(1);
+    expect(ledger.admit([n], audience)).toHaveLength(1);
+    expect(ledger.admit([n], audience, new Set(['grant_blocked_operations']))).toHaveLength(0);
+  });
+});

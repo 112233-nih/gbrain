@@ -781,7 +781,7 @@ transaction-mode pooler (port 6543, `?prepare=false`) a build failure usually
 means a misrouted answer: the statement bound a value read from a row that
 belonged to another statement, so earlier reads on that pool are suspect too.
 Check `/health?deep=1` `transport.max_pipeline` (gbrain sends `0` there since
-v0.60.186.0; `PGMAX_PIPELINE=0` forces it) and audit the window with
+v0.60.187.0; `PGMAX_PIPELINE=0` forces it) and audit the window with
 [the pooler misroute audit](guides/pooler-misroute-audit.md). Elsewhere the
 call site that bound `undefined` is a gbrain bug, so report the line.
 `getPoolDiagnostics().buildFailures` counts them.
@@ -836,7 +836,7 @@ session_timeouts_not_applied, fix?, application_name? }`. `prepare` and
 (`transaction_pooler_port`, `url_prepare_false`, `gbrain_prepare_off`,
 `url_max_pipeline`, `env_pgmax_pipeline` or `default`): gbrain builds the read
 pools with `max_pipeline: 0` for a transaction-mode URL (port 6543 or
-`?prepare=false`) or `GBRAIN_PREPARE=0` since v0.60.186.0, and a URL
+`?prepare=false`) or `GBRAIN_PREPARE=0` since v0.60.187.0, and a URL
 `?max_pipeline=` or a non-empty `PGMAX_PIPELINE` always wins.
 PgBouncer in transaction mode carries pipelined statements correctly, so a
 PgBouncer deployment on port 6543 or with `?prepare=false` can opt back in with

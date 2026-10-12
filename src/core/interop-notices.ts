@@ -371,6 +371,29 @@ export function localTranscriptsNotice(presence: { dirs: string[]; count: number
   };
 }
 
+// ── content a hidden tool serves (D2) ─────────────────────────────────────
+
+/**
+ * `hidden_tool_content`: this result left out takes (page reads, search and
+ * query never show the takes table to an agent-facing reader) that a tool
+ * outside this connection's tool list serves. The fix is the hidden-tool
+ * route's next step (`hiddenToolNext`); a connection with none gets the
+ * reason alone. Counts and the result's own slugs only, never take text.
+ */
+export function hiddenTakesNotice(hidden: { pages: string[]; count: number }, route: 'callable' | 'widen' | 'host', fix: Action | null): Notice {
+  const n = hidden.count >= 100 ? '100+' : String(hidden.count);
+  const pages = hidden.pages.length === 1 ? hidden.pages[0] : `${hidden.pages.slice(0, -1).join(', ')} and ${hidden.pages[hidden.pages.length - 1]}`;
+  const reach = route === 'callable' ? 'takes_list lists them: call it as fix shows.'
+    : route === 'widen' ? 'One request_tools call makes takes_list available here, as fix shows.'
+      : fix ? 'This connection cannot list them; fix says who can change that.' : 'This connection cannot list them, and only the brain owner can change that.';
+  return {
+    code: 'hidden_tool_content',
+    kind: 'info',
+    why: `This result leaves out ${n} take${n === '1' ? '' : 's'} (attributed claims such as forecasts, estimates and bets) on ${pages}: page reads and search never include the takes table, so their absence here does not mean the brain has none. ${reach}`,
+    ...(fix ? { fix } : {}),
+  };
+}
+
 // ── CLI emission for commands without a result document (F7) ──────────────
 
 /**
