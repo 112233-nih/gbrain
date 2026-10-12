@@ -448,8 +448,10 @@ activation lists it under `database_only_sources` and goes ahead (#6449). Page
 writes to it publish to the database only (`write_through.skipped:
 disabled_by_config`), `gbrain sync` on it refuses `owner_unavailable` naming the
 claim, and turning `sync.write_through` back on does not claim it, not even on
-PGLite (activation records the listed sources in
-`persistence.database_only_sources`; deactivation clears it): the next write
+PGLite (activation records the listed source ids as a JSON array in the config
+key `persistence.database_only_sources`, deactivation clears it, and
+`gbrain config unset persistence.database_only_sources` is the escape hatch if a
+listing outlives its brain state; it is not a setting to edit by hand): the next write
 refuses with `detail: unbound_source` and the `writer claim` to run (preview
 with `--dry-run`), or stays database-only under
 `persistence.unbound_write=database_only`. With `sync.write_through` on, the
