@@ -19,7 +19,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runEvalLongMemEval } from '../src/commands/eval-longmemeval.ts';
 import { createBenchmarkBrain } from '../src/eval/longmemeval/harness.ts';
-import { configureGateway, resetGateway, __clearQueryEmbedCacheForTests, __setEmbedTransportForTests, __setGenerateObjectTransportForTests } from '../src/core/ai/gateway.ts';
+import { configureGateway, resetGateway, __clearQueryEmbedCacheForTests, __setEmbedTransportForTests, __setGenerateObjectTransportForTests, __setRerankTransportForTests } from '../src/core/ai/gateway.ts';
+import { execFileSync } from 'node:child_process';
 import type { PGLiteEngine } from '../src/core/pglite-engine.ts';
 
 const FIXTURE = join(import.meta.dir, 'fixtures', 'longmemeval-mini.jsonl');
@@ -42,7 +43,7 @@ function expansionTransport(behavior: 'variants' | 'throw'): void {
   }) as never);
 }
 
-async function run(args: string[]): Promise<{ rows: any[]; summary: any; err: string; failed: boolean }> {
+async function run(args: string[], runOpts: Record<string, unknown> = {}): Promise<{ rows: any[]; summary: any; err: string; failed: boolean }> {
   const out = join(tmp, `out-${Math.random().toString(36).slice(2)}.jsonl`);
   const engine: PGLiteEngine = await createBenchmarkBrain();
   // Query embeddings are cached per process; each run starts cold so its model calls are its own.
@@ -53,7 +54,7 @@ async function run(args: string[]): Promise<{ rows: any[]; summary: any; err: st
   process.stderr.write = ((s: string) => { err += s; return true; }) as typeof process.stderr.write;
   try {
     await runEvalLongMemEval([FIXTURE, '--no-embed-cache', '--by-type', '--retrieval-only', '--no-trajectory', '--reranker', 'off', '--output', out, ...args], {
-      engine, exitOnError: false, embedTransport,
+      engine, exitOnError: false, embedTransport, ...runOpts,
     });
   } catch (e) {
     if (!/longmemeval failed/.test((e as Error).message)) {
@@ -72,13 +73,14 @@ async function run(args: string[]): Promise<{ rows: any[]; summary: any; err: st
 beforeAll(() => {
   configureGateway({
     embedding_model: 'openai:text-embedding-3-large', embedding_dimensions: DIMS, expansion_model: 'anthropic:claude-haiku-5-5',
-    env: { OPENAI_API_KEY: 'sk-test', ANTHROPIC_API_KEY: 'sk-ant-test' },
+    env: { OPENAI_API_KEY: 'sk-test', ANTHROPIC_API_KEY: 'sk-ant-test', VOYAGE_API_KEY: 'pa-test' },
   });
   __setEmbedTransportForTests(embedTransport);
 });
 
 afterEach(() => {
   __setGenerateObjectTransportForTests(null);
+  __setRerankTransportForTests(null);
   expansionCalls = 0;
 });
 
@@ -113,6 +115,35 @@ describe('eval longmemeval --via-operation', () => {
     expect(rc.retrieval_config_hash).not.toBe(direct.summary.run_config.retrieval_config_hash);
     expect(direct.summary.run_config.via_operation).toBeUndefined();
     expect(direct.rows.every(r => !('via_operation' in r))).toBe(true);
+  }, 120_000);
+
+  test('search with the reranker on: rows record reranked from the operation\'s rerank call, and the summary names gbrain\'s own tree from any cwd', async () => {
+    let rerankCalls = 0;
+    __setRerankTransportForTests((async (_url: string, init: RequestInit) => {
+      rerankCalls++;
+      const docs = JSON.parse(String(init.body)).documents as string[];
+      const data = docs.map((_, index) => ({ index, relevance_score: 1 - index / (docs.length + 1) }));
+      return new Response(JSON.stringify({ data, usage: { total_tokens: docs.length } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as never);
+    const repo = join(import.meta.dir, '..');
+    const cwd = process.cwd();
+    process.chdir(tmp);
+    let via: Awaited<ReturnType<typeof run>>;
+    try {
+      via = await run(['--via-operation', 'search', '--mode', 'balanced', '--reranker', 'on'], { rerankerReadiness: async () => ({ plane: 'db', readiness: { ready: true } }) });
+    } finally {
+      process.chdir(cwd);
+    }
+    expect(via.failed).toBe(false);
+    expect(rerankCalls).toBe(QUESTIONS);
+    for (const row of via.rows) {
+      expect(row.via_operation.model_calls.rerank).toBe(1);
+      expect(row.search_meta.reranked).toBe(true);
+    }
+    const summary = via.summary.run_config.via_operation_summary;
+    expect(summary.tree).toBe(execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repo, encoding: 'utf8' }).trim());
+    expect(summary.commit).toBe(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim());
+    expect(typeof summary.dirty).toBe('boolean');
   }, 120_000);
 
   test('query under balanced: the mode decides, so nothing expands; the CRAG grade is recorded', async () => {

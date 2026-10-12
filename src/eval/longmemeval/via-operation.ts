@@ -14,6 +14,7 @@
  * fails the run like `--expansion`'s `expansion_failed` (the arm is invalid
  * until a named repair).
  */
+import { execFileSync } from '../../core/spawn.ts';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -168,6 +169,19 @@ export async function runViaOperation(
   };
 }
 
+/** The operation's agent-facing rows never carry rerank_score, so a via-operation row's recorded rerank call is the evidence it was reranked. */
+export function rerankCalled(row: ViaOperationRow): boolean {
+  return (row.model_calls.rerank ?? 0) > 0;
+}
+
+/** The gbrain checkout this module runs from, not the caller's cwd (a driver may run the harness from another repository). */
+export function gbrainBuild(): { tree: string; commit: string; dirty: boolean } {
+  const git = (argv: string[], fallback: string) => {
+    try { return execFileSync('git', argv, { cwd: join(import.meta.dir, '..', '..', '..'), encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || fallback; } catch { return fallback; }
+  };
+  return { tree: git(['rev-parse', 'HEAD^{tree}'], 'unknown'), commit: git(['rev-parse', 'HEAD'], 'unknown'), dirty: git(['status', '--porcelain', '--untracked-files=no'], '') !== '' };
+}
+
 /** The run-end FAIL line when a run that expects expansion has rows that did not expand. */
 export function expansionFailLine(rows: number): string {
   return `[longmemeval] FAIL --via-operation query (expansion expected): ${rows} row(s) did not expand (expansion_not_applied / expansion_failed); this arm is invalid until a named repair — expansion_failed_rows\n`;
@@ -179,7 +193,7 @@ function percentile(sorted: number[], p: number): number | null {
 }
 
 /** The per-arm block on run_config: latency p50/p95, mean model calls per query by touchpoint, CRAG grades, expansion outcomes. */
-export function summarizeViaOperation(rows: ReadonlyArray<Record<string, unknown>>, tree: string): Record<string, unknown> {
+export function summarizeViaOperation(rows: ReadonlyArray<Record<string, unknown>>, build: { tree: string; commit: string; dirty: boolean }): Record<string, unknown> {
   const via = rows.map(r => r.via_operation as ViaOperationRow | undefined).filter((x): x is ViaOperationRow => !!x && typeof x.latency_ms === 'number');
   const latencies = via.map(r => r.latency_ms).sort((a, b) => a - b);
   const calls: Record<string, number> = {};
@@ -193,7 +207,9 @@ export function summarizeViaOperation(rows: ReadonlyArray<Record<string, unknown
   }
   const perQuery = Object.fromEntries(Object.entries(calls).sort().map(([t, n]) => [t, via.length ? Number((n / via.length).toFixed(3)) : 0]));
   return {
-    tree,
+    tree: build.tree,
+    commit: build.commit,
+    dirty: build.dirty,
     questions: via.length,
     latency_ms: { p50: percentile(latencies, 0.5), p95: percentile(latencies, 0.95) },
     model_calls_per_query: perQuery,

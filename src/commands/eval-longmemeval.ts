@@ -741,7 +741,7 @@ export async function runEvalLongMemEval(args: string[], runOpts: RunOpts = {}):
     errors: st.errorCount,
     reader: { mode: readerConfig.mode, prompt_version: readerConfig.promptVersion, prompt_sha: readerConfig.promptSha, max_tokens: readerConfig.maxTokens, model: normalizeModelId(model), config_hash: readerHash },
     ...(decideRun ? { decide_summary: decideLane.summarizeDecideReceipts(st.qaRows.map((r) => r.decide as never)) } : {}),
-    ...(opts.viaOp.op ? { via_operation_summary: viaOperation.summarizeViaOperation(st.qaRows as never, gitShort(['rev-parse', 'HEAD^{tree}'], 'unknown')) } : {}),
+    ...(opts.viaOp.op ? { via_operation_summary: viaOperation.summarizeViaOperation(st.qaRows as never, viaOperation.gbrainBuild()) } : {}),
   });
 
   /**
@@ -1502,7 +1502,7 @@ async function runOneQuestion(
     ...(meta?.autocut ? { autocut: meta.autocut } : {}),
   };
   const { rerankerSkipped, vectorDegraded, expansionFailed } = classifyDegradation(searchMeta, { keywordOnly: opts.keywordOnly, expansion: ctx.expectExpansion });
-  searchMeta.reranked = results.some(r => Number.isFinite(r.rerank_score)) && !rerankerSkipped;
+  searchMeta.reranked = (viaRow ? viaOperation.rerankCalled(viaRow) : results.some(r => Number.isFinite(r.rerank_score))) && !rerankerSkipped;
 
   const extra: Record<string, unknown> = {
     ...extra0,
