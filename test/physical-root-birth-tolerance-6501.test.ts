@@ -83,7 +83,7 @@ describe('samePhysicalBirth (#6501)', () => {
     let bigintStats = 0;
     // The creating process reads one value before the marker exists and another after (the reported APFS shape).
     const spy = spyOn(fs, 'statSync').mockImplementation(((path: fs.PathLike, opts?: { bigint?: boolean }) => {
-      const info = original(path, opts as never) as fs.BigIntStats;
+      const info = original(path, opts as never) as unknown as fs.BigIntStats;
       if (path === dir && opts?.bigint && ++bigintStats === 1) return new Proxy(info, { get: (target, key) => key === 'birthtimeNs' ? target.birthtimeNs - 50n : Reflect.get(target, key) });
       return info;
     }) as typeof fs.statSync);
@@ -97,12 +97,16 @@ describe('samePhysicalBirth (#6501)', () => {
   });
 
   test('[R39] the in-process path-race check and the staging identity still compare birth exactly', () => {
+    // test-reads-source-ok[structural]: [R39] pins that the tolerance stays out of these three exact comparisons; the
+    // behaviour (a 50 ns drift refuses) is pinned below, this guards the seam from a later "share the helper" edit.
     const nativeTarget = readFileSync(join(ROOT, 'src/core/persistence/native-file-target.ts'), 'utf8');
     expect(nativeTarget).toContain('current.birthtimeNs !== rootInfo.birthtimeNs');
     expect(nativeTarget).not.toContain('samePhysicalBirth');
+    // test-reads-source-ok[structural]: same seam guard as above.
     const topology = readFileSync(join(ROOT, 'src/core/persistence/topology-recovery.ts'), 'utf8');
     expect(topology).toContain('current.birthNs!==expected.birthNs');
     expect(topology).not.toContain('samePhysicalBirth');
+    // test-reads-source-ok[structural]: same seam guard as above.
     const recovery = readFileSync(join(ROOT, 'src/core/persistence/physical-root-recovery.ts'), 'utf8');
     expect(recovery).not.toContain('samePhysicalBirth');
   });
@@ -149,8 +153,10 @@ for (const kind of testBackends()) describe(`physical root birth drift (${kind})
     writeJson(f.marker, { ...stamp, birth: (BigInt(stamp.birth) + delta).toString() });
     return stamp;
   };
+  // Waits for this process's lane lease from the previous publication to drain (on Postgres it outlives the receipt), so a
+  // null here is a real "busy", never a lock the stamp check did not get to run on.
   const refusal = (binding: NonNullable<Awaited<ReturnType<typeof getWorktreeBinding>>>) =>
-    acquireWorktree(binding, 0, undefined, engine).then(lock => lock?.release().then(() => null) ?? null, (error: unknown) => error as { code: string; detail?: string; suggestion?: string });
+    acquireWorktree(binding, 5000, undefined, engine, { yieldLanes: true }).then(lock => lock?.release().then(() => null) ?? null, (error: unknown) => error as { code: string; detail?: string; suggestion?: string });
 
   test('a stamp −50 ns and +47 ns from the live birth time commits writes and rewrites nothing', () => fixture(async f => {
     expect(await put(f, 'notes/before-drift')).toBe('committed');
