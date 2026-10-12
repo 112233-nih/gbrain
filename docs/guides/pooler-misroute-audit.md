@@ -2,7 +2,7 @@
 
 A brain whose `gbrain serve` read pool pipelined statements through a
 transaction-mode pooler (Supavisor or PgBouncer on port 6543, or a URL with
-`?prepare=false`) before v0.60.185.0 could hand a statement another
+`?prepare=false`) before v0.60.186.0 could hand a statement another
 statement's rows (#6543). Most of the time that failed loudly
 (`pg_statement_build_failed` with `error=UNDEFINED_VALUE`, `pg_connection_stuck`),
 but a statement that bound a value from someone else's row and succeeded
