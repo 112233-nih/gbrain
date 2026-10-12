@@ -468,8 +468,11 @@ evidence       on (inactive: model_drift)
 plus a `requested: ... / effective: ... / cause: ... / fix: ...` line naming
 the one command that fixes it. A new GBrain release never silently moves an
 enabled slot to a newer reference calibration; `status` shows `newer
-reference available` and you adopt it with
-`gbrain decide calibrations adopt <id>`.
+reference available: ref:<id>` only when a shipped reference exists for the
+same slot, call site, provider and model as the calibration in use, and you
+adopt it with the command it prints, `gbrain decide calibrations adopt
+ref:<id>` (`adopt local:<id>` or `adopt <id>` picks one you built with
+`calibrate`).
 
 ## Fail directions
 

@@ -1760,6 +1760,14 @@ More: [docs/guides/write-refusals.md#merge_recommended](../../docs/guides/write-
 |---|---|---|---|---|---|---|
 | The HTTP method is not allowed on this endpoint. | The request itself was wrong or no longer matches the brain; nothing was changed. | Correct the request using the message above, then retry. | agent | `repeat the read that failed` | 1 | no |
 
+### migration_declined
+
+<a id="migration_declined"></a>
+
+| Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
+|---|---|---|---|---|---|---|
+| An explicit apply-migrations --migration named a migration the brain's config declines, so nothing was run or written. | The migration's opt-out key (for v0.53.0: shared_skills.migration.enabled=false) is brain-level config shared by every machine on that database; an explicit run from one machine would rewrite config for all of them, so the runner refuses instead of overriding the owner's choice. Ordinary runs skip a declined migration and list it as declined. | Do not retry. Tell the user the migration is declined on this brain and give them the fix command (gbrain config set <key> true) if they want it to run; --list --json shows it declined. | user | `repeat the read that failed` | 3 | no |
+
 ### migration_failed
 
 <a id="migration_failed"></a>

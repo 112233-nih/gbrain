@@ -86,7 +86,13 @@ Each item is re-checked against the page's current state just before it is
 written, and the write is bound to the revision it just read, so an edit made
 after planning is kept and repaired too. An item that no longer needs the
 repair, or whose page changes during the write, is counted as `skipped` and
-left for the next run. No kind deletes data except `stale-atoms`, which
+left for the next run. An item the write refuses for its own reasons (its slug
+is one the grammar no longer accepts, `invalid_params`; its file and database
+copy disagree and neither is overwritten, `source_changed`) is listed in
+`failed[]` with its reason and left exactly as it was, and the run goes on to
+the next item. A failed item is not retried by a resumed run (a later success
+moves the cursor past it); it is retried by the next full scan, which is the
+printed `apply_command` once the run has completed. No kind deletes data except `stale-atoms`, which
 soft-deletes the atoms it retires, and `managed-sync-orphans`, which deletes
 only sync bookkeeping rows nothing current can resume ([Managed sync
 orphans](#managed-sync-orphans)). Retired atoms stay recoverable through the
@@ -107,11 +113,14 @@ gives each a fresh row number); it never deletes or rewrites a page.
 | `--only <path>`, `--skip <path>` | `frontmatter` only: select source-relative files (repeatable). The hash covers the selection, so pass the same flags to the apply. |
 | `--diff` | `frontmatter` only: print every per-file diff instead of one sample per class (`--json` always carries all of them). |
 | `--yes` | `frontmatter --apply` only: the user agreed to the previewed file changes (destructive consent). Without it a terminal asks, and a run without a terminal exits 3 with the consent payload. |
-| `--json` | Print `{ scope, mode, results[], paid_kinds }`, one result per kind with `paid`, `affected`, `sample`, `residuals`, `cost`, `capacity`, `resumed_from`, `applied`, `skipped`, `complete`, `stopped` and `apply_command`, plus `explicit_kinds[]` when the run skipped explicit-only kinds. |
+| `--json` | Print `{ scope, mode, results[], paid_kinds }`, one result per kind with `paid`, `affected`, `sample`, `residuals`, `cost`, `capacity`, `resumed_from`, `applied`, `skipped`, `failed[]` (`item`, `source_id`, `slug`, `reason`, `message`, `retry: "next_full_scan"`), `complete`, `stopped` and `apply_command`, plus `explicit_kinds[]` when the run skipped explicit-only kinds. |
 
 The command exits 1 when a run stops early (capacity, a pending write, or a
-held writer). A `--limit` batch that leaves work behind exits 0, so scripts
-should also check `results[].complete`.
+held writer) and when any item failed (`failed[]` is not empty; `complete`
+still means every pending item was attempted). A `--limit` batch that leaves
+work behind exits 0, so scripts should also check `results[].complete`.
+`gbrain doctor --remediate` reports a repair step with failed items as
+`failed`, never `completed`.
 
 ## What each kind fixes
 
@@ -923,7 +932,7 @@ gbrain older than v0.60.47.0 blocks the source on the first file it refuses.
    +title: "Standup with acme-example\nthe team agreed to ship on Friday"
    next: gbrain repair frontmatter --source notes --skip notes/digest.md --include-ambiguous --apply --expect <hash> --yes (asks the user first: destructive)
    $ gbrain repair frontmatter --source notes --include-ambiguous --skip notes/digest.md --apply --expect <hash> --yes
-   applied 2, skipped 0, complete
+   applied 2, skipped 0, failed 0, complete
    repaired: notes:notes/roundup path=notes/roundup.md, written=true, imported=skipped, hold_cleared=false, committed=queued
    repaired: notes:notes/standup path=notes/standup.md, written=true, imported=updated, hold_cleared=true, committed=queued
    ```
@@ -1265,7 +1274,7 @@ exists). An older gbrain blocked the source on the first fence it refused.
    ```console
    $ gbrain repair fences --source notes --apply --expect <hash>
    cost: 2 request ID(s), 32768 receipt bytes, 2 page(s) to re-embed, paid model $0.0039 spent ($0.9961 left under today's cap)
-   applied 2, skipped 0, complete
+   applied 2, skipped 0, failed 0, complete
    repaired 2; nothing left in this selection
    repaired: notes:companies/acme-example tier=llm, classes=no_header, slug=companies/acme-example, mode=managed, path=companies/acme-example.md, imported=created, hold_cleared=true, committed=queued
    repaired: notes:projects/widget-launch tier=resolver, classes=holder_verified, slug=projects/widget-launch, mode=managed, path=projects/widget-launch.md, imported=created, hold_cleared=true, committed=queued

@@ -1754,7 +1754,7 @@ export const KNOWN_CONFIG_KEYS: readonly string[] = [
   'persistence.publication_ceiling_ms', // #6405: persistence/sync-drain.ts (in-pass publication ceiling)
   'persistence.single_consumer', // #6317: persistence/switches.ts, consumer-election.ts (one full consumer per host; off by default)
   // shared-skills migration inventory bounds (src/core/shared-skills/inventory-limits.ts)
-  'shared_skills.inventory.max_files', 'shared_skills.inventory.max_total_bytes', 'shared_skills.inventory.max_file_bytes', 'shared_skills.inventory.max_entries',
+  'shared_skills.inventory.max_files', 'shared_skills.inventory.max_total_bytes', 'shared_skills.inventory.max_file_bytes', 'shared_skills.inventory.max_entries', 'shared_skills.migration.enabled', // #6466: false declines the 0.53.0 migration (commands/migrations/opt-out.ts)
   'persistence.write_wait_ms', // #5232: file plane, persistence/write-wait.ts
   'migrate.graduation', // file plane, src/commands/migrate-graduation.ts (engine graduation opt-out)
   'consent.preapprove.paid.max_usd_per_run', 'consent.preapprove.persistent_install', // A4: file plane, core/consent.ts

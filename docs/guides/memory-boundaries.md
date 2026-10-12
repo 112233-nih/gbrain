@@ -90,6 +90,23 @@ Read [brains and sources](../architecture/brains-and-sources.md#what-confines-re
 before choosing a sharing topology. Tests cover specific boundaries, not a
 universal security guarantee.
 
+<a id="fence-markers-in-code"></a>
+**Fence markers quoted in code.** Since 0.60.97.0 the readers (the fence
+parser, projections, repair) ignore a takes or facts fence marker that sits in
+inline code or inside a fenced code block, and since 0.60.162.0 a marker
+written into a cell is encoded, never live, so documenting the marker no longer
+creates a phantom fence (#5395). The remote privacy boundary deliberately does
+not follow: `sanitizeRemoteBody` still treats the first begin marker it sees,
+quoted or not, as the start of a protected region and hides everything after
+it from remote readers, and a remote whole-page replace of a page with an
+unpaired quoted marker is refused with "The takes fence must be repaired before
+replacing this page." The boundary only ever changes toward hiding more; a
+remote reader that cannot see the tail of a page that quotes the marker is
+seeing that rule, not a bug. To publish such a page remotely, write the marker
+in a form the scanner does not match (split it, or describe it) or move the
+mention after the real fence. Pinned by `test/fence-marker-code-context.test.ts`
+("remote privacy boundary" and "remote page replacement").
+
 Markdown export is a portable view of pages, **not a full database backup**.
 DB-only facts and pages, revision history, withdrawal state, jobs, settings, and
 authentication records may not be recoverable from Markdown. Use the engine's
