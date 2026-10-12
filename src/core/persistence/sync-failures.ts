@@ -6,6 +6,7 @@ import type { SyncProcessingOptions } from './sync-authority.ts';
 import type { SyncCursorOptions } from './sync-prepare.ts';
 import { resolveManagedSyncContext, syncGit, syncGitPath } from './sync-discovery.ts';
 import { readGitHold } from './sync-holds.ts';
+import { pruneMirrorOnlyManagedFailures } from './managed-sync-orphans.ts';
 
 export interface ManagedSyncFailure {
   source_id: string;
@@ -108,6 +109,8 @@ async function sourceFailureRows(engine: BrainEngine, sourceId: string): Promise
 /**
  * #6288: after a successful managed sync, clears this source's recorded failures under other cursor keys (a `--full` run's
  * key is never resumed by autopilot) whose cursor is finished or gone and whose file the imported commit already settles.
+ * #6518: then prunes the source's local mirror rows whose durable failure row is already gone (`mirror_only`); a failed
+ * durable read prunes nothing.
  */
 export async function clearSettledManagedSyncFailures(engine: BrainEngine, run: ManagedSyncImported): Promise<number> {
   let cleared = 0;
@@ -115,6 +118,7 @@ export async function clearSettledManagedSyncFailures(engine: BrainEngine, run: 
     if (row.unfinished || await unsettledReason(engine, run, row.failure)) continue;
     if (await deleteFailure(engine, row.key, row.failure)) cleared++;
   }
+  await pruneMirrorOnlyManagedFailures(engine, run.sourceId);
   return cleared;
 }
 

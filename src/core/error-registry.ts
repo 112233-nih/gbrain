@@ -133,6 +133,12 @@ export const CODES = {
   core_remote_edit_refused: { class: 'consent', summary: "Remote edits to always-loaded core pages are refused by memory.core.remote_edit.", docs: 'docs/guides/core-memory.md#remote-edits', actor: 'user' },
   cost_cap_exceeded: { class: 'server', summary: "The run reached its cost cap before finishing." },
   cost_preview_requires_yes: { class: 'consent', summary: "Cost preview requires yes." },
+  // wave 16 (GBRA-79) #6518: `gbrain sync status` names a cursor no current sync can select.
+  cursor_incarnation_retired: { class: 'caller', summary: "An unfinished managed sync cursor of this source was recorded under a source incarnation the source no longer has (it was re-pointed at a new checkout, or removed and added again), so no current sync selects or resumes it.",
+    why: "The cursor key digests the incarnation; every incarnation-joined reader drops the old rows while the local ledger mirror and the source-id-only cursor read still showed them. Retiring the bookkeeping says nothing about whether the current source's files are imported.",
+    docs: 'docs/guides/repair.md#managed-sync-orphans',
+    suggestion: 'Preview gbrain repair managed-sync-orphans --source <id> and apply it with the hash it prints; then gbrain sync status --source <id> --json shows the current cursor, if any.',
+    fix: { argv: ['gbrain', 'repair', 'managed-sync-orphans', '--source', '{source_id}'], consent: [], actor: 'agent', requires_exclusive: false, why: 'Previews the retired bookkeeping and prints the apply command; writes nothing.' } },
   cycle_failed: { class: 'server', summary: "The maintenance (dream) cycle failed, or a phase threw and was contained so later phases could run." },
   d_sel_too_small: { class: 'caller', summary: "The selection split has too few tasks for meaningful validation." },
   database_error: { class: 'server', summary: "The brain database could not be reached or refused the operation." },

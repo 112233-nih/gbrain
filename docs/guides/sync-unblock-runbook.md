@@ -111,6 +111,7 @@ Every hold and error has three fields, from one table
 | `permission_denied` | systemic | none | yes | always |
 | `plan_stale` | systemic | none | yes | always |
 | `invalid_params` | systemic | none | yes | always |
+| `cursor_incarnation_retired` | systemic | repair | no | the repair preview lists nothing to retire, or the same code returns after the apply |
 <!-- sync-fault-table:end -->
 
 A `cancelled` error whose group was released by a lane fault (`lock_timeout`
