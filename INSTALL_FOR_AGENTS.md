@@ -570,6 +570,35 @@ gbrain onboard --check --json
 See "The onboard surface" below for what the recommendations mean and the
 consent gates around unattended remediation.
 
+<!-- BEGIN multi-agent-rules (identical in AGENTS.md, BOOTSTRAP_FOR_AGENTS.md and INSTALL_FOR_AGENTS.md; bun run check:shared-tree-git) -->
+## Multi-agent rules for a shared brain checkout
+
+Several agents, crons and hooks often commit to one brain checkout on the same
+machine. In such a checkout:
+
+1. **Commit and push with one command, naming your files:**
+   `scripts/brain-commit-push.sh "<msg>" <paths>`, or
+   `gbrain git commit-push -m "<msg>" -- <paths>` when the brain has no helper.
+   It takes the checkout's writer lock, commits only those paths, merges remote
+   commits without touching anyone else's files, and fails loudly if the push
+   does not land.
+2. **Bring remote commits in with `--pull`** (`scripts/brain-commit-push.sh --pull`
+   or `gbrain git commit-push --pull`) at session start and before a batch of writes.
+3. **On a non-zero exit, read the code.** Retry once on `commit_lock_busy`.
+   Stop and relay to the user on `integrate_conflict` (they choose which
+   version wins) and on `writer_coordinator_required` (a managed brain: save
+   pages with `put_page` instead). `pushed_checkout_lagging` is a success.
+<!-- gbrain-allow-shared-tree-git-begin: the forbidden commands, named so agents avoid them -->
+4. **Never run** `git pull --rebase`, `git stash`, `--autostash`, `git add -A`,
+   `git commit -a`, `git reset --hard` or `git push --force` there, and never
+   fall back to them when the command fails. Never delete `.git/rebase-merge`
+   before saving its autostash with `git stash store`.
+<!-- gbrain-allow-shared-tree-git-end -->
+
+Outcomes, conflict recovery, a stuck rebase and the lock contract for host
+daemons: [docs/guides/shared-checkout-git.md](docs/guides/shared-checkout-git.md).
+<!-- END multi-agent-rules -->
+
 ## Upgrade
 
 When an upgrade crosses v0.60.5.0, confirm a database backup exists before
