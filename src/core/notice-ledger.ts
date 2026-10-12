@@ -28,7 +28,10 @@ export const COACHING_BUDGET_PER_SESSION = 2;
 /** The one muteable `ask`: an unanswered first-run bundle must stay dismissible. Every other ask always shows. */
 export const MUTEABLE_ASK_CODES: ReadonlySet<string> = new Set(['first_run_decisions']);
 /** Notices that describe THIS call's result (never deduped unless the notice carries a `dedupe_key`): the diagnosis must ride every affected call. */
-export const PER_CALL_NOTICE_CODES: ReadonlySet<string> = new Set(['degraded_recall', 'empty_retrieval', 'unknown_param', 'listing_truncated', 'former_relationships_hidden', 'source_binding_narrowed', 'local_transcripts', 'held_files', 'relational_chain', 'mention_index', 'delta_incomplete', 'identity_siblings_capped', 'alias_fanout', 'facts_unembedded']);
+export const PER_CALL_NOTICE_CODES: ReadonlySet<string> = new Set(['degraded_recall', 'hidden_tool_content', 'empty_retrieval', 'unknown_param', 'listing_truncated', 'former_relationships_hidden', 'source_binding_narrowed', 'local_transcripts', 'held_files', 'relational_chain', 'mention_index', 'delta_incomplete', 'identity_siblings_capped', 'alias_fanout', 'facts_unembedded']);
+
+/** Notices whose producer already deduped them with `claim` on its own key; admit applies mute only. */
+export const SELF_DEDUPED_NOTICE_CODES: ReadonlySet<string> = new Set(['grant_blocked_operations']);
 
 export interface NoticeAudience {
   transport: Transport;
@@ -42,6 +45,8 @@ export class NoticeLedger {
   private seen = new Map<string, number>();
   private coaching = new Map<string, { count: number; at: number }>();
   private tallies = new Map<string, { n: number; at: number }>();
+  private claimed = new Map<string, number>();
+  private memo = new Map<string, { value: unknown; at: number }>();
 
   constructor(private readonly now: () => number = Date.now) {}
 
@@ -67,13 +72,31 @@ export class NoticeLedger {
     return n;
   }
 
+  /** First call for `key` returns true and records it; later calls (within the TTL) return false. */
+  claim(key: string): boolean {
+    if (this.claimed.has(key)) return false;
+    this.claimed.set(key, this.now());
+    this.prune(this.claimed, at => at);
+    return true;
+  }
+
+  /** `compute` once per `key` (within the TTL); later calls get the stored value. */
+  async memoize<T>(key: string, compute: () => Promise<T>): Promise<T> {
+    const hit = this.memo.get(key);
+    if (hit) return hit.value as T;
+    const value = await compute();
+    this.memo.set(key, { value, at: this.now() });
+    this.prune(this.memo, v => v.at);
+    return value;
+  }
+
   /** Filter one call's notices: mute, dedupe and the coaching budget. Never throws. */
   admit(notices: readonly Notice[], audience: NoticeAudience, muted: ReadonlySet<string> = new Set()): Notice[] {
     const out: Notice[] = [];
     const session = this.session(audience);
     for (const n of notices) {
       if ((n.kind === 'coaching' || n.kind === 'info' || MUTEABLE_ASK_CODES.has(n.code)) && muted.has(n.code)) continue;
-      const always = (PER_CALL_NOTICE_CODES.has(n.code) && n.dedupe_key === undefined)
+      const always = (PER_CALL_NOTICE_CODES.has(n.code) && n.dedupe_key === undefined) || SELF_DEDUPED_NOTICE_CODES.has(n.code)
         || (audience.transport === 'http' && (n.kind === 'degraded' || n.kind === 'safety'));
       const key = n.dedupe_key === undefined ? `${session}|${n.code}` : `${session}|${n.code}|${n.dedupe_key}`;
       if (!always && this.seen.has(key)) continue;
