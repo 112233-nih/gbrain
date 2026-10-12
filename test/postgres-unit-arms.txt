@@ -14,10 +14,12 @@
 test/activation-unbound-rooted-6449.test.ts
 test/alias-source-cascade-5094.test.ts
 test/attribution-backfill-history.test.ts
+test/backstop-same-page-shadow-managed-6333.test.ts
 test/behavior-change-notice.test.ts
 test/capture-consent-admission.test.ts
 test/capture-dispatch-provenance-6524.test.ts
 test/chronicle-backfill-max-usd.test.ts
+test/claude-cli-output-cap.test.ts
 test/colon-slug-windows-5032.test.ts
 test/company-brain-policy.test.ts
 test/company-brain-runtime.test.ts
@@ -32,6 +34,7 @@ test/embed-stale-images-managed-6529.test.ts
 test/embedding-completion-atomic.serial.test.ts
 test/engine-sql-facts-keyset.test.ts
 test/extract-all-stamp-intersection.serial.test.ts
+test/extract-atoms-input-truncated-6503.test.ts
 test/extract-endpoint-revision.serial.test.ts
 test/extract-entities-managed.test.ts
 test/extract-timeline-from-meetings-managed.test.ts
@@ -58,6 +61,8 @@ test/link-cross-source.test.ts
 test/link-preparation-shared-index.test.ts
 test/links-attendance-blocked.test.ts
 test/managed-cycle-pull-upstream.test.ts
+test/managed-facts-withdrawal-recovery-6506.test.ts
+test/managed-facts-withdrawn-skip-6506.test.ts
 test/managed-lint.test.ts
 test/managed-maintenance-links.test.ts
 test/managed-sweep-corpus-windows.test.ts

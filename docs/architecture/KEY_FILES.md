@@ -45,12 +45,9 @@ link it here rather than raising the cap.
 | [Core Minions (1/2)](key-files/core-minions-1.md) | `src/core/minions/` through `src/core/minions/rss-default.ts` |
 | [Core Minions (2/2)](key-files/core-minions-2.md) | `src/core/minions/run-child.ts` through `src/core/minions/worker.ts` |
 | [Core Persistence](key-files/core-persistence.md) | `src/core/persistence/` write journal, coordinator, effects, canonical projections and managed sync |
-<<<<<<< HEAD
 | [Core Persistence (continued)](key-files/core-persistence-continued.md) | `worktree-refresh*.ts`, `persistence/connector-*.ts`, `connectors/item-holds*.ts`, no-op kernel, accepted-pending receipts, verb types/errors, attribution, purge-deleted, fact retirement, sync orphans |
 | [Core Persistence (request indexes and fault seams)](key-files/core-persistence-request-indexes.md) | `checkpoint-validation.ts` (`readRequestIndexStates`, the checkpoint timeout hint), `fault-points.ts` (`faultPoint`, `installFaultHook`, the `purge:*` seams) |
-=======
-| [Core Persistence (continued)](key-files/core-persistence-continued.md) | `worktree-refresh*.ts`, `persistence/connector-*.ts`, `connectors/item-holds*.ts`, checkpoint validation, no-op kernel, accepted-pending receipts, verb types/errors, attribution, purge-deleted, fact retirement |
->>>>>>> origin/capy/w16-w2
+| [Core Persistence (managed facts)](key-files/core-persistence-facts.md) | `facts-maintenance.ts`, `facts-prepare.ts`, `derived-facts.ts`, `src/core/facts/{conversation-publication,same-page-shadow}.ts` |
 | [Core Persistence (engine graduation)](key-files/core-persistence-graduation.md) | `engine-graduation*.ts`, `graduation-*.ts`, `src/commands/migrate-graduation.ts`, its doctor finding |
 | [Managed sync and persistence stalls](key-files/persistence-stalls.md) | preparation budgets, `claim-phase.ts`, `consumer.ts`, `group-publish.ts`, `journal.ts`, `diagnostics.ts`, `worktree-manifest.ts` |
 | [Managed sync bookkeeping](key-files/managed-sync-bookkeeping.md) | `sync-failures.ts`, `managed-sync-orphans.ts` + its repair, doctor `sync-failures`, `sync-write-diagnostic.ts`, `sync-checkpoint-replaced.ts` |

@@ -993,6 +993,9 @@ CREATE TABLE IF NOT EXISTS extract_atoms_transcript_state (
   fail_count   INTEGER     NOT NULL DEFAULT 0,
   tombstoned   BOOLEAN     NOT NULL DEFAULT FALSE,
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- #6503 (migration v240): the max_input_chars cap a cut transcript was read
+  -- under; discovery skips it until the cap rises. NULL when not partial.
+  partial_input_chars INTEGER,
   PRIMARY KEY (source_id, file_path, content_hash)
 );
 CREATE INDEX IF NOT EXISTS extract_atoms_transcript_state_tombstoned_idx
@@ -1890,6 +1893,9 @@ CREATE TABLE IF NOT EXISTS extract_atoms_page_state (
   fail_count INTEGER NOT NULL DEFAULT 0 CHECK (fail_count >= 0),
   tombstoned BOOLEAN NOT NULL DEFAULT false,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- #6503 (migration v240): the max_input_chars cap a cut page was read under;
+  -- discovery skips it until the cap rises. NULL when not partial.
+  partial_input_chars INTEGER,
   PRIMARY KEY (source_incarnation, page_id, content_hash)
 );
 CREATE INDEX IF NOT EXISTS extract_atoms_page_state_tombstoned_idx
