@@ -1176,6 +1176,17 @@
             "via": "unsafe"
           }
         ],
+        "chunkId": [
+          {
+            "paramCount": 5,
+            "unsafeOptions": {
+              "cancelFence": false,
+              "prepare": true,
+              "simple": false
+            },
+            "via": "unsafe"
+          }
+        ],
         "default": [
           {
             "paramCount": 3,
@@ -1200,6 +1211,17 @@
         ]
       },
       "getCallersOf": {
+        "chunkId": [
+          {
+            "paramCount": 5,
+            "unsafeOptions": {
+              "cancelFence": false,
+              "prepare": true,
+              "simple": false
+            },
+            "via": "unsafe"
+          }
+        ],
         "default": [
           {
             "paramCount": 3,

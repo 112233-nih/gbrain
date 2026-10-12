@@ -734,11 +734,13 @@ export const SQL_CASES: SqlCase[] = [
   ...variants('getCallersOf', [
     ['default', (e) => e.getCallersOf('B.g')],
     ['sourceId', (e) => e.getCallersOf('B.g', { sourceId: SRC })],
+    ['chunkId', (e) => e.getCallersOf('B.g', { sourceId: SRC, chunkId: 2 })],
   ]),
   ...variants('getCalleesOf', [
     ['default', (e) => e.getCalleesOf('A.f')],
     ['sourceId', (e) => e.getCalleesOf('A.f', { sourceId: SRC })],
     ['bareFallback', (e) => e.getCalleesOf('f', { bareFallback: true })],
+    ['chunkId', (e) => e.getCalleesOf('A.f', { sourceId: SRC, chunkId: 1 })],
   ]),
   ...variants('getEdgesByChunk', [
     ['default', (e) => e.getEdgesByChunk(1)],
