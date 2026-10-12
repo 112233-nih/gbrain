@@ -849,6 +849,10 @@
                 {
                   "name": "persistence_requests_sync_run_committed",
                   "state": "valid"
+                },
+                {
+                  "name": "persistence_requests_slug_intent",
+                  "state": "valid"
                 }
               ],
               "repair": "request-indexes"
@@ -3916,6 +3920,10 @@
                 },
                 {
                   "name": "persistence_requests_sync_run_committed",
+                  "state": "valid"
+                },
+                {
+                  "name": "persistence_requests_slug_intent",
                   "state": "valid"
                 }
               ],

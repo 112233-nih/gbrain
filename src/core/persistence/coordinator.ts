@@ -53,7 +53,9 @@ interface PreparedMutationBase {
   contentUnchanged?: boolean;
   deferEmbedding?: boolean;
   /** Why a page write bound to a worktree publishes no file (receipt `write_through.skipped`). */
-  databaseOnlyReason?: 'db_only' | 'unbound_source' | 'mirror_read_only' | 'sync_excluded';
+  databaseOnlyReason?: 'db_only' | 'unbound_source' | 'mirror_read_only' | 'sync_excluded' | 'shared_origin';
+  /** #6517: the receipt's `write_through.warning` for a database-only publication, set by `validate` under the publication guards. */
+  databaseOnlyWarning?: string;
   /**
    * Must perform only transaction-composable database work. `preimage` (#5984)
    * is the publisher's read of the page under its page guard, after the revision
@@ -225,6 +227,7 @@ export function decoratePublicationOutcome(row: WriteRequest, prepared: Prepared
   if ((outcome.write_through as { skipped?: string }).skipped === 'unbound_source') {
     outcome.write_through = { ...outcome.write_through as object, warning: unboundWriteWarning(row.operation, row.source_id, row.authority.databaseOnlyReason === 'unbound_source') };
   }
+  if (prepared.databaseOnlyWarning) outcome.write_through = { ...outcome.write_through as object, warning: prepared.databaseOnlyWarning };
 }
 
 /**
