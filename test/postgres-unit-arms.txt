@@ -126,6 +126,8 @@ test/sync-drain-inpass-stall.test.ts
 test/sync-drain-write-capacity.test.ts
 test/sync-frontmatter-recovery.test.ts
 test/sync-frontmatter-slug-conflict.test.ts
+test/sync-full-cursor-slices-6349.test.ts
+test/sync-full-untracked-import-5459.test.ts
 test/sync-group-member-order.test.ts
 test/sync-legacy-holds.test.ts
 test/sync-staged-catchup.test.ts
