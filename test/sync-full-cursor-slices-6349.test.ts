@@ -77,6 +77,8 @@ describe('path-sliced managed sync on a real brain', () => {
   afterAll(async () => { for (const engine of engines) { await disposePersistenceConsumer(engine); await engine.disconnect(); } await closePostgres?.(); });
 
   async function managedSource(engine: BrainEngine, seed: (r: ReturnType<typeof repo>) => void = r => { r.write('base'); r.commit('base'); }) {
+    // Each engine iteration starts at the real bound: the previous engine's lowered bound must not slice this fixture's seed sync.
+    _setCursorBoundForTest();
     const r = repo();
     const id = `slc-${randomUUID().replace(/-/g, '').slice(0, 16)}`;
     seed(r);
