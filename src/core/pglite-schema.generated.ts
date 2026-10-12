@@ -539,6 +539,7 @@ CREATE TABLE IF NOT EXISTS extract_atoms_transcript_state (
   fail_count   INTEGER     NOT NULL DEFAULT 0,
   tombstoned   BOOLEAN     NOT NULL DEFAULT FALSE,
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  partial_input_chars INTEGER,
   PRIMARY KEY (source_id, file_path, content_hash)
 );
 CREATE INDEX IF NOT EXISTS extract_atoms_transcript_state_tombstoned_idx
@@ -1184,6 +1185,7 @@ CREATE TABLE IF NOT EXISTS extract_atoms_page_state (
   fail_count INTEGER NOT NULL DEFAULT 0 CHECK (fail_count >= 0),
   tombstoned BOOLEAN NOT NULL DEFAULT false,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  partial_input_chars INTEGER,
   PRIMARY KEY (source_incarnation, page_id, content_hash)
 );
 CREATE INDEX IF NOT EXISTS extract_atoms_page_state_tombstoned_idx

@@ -1405,7 +1405,8 @@
           "3 content_hash text/text NOT NULL",
           "4 fail_count integer/int4 NOT NULL DEFAULT 0",
           "5 tombstoned boolean/bool NOT NULL DEFAULT false",
-          "6 updated_at timestamp with time zone/timestamptz NOT NULL DEFAULT now()"
+          "6 updated_at timestamp with time zone/timestamptz NOT NULL DEFAULT now()",
+          "7 partial_input_chars integer/int4 NULL"
         ],
         "flags": "relkind=r rls=false force_rls=false"
       },
@@ -1416,7 +1417,8 @@
           "3 content_hash text/text NOT NULL",
           "4 fail_count integer/int4 NOT NULL DEFAULT 0",
           "5 tombstoned boolean/bool NOT NULL DEFAULT false",
-          "6 updated_at timestamp with time zone/timestamptz NOT NULL DEFAULT now()"
+          "6 updated_at timestamp with time zone/timestamptz NOT NULL DEFAULT now()",
+          "7 partial_input_chars integer/int4 NULL"
         ],
         "flags": "relkind=r rls=false force_rls=false"
       },
