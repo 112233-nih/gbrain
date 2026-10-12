@@ -9,7 +9,7 @@ import type { MinionQueue } from '../core/minions/queue.ts';
 import { loadAllSources, parseSourceConfig, sourceConfigHasRemoteUrl, sourceLocalPathSkipWarning, type SourceRow } from '../core/sources-load.ts';
 import { isConnectorSourceKind } from '../core/persistence/connector-identity.ts';
 import { attemptedConnectorSourceIds } from '../core/persistence/connector-state.ts';
-import { automaticSyncPull } from '../core/persistence/automatic-sync-policy.ts';
+import { AUTOPILOT_GIT_PULL_KEY, automaticGitPullDisabled, automaticSyncPull } from '../core/persistence/automatic-sync-policy.ts';
 import { isSyncDisabledConfig } from '../core/sync-policy.ts';
 import { loadActivationPendingSourceIds, skipActivationPendingSync } from '../core/sync-policy.ts';
 import { resolveAutopilotDispatchTimeoutMs } from './autopilot-timeout.ts';
@@ -265,6 +265,12 @@ export async function dispatchFreshnessSyncs(
       const activationPending = await loadActivationPendingSourceIds(engine);
       const intervalMs = baseInterval * 1000;
       const now = Date.now();
+      // #6451: one status line per tick when the operator turned automatic pulls off.
+      if (await automaticGitPullDisabled(engine)) {
+        process.stderr.write((jsonMode
+          ? JSON.stringify({ event: 'git_pull_disabled', key: AUTOPILOT_GIT_PULL_KEY })
+          : `[autopilot] git_pull: off (${AUTOPILOT_GIT_PULL_KEY}=false); remote sources sync their local checkout without pulling`) + '\n');
+      }
       for (const src of sources) {
         if (isConnectorSourceKind(parseSourceConfig(src.config).kind)) {
           await dispatchConnectorFreshnessSync(queue, src, attempted, activationPending, { intervalMs, now, slot, timeoutMs, jsonMode });

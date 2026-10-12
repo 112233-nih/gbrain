@@ -1584,6 +1584,7 @@ export const KNOWN_CONFIG_KEYS: readonly string[] = [
   // phase ships in the default list). Read by src/core/cycle/propose-takes.ts.
   'cycle.propose_takes.enabled',
   'cycle.propose_takes.types', // #5213: JSON array of page types propose_takes scans (unset = every type); read in cycle/propose-takes.ts
+  'autopilot.git_pull', // #6451: default on; an explicit falsy value stops automatic sync from pulling remote sources (persistence/automatic-sync-policy.ts)
   // Content sanity (v0.41)
   'content_sanity.bytes_warn',
   'content_sanity.bytes_block',
