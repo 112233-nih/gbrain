@@ -190,6 +190,7 @@ test('extract_atoms records a credentials abort as provider_auth; extract_facts 
     async executeRaw(sql: string, params: unknown[] = []) {
       calls.push({ sql: sql.replace(/\s+/g, ' '), params });
       if (/COUNT\(\*\) AS n/.test(sql)) return [{ n: '3' }];
+      if (sql.includes('FROM persistence_brain')) return [{ enabled: false }];
       return [];
     },
     async getAllSlugs() { return []; }, async getPage() { return null; },

@@ -2,8 +2,8 @@
   "golden": {
     "exitCode": 0,
     "stderr": "",
-    "stdoutBytes": 231144,
-    "stdoutSha256": "ad06c7c7bf057d364d0eba396ecab9ef15c3ef440fd2256d5f9887a7eb6afa5a",
+    "stdoutBytes": 231140,
+    "stdoutSha256": "bb979a78c5e89bb88016cc8af97c2215136976a11b8fdba6de37d572d83dc54d",
     "toolNames": [
       "remember",
       "entity",
@@ -2526,7 +2526,7 @@
               "type": "string"
             },
             "limit": {
-              "description": "Page size or ranked count (1-100).",
+              "description": "Page size or rank cap (1-100).",
               "type": "number"
             },
             "query": {

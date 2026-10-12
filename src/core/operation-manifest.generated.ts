@@ -2081,7 +2081,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "limit": {
         "type": "number",
-        "description": "Page size or ranked count (1-100)."
+        "description": "Page size or rank cap (1-100)."
       },
       "cursor": {
         "type": "string",

@@ -17,6 +17,7 @@ import type { BrainEngine } from '../engine.ts';
 import { OperationError } from '../ops/contract.ts';
 import { maintenanceAttribution } from '../persistence/attribution.ts';
 import { withCoordinatedWrite } from '../persistence/context.ts';
+import { readManagedMode } from '../persistence/managed-mode.ts';
 import { clearApprovedSet, loadApprovedSet, previewChangedError, previewHash, saveApprovedSet } from '../persistence/preview-approval.ts';
 import { afterCursor, type RepairHandler, type RepairItem, type RepairItemOutcome, type RepairPlan, type RepairScope } from './core.ts';
 
@@ -97,12 +98,12 @@ export const frontmatterKeysRepair: RepairHandler = {
   async apply(ctx, entry): Promise<RepairItemOutcome> {
     const { batch, hash, last } = entry as BatchItem;
     const stripped = await ctx.engine.transaction(async tx => {
-      const [brain] = await tx.executeRaw<{ enabled: boolean }>('SELECT enabled FROM persistence_brain WHERE singleton=1');
+      const managed = await readManagedMode(tx, { refusal: { subject: 'repair frontmatter-keys' } });
       const strip = async () => {
         await tx.lockPageKeys(batch.rows.map(row => ({ sourceId: batch.source_id, slug: row.slug })));
         return tx.stripStaleFrontmatterKeys({ sourceId: batch.source_id, ids: batch.rows.map(row => row.id) });
       };
-      return brain?.enabled ? withCoordinatedWrite(tx, [batch.source_id], strip, await maintenanceAttribution(tx)) : strip();
+      return managed ? withCoordinatedWrite(tx, [batch.source_id], strip, await maintenanceAttribution(tx)) : strip();
     });
     if (last) await clearApprovedSet(ctx.engine, { command: 'frontmatter-keys', hash });
     return stripped > 0 ? { applied: true, outcome: 'stripped', reason: `${stripped} of ${batch.rows.length} page(s)`, detail: { pages: stripped } }

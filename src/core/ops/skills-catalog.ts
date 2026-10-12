@@ -30,7 +30,7 @@ const list_skills: Operation = {
   publishGateKey: 'mcp.publish_skills',
   params: {
     schema_version: { type: 'number', description: '2 for the source-qualified catalog.' },
-    limit: { type: 'number', description: 'Page size or ranked count (1-100).' },
+    limit: { type: 'number', description: 'Page size or rank cap (1-100).' },
     cursor: { type: 'string', description: 'Version 2 cursor.' },
     source_id: { type: 'string', description: 'Version 2: one source.' },
     section: {
