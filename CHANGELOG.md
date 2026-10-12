@@ -10,6 +10,17 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [0.60.176.0] - 2026-10-12
+
+**Remote forget refusals and entity cards respect visibility and withdrawal.** A remote `forget` never withdraws, or names, an active fact on a page the caller cannot read; when one would be reached, it is refused with a `claim_linked:` message that names no fact. A remote `remember` refuses a withdrawn claim the caller cannot see the same way it refuses an unreadable page. The entity card's `identity_excerpt` no longer shows a forgotten fact row. Local callers keep their detailed refusals.
+
+### Itemized changes
+
+- `src/core/persistence/memory-mutations.ts`: the forget refusal splits the claim's other active copies by the caller's read visibility; local callers are unchanged.
+- `src/core/facts/single-prepare.ts`, `src/core/persistence/memory-prepare.ts`, `src/core/persistence/page-visibility.ts`: the withdrawn-claim check takes the caller's visibility and reuses the existing not-visible refusal.
+- `src/core/verbs/entity-card-identity.ts`: excerpt bodies come from page snapshots, which carry the withdrawal overlay `get_page` applies.
+- Tests: `test/visibility-withdrawal.test.ts` (PGLite) and `test/e2e/visibility-withdrawal-postgres.test.ts` (Postgres) share `test/helpers/visibility-withdrawal-scenarios.ts`.
+
 ## [0.60.175.0] - 2026-10-11
 
 **CI test shards are balanced again, and the nightly run stops failing its shard-timing check.** CI splits each test lane across several machines using the recorded run time of every test file. A test file with no recorded time is packed blind, and 11.1% of E2E files had none, past the 10% bound the nightly enforces. This release re-measures every lane from green master runs. No product behaviour changes.
