@@ -57,6 +57,8 @@ test/link-cross-source.test.ts
 test/link-preparation-shared-index.test.ts
 test/links-attendance-blocked.test.ts
 test/managed-cycle-pull-upstream.test.ts
+test/managed-facts-withdrawal-recovery-6506.test.ts
+test/managed-facts-withdrawn-skip-6506.test.ts
 test/managed-lint.test.ts
 test/managed-maintenance-links.test.ts
 test/managed-sweep-corpus-windows.test.ts
