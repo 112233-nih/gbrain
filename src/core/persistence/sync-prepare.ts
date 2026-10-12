@@ -556,7 +556,11 @@ export async function prepareManagedSyncMutation(unbounded: BrainEngine, row: Wr
   // #5409: a read-only mirror keeps its canonical metadata in the database only; its checkout stays the remote's bytes.
   enterClaimStep(clock, 'mirror_check', undefined, 'db');
   const mirrorReadOnly = overlay && await sourceMirrorReadOnly(engine, row.source_id);
-  const writeback = overlay && !mirrorReadOnly;
+  const canonicalFile = overlay && !mirrorReadOnly ? serializePageToMarkdown(renderedPage, tags) : null;
+  // #6513: working-tree bytes that already are this import's canonical correction (gbrain's own writeback, published
+  // before the request that carried it settled) need no second write; any other newer bytes are protected as before.
+  const writebackApplied = canonicalFile !== null && !p.lineEndingOnly && p.rawHash !== sha256(p.content) && p.rawHash === sha256(canonicalFile);
+  const writeback = canonicalFile !== null && !writebackApplied;
   if (writeback && !p.lineEndingOnly && p.rawHash !== sha256(p.content)) throw syncPublicationRefusal('source_changed', 'Canonical sanitization cannot overwrite newer working-tree bytes.', row, p,
     `The canonical correction for ${row.slug} would overwrite newer working-tree bytes; preserve the local edit and commit it.`);
   // A rename projects against the moved page (same id), so its pinned timeline rows carry over.
@@ -568,7 +572,7 @@ export async function prepareManagedSyncMutation(unbounded: BrainEngine, row: Wr
     ...(renamed ? { additionalPageKeys: [{ sourceId: row.source_id, slug: renamed.slug }] } : {}),
     validate: async tx => { await validate(tx); await ready.validate(tx); },
     deferEmbedding: p.processingOptions?.noEmbed,
-    ...(writeback ? { file: { root, path: join(root, p.path), content: serializePageToMarkdown(renderedPage, tags), expectedBeforeHash: p.rawHash } } : {}),
+    ...(writeback ? { file: { root, path: join(root, p.path), content: canonicalFile!, expectedBeforeHash: p.rawHash } } : {}),
     ...(mirrorReadOnly ? { databaseOnlyReason: 'mirror_read_only' as const } : {}),
     apply: async (tx, preimage) => {
       let applied = ready;
