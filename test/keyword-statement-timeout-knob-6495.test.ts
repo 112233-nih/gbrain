@@ -14,7 +14,8 @@
  * these statements but never looks at the timeout they set.
  *
  * Unit arm: the real engine methods over a recording transaction handle (no
- * database). Postgres arm (DATABASE_URL): a session holding an ACCESS
+ * database); the knob is primed the way `connect()` primes it, from a stubbed
+ * config read. Postgres arm (DATABASE_URL): a session holding an ACCESS
  * EXCLUSIVE lock on the searched tables makes each statement wait, and the
  * knob, not the old 8 s, decides when Postgres cancels it (SQLSTATE 57014).
  */
@@ -49,7 +50,7 @@ const SITES: Record<string, (engine: PostgresEngine, countTimeoutMs?: number) =>
 };
 
 /** A PostgresEngine whose scoped read transactions run over a recording handle; config comes from the stubs. */
-function recordingEngine(opts: { dbValue?: string | null; fileValue?: unknown }): { engine: PostgresEngine; recorded: Recorded[] } {
+async function recordingEngine(opts: { dbValue?: string | null; fileValue?: unknown; prime?: boolean }): Promise<{ engine: PostgresEngine; recorded: Recorded[]; configReads: () => number }> {
   const engine = new PostgresEngine();
   const recorded: Recorded[] = [];
   const rows = (sql: string): unknown[] => (/SHOW enable_seqscan/i.test(sql) ? [{ enable_seqscan: 'on' }] : Object.assign([], { count: 0 }));
@@ -64,14 +65,15 @@ function recordingEngine(opts: { dbValue?: string | null; fileValue?: unknown })
   const priv = engine as unknown as {
     withScopedReadTransaction: (ids: unknown, id: unknown, cb: (tx: unknown) => Promise<unknown>) => Promise<unknown>;
     getConfig: (key: string) => Promise<string | null>;
-    _savedConfig: unknown;
+    primeKeywordStatementTimeout: (fileValue: unknown) => Promise<void>;
     _pageTransaction: boolean;
   };
+  let configReads = 0;
   priv.withScopedReadTransaction = (_ids, _id, cb) => cb(tx);
-  priv.getConfig = async key => (key === KEYWORD_STATEMENT_TIMEOUT_KEY ? opts.dbValue ?? null : null);
-  priv._savedConfig = { keyword_statement_timeout_ms: opts.fileValue };
+  priv.getConfig = async key => { configReads++; return key === KEYWORD_STATEMENT_TIMEOUT_KEY ? opts.dbValue ?? null : null; };
   priv._pageTransaction = true;
-  return { engine, recorded };
+  if (opts.prime !== false) await priv.primeKeywordStatementTimeout(opts.fileValue);
+  return { engine, recorded, configReads: () => configReads };
 }
 
 /** Every statement timeout a recording set: the `set_config('statement_timeout', $1, true)` argument or a `SET LOCAL` literal. */
@@ -86,7 +88,7 @@ function timeoutsSet(recorded: Recorded[]): string[] {
 }
 
 async function timeoutFor(site: string, opts: { dbValue?: string | null; fileValue?: unknown }, countTimeoutMs?: number): Promise<string[]> {
-  const { engine, recorded } = recordingEngine(opts);
+  const { engine, recorded } = await recordingEngine(opts);
   await SITES[site](engine, countTimeoutMs);
   return timeoutsSet(recorded);
 }
@@ -176,17 +178,23 @@ describe('search.keyword_statement_timeout_ms governs all six Postgres keyword s
     expect(await timeoutFor('countKeywordPages', {}, 2000)).toEqual(['2000ms']);
   });
 
-  test('the knob is resolved once per engine, not per request', async () => {
-    const { engine, recorded } = recordingEngine({ dbValue: '2500' });
-    let reads = 0;
-    const priv = engine as unknown as { getConfig: (key: string) => Promise<string | null> };
-    const inner = priv.getConfig;
-    priv.getConfig = async key => { reads++; return inner(key); };
+  test('the knob is resolved once at connect, not per request, and a search never reads config', async () => {
+    const { engine, recorded, configReads } = await recordingEngine({ dbValue: '2500' });
+    expect(configReads()).toBe(1);
     await SITES.searchKeyword(engine);
     await SITES.searchTitles(engine);
     await SITES.searchKeywordChunks(engine);
     expect(timeoutsSet(recorded)).toEqual(['2500ms', '2500ms', '2500ms']);
-    expect(reads).toBe(1);
+    expect(configReads()).toBe(1);
+    const fileWins = await recordingEngine({ dbValue: '2500', fileValue: 3000 });
+    expect(fileWins.configReads()).toBe(0);
+  });
+
+  test('an engine that never connected binds the default', async () => {
+    const { engine, recorded, configReads } = await recordingEngine({ dbValue: '2500', prime: false });
+    await SITES.searchKeyword(engine);
+    expect(timeoutsSet(recorded)).toEqual(['8000ms']);
+    expect(configReads()).toBe(0);
   });
 });
 

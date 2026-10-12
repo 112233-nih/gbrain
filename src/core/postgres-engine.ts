@@ -120,7 +120,7 @@ import { PageMissingError } from './engine-errors.ts';
 import { EMBED_SKIP_FILTER_FRAGMENT } from './embed-skip.ts';
 import { acquireInitSchemaAdvisoryLock } from './postgres-engine/init-schema-lock.ts';
 import { withSearchJitOff } from './postgres-engine/search-settings.ts';
-import { loadKeywordStatementTimeout } from './postgres-engine/keyword-statement-timeout.ts';
+import { KEYWORD_STATEMENT_TIMEOUT_DEFAULT_MS, loadKeywordStatementTimeout } from './postgres-engine/keyword-statement-timeout.ts';
 import { applyPostgresForwardReferenceBootstrap } from './engine-sql/bootstrap.ts';
 import * as factsImpl from './engine-sql/facts.ts';
 import * as takesImpl from './engine-sql/takes.ts';
@@ -450,6 +450,7 @@ export class PostgresEngine implements BrainEngine {
         this.connectionManager.setReadPool(db.getConnection());
       }
     }
+    await this.primeKeywordStatementTimeout(config.keyword_statement_timeout_ms);
   }
 
   async disconnect(): Promise<void> {
@@ -1408,9 +1409,14 @@ export class PostgresEngine implements BrainEngine {
     return (Array.isArray(plan) ? plan[0] : plan) as Record<string, unknown>;
   }
 
-  /** #6495: the keyword/title statement bound, resolved once per connection (postgres-engine/keyword-statement-timeout.ts); never a request parameter. */
+  /** #6495: resolve the keyword/title statement bound for this connection at connect (file plane, else the DB plane, else 8000 ms; postgres-engine/keyword-statement-timeout.ts), never from a request or inside a search's transaction. */
+  private async primeKeywordStatementTimeout(fileValue: unknown): Promise<void> {
+    this.keywordStatementTimeout = loadKeywordStatementTimeout(this, fileValue);
+    await this.keywordStatementTimeout;
+  }
+
   private keywordStatementTimeoutSetting(): Promise<string> {
-    return this.keywordStatementTimeout ??= loadKeywordStatementTimeout(this, this._savedConfig?.keyword_statement_timeout_ms);
+    return this.keywordStatementTimeout ??= Promise.resolve(`${KEYWORD_STATEMENT_TIMEOUT_DEFAULT_MS}ms`);
   }
 
   private async vectorIterativeScanSupported(): Promise<boolean> {

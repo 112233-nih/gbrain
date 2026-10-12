@@ -326,6 +326,7 @@
         "mergeOntologyFact",
         "migrateFactsToCanonical",
         "onCheckout",
+        "primeKeywordStatementTimeout",
         "purgeDeletedPages",
         "putContradictionCacheEntry",
         "putDreamVerdict",

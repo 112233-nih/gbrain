@@ -78,6 +78,8 @@ export const DOMAIN_OF: Record<string, string> = {
   '_searchKeywordCJK': OOS.helper,
   'runVectorAttempt': OOS.helper,
   'vectorIterativeScanSupported': OOS.helper,
+  'primeKeywordStatementTimeout': OOS.helper,
+  'keywordStatementTimeoutSetting': OOS.helper,
 
   // pages
   'getPage': 'pages', 'readPageSnapshot': 'pages', 'readPageSnapshotsBatch': 'pages', 'lockPageKeys': 'pages', 'findDuplicatePage': 'pages', 'findDuplicatePages': 'pages',
