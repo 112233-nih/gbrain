@@ -540,7 +540,7 @@
         },
         {
           "category": "meta",
-          "message": "1111 column(s) verified against live schema",
+          "message": "1113 column(s) verified against live schema",
           "name": "schema_columns",
           "status": "ok"
         },
@@ -832,6 +832,10 @@
               {
                 "name": "persistence_requests_sync_run_committed",
                 "state": "valid"
+              },
+              {
+                "name": "persistence_requests_slug_intent",
+                "state": "valid"
               }
             ],
             "repair": "request-indexes"
@@ -1039,6 +1043,16 @@
           },
           "message": "Skipped: PGLite runs vector search in-process; the plan check applies to Postgres brains.",
           "name": "vector_plan",
+          "status": "ok"
+        },
+        {
+          "category": "ops",
+          "details": {
+            "outcome": "skipped",
+            "reason": "pglite"
+          },
+          "message": "Skipped: PGLite runs keyword search with no statement timeout; the canary applies to Postgres brains.",
+          "name": "keyword_plan",
           "status": "ok"
         },
         {
