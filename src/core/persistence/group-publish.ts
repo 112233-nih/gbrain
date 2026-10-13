@@ -185,6 +185,8 @@ export function preparationReads(engine: BrainEngine, imports?: ImportGroupReads
 
 /** Test seams around a group's commit and its rollback. */
 export interface GroupHooks {
+  /** Inside the group transaction, once BEGIN has run (a lane prefix marks its original group begun here). */
+  began?(): void;
   beforeCommit?(rows: WriteRequest[]): Promise<void>;
   /** After a failed group transaction and the restoration of any file it published. */
   rolledBack?(rows: WriteRequest[]): Promise<void>;
@@ -260,8 +262,10 @@ export async function publishGroup(engine: BrainEngine, rows: WriteRequest[], pr
       for (const [i, member] of files) recorded.set(i, member);
       for (const member of files.values()) await seam('prepared', member.row);
     }
-    if (lane) await awaitLaneBegin(lane, rows);
+    const markBegun = lane ? await awaitLaneBegin(lane, rows) : null;
     const done = await transaction(async opened => {
+      markBegun?.();
+      hooks.began?.();
       timed.apply?.end(rows.length);
       if (lane) timed.apply = laneApplyBegin(lane);
       const tx = groupReads(opened);
@@ -664,8 +668,9 @@ export async function executeClaimedGroup(engine: BrainEngine, rows: WriteReques
     let requeued = new Set<string>();
     if (live.every(({ i }) => 'ok' in prepared[i]!)) {
       // #6278 lanes: a prefix publishes under the original group's order key, then drops its own begun mark.
-      if (run.lane && liveRows.length < rows.length) await awaitLaneBegin(run.lane, rows);
-      const result = await bounded(() => publishGroup(engine, liveRows, live.map(({ i }) => (prepared[i] as { ok: PreparedMutation }).ok), run.hostId, run.hooks, run.lane ?? null));
+      const markOriginal = run.lane && liveRows.length < rows.length ? await awaitLaneBegin(run.lane, rows) : null;
+      const hooks = markOriginal ? { ...run.hooks, began: () => { markOriginal(); run.hooks?.began?.(); } } : run.hooks;
+      const result = await bounded(() => publishGroup(engine, liveRows, live.map(({ i }) => (prepared[i] as { ok: PreparedMutation }).ok), run.hostId, hooks, run.lane ?? null));
       if (run.lane && liveRows.length < rows.length) run.lane.begun.delete(liveRows.at(-1)!.request_id);
       if (result.done) { for (const row of result.done) run.settled(row); return true; }
       requeued = new Set(result.requeued);
