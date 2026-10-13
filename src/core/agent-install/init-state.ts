@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { configPath, gbrainPath, isThinClient, loadConfigFileOnly } from '../config.ts';
 import { privateWrite, readFileConfigState } from './state.ts';
+import { hostedOptionMuted, writeHostedOption } from '../onboard/hosted-option.ts';
 
 /** `onInvalid` lets init's `--json` writer report the refusal (agent contract v1 D2). */
 export function readInitConfigState(json: boolean, onInvalid?: (message: string) => never) {
@@ -44,4 +45,5 @@ export function inspectRemoteInitState(force: boolean, fail: (reason: string, me
 export function printInAgentReady(databasePath: string): void {
   const root = dirname(dirname(databasePath));
   console.log(`\nBrain ready at ${databasePath}\nLocal personal-agent setup will finish at ${join(root, 'bin', 'gbrain')}.\nAttach the generated memory skill in your app, then test a fresh conversation.\nExplicit memory is available; automatic capture and paid maintenance remain separate choices.`);
+  writeHostedOption('in_agent', hostedOptionMuted(), { tty: false });
 }
