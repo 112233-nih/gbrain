@@ -10,6 +10,19 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [0.60.200.0] - 2026-10-13
+
+**CI's `bun install` is bounded and retried once, so a stalled install gets named instead of quietly using up the job budget.** On .195's master Test run (38350709199), `native-locks / darwin-x64 / Bun 1.4.3` spent 805 s in `bun install` on one macos-26-intel runner. That install normally takes 4 to 14 s. The rest of the job then ran normally until the 15-minute job timeout cancelled it, about a minute short of finishing. The only sign of the cause was an install time buried in the log. Every darwin-x64 install before and since took seconds, so this was a registry or network stall, not Bun 1.4.3.
+
+### Itemized changes
+
+- **`scripts/ci-bun-install.ts`** runs `bun install` with the flags it's given. An attempt that's still running after 180 s is killed and named in a `::warning::`, then retried once after 10 s. A second failure stops the step with `::error::bun install … stalled: no result after 180s … on attempt 2 of 2; giving up`. A failure that isn't a stall (a frozen-lockfile mismatch, an unreachable registry) keeps Bun's own output, is retried once, and is then reported with Bun's exit code. The script needs no dependencies, since it runs before they're installed, and spawns asynchronously, so it behaves the same on Linux, macOS and Windows. Its shape follows `scripts/ci-install-openclaw.sh`.
+- **Every root-package install in `.github/workflows/` uses it** (48 steps across nine workflows, plus the native musl container run). Each such step gets `timeout-minutes: 8` as a backstop; job timeouts are unchanged. The admin bundle install in `release.yml` stays as it is, since `test/release-workflow.test.ts` pins it as a supply-chain contract. `test/scripts/native-lock-prebuilds.test.ts` now requires the native matrix jobs to install through the wrapper, still with `--frozen-lockfile --ignore-scripts`.
+- **Proof.**
+  - `test/scripts/ci-bun-install.test.ts` uses a stub `bun` whose first attempt really sleeps far past a 1 s bound. The case where the second attempt installs passes in about 1 s; with two stalls, it stops with the named error in about 2 s. Bun's own error and exit code come through on a non-stall failure, and a clean install runs once and prints no annotation. A workflow scan fails if a root `bun install --frozen-lockfile` step goes unwrapped, if a wrapped step lacks the 8-minute backstop, or if the wrapper's path does not resolve from the step's `working-directory` (the two `admin/` installs in `test.yml` call `bun ../scripts/ci-bun-install.ts`).
+  - A real `bun install` pointed at a registry that accepts connections and never answers was killed at a 5 s bound, retried, and stopped with the named error in 11 s.
+  - A real install of this repository through the wrapper finished in 0.1 s.
+
 ## [0.60.199.0] - 2026-10-13
 
 **A new opt-in search knob, `search.diverse_pool_depth`, gives the reranker a deeper candidate pool with one row per conversation session; it ships off because its measured gain did not clear the preregistered bar (wave 3 item S1).** The BEAM-1M failure analysis found that 30 of the 57 questions with no gold in the top 5 were semantic drift, where several chunks of one session took the reranker's slots. On BEAM-1M dev (gbrain-evals v0.10.83), depth 100 raised strict recall at 10 from 76 to 83 of 198 (+3.5 points, [0.0, 6.6]) and moved strict recall at 5 by +0.5 ([-1.5, 2.5]); answers moved +0.3, +0.3 and -0.4 points for gpt-6.1-sol, Sonnet 5.5 and Opus 5.5. The flip rule needed an interval above zero and no reader below zero, so the default is 0 in every bundle and nothing changes for any brain unless its owner sets the knob.
