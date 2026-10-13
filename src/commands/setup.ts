@@ -610,6 +610,8 @@ async function finish(out: Out, doc: {
   if (state && !doc.remove) say(out, harness === 'codex'
     ? 'Next: start a new Codex session (config and hooks are read at session start) and check that /mcp lists gbrain.'
     : 'Next: open a new Claude Code session (config is read at session start) and check that /mcp lists gbrain.');
+  if (state && !doc.remove) say(out, 'Memory: save what the user asks you to remember as a fact with gbrain remember "<fact>", naming its entity and provenance (MCP tool: remember). '
+    + 'World-visible facts (the default) are pushed into new sessions; a private fact is not (local CLI recall only). capture writes a page, not a fact.');
   writeCliNotices(doc.notices);
   return 0;
 }
