@@ -12,14 +12,27 @@ identifiers and attribution are available in the pre-removal Git revision
 
 ## [0.60.210.0] - 2026-10-13
 
-**gstack lanes now run gbrain's own mechanical gates before they report done, and a push of sealed eval output to this public repo is refused.** gbrain commits its gstack config (`.gstack/pregate.json`, `.gstack/ship-policy.json`, read by gstack 1.91.98.0 and later). A lane that adds a serial test without a manifest row, changes a CLI surface without regenerating its goldens, leaves a generated file stale or lands a migration out of order now fails `gstack-pregate` with the fix line, instead of failing the full gate on the integrated tree. Nothing changes for gbrain users or for anyone not running gstack.
+**The Ubicloud gate's `verify` typecheck runs warm, so it no longer crosses the 120 s per-check cap on a loaded VM.** It crossed the cap at 121 s on two gates on 2026-10-13 (#6618, #6612), and both passed on rerun. The cause wasn't contention with test items: the VM that runs `verify` runs nothing else until verify is done. The cause was that every gate VM typechecked from scratch. `bun run typecheck` is `tsc --incremental` against `node_modules/.cache/gbrain-typecheck.tsbuildinfo`, and the checkout tarball never carries that file. A cold `tsc` takes 81 s on a 16-vCPU gate VM with nothing else running, so verify had 1.4x headroom before any host load. The cap is unchanged.
 
 ### Itemized changes
 
-- **Repo guards** (`.gstack/pregate.json` `guards`): `serial-manifest` (`test/scripts/serial-files.test.ts`), `cli-goldens` (CLI goldens, dispatch phase, export surface), `regen-check` (`bun scripts/regen-all.ts --check`) and `migration-order` (`scripts/check-schema-migration-order.ts`), each run only when the branch touches its files.
-- **Sealed output** (`sealed`): `gstack-pregate sealed` and gstack's managed pre-push hook refuse a push that adds eval run reports, sealed-confirmation or counted cell directories, or per-cell `results.jsonl`/`usage.jsonl.gz` files. Local home paths are not checked here: gbrain's tests carry them by design.
-- **Ship policy** (`.gstack/ship-policy.json`): the release stamp files and version patterns, and the schema-migration numbering, so `gstack-pregate regate` and `gstack-tree-receipt` classify a gbrain restamp the way the tree rule does.
-- `.gitignore` admits the two files; `CONTRIBUTING.md` says what each one does.
+- **`scripts/ci-ubicloud.ts` + `scripts/ubicloud/typecheck-state.ts`:**
+  - When the verify lane runs, the orchestrator starts `bun run typecheck` on the local checkout (the same files it uploads) while the VMs boot, then uploads the resulting buildinfo to the control VM before `verify`.
+  - The local build takes 68-69 s cold on a 4-core runner and about 17 s warm. It overlaps VM setup (59-83 s), so it added 2 s to a cold start.
+  - tsc rereads every file and compares content hashes, so a buildinfo from another path, machine or tree changes only the time, never the result. A buildinfo that records type errors reports them again on the VM.
+  - The run log says whether verify's typecheck ran warm or cold, and why. The local build's output is in `logs/local-typecheck.log`.
+- **Docs:** `scripts/ubicloud/README.md` describes the upload. `docs/TESTING.md` no longer says CI never restores typecheck results; GitHub CI's verify job has restored them since #6056.
+- **Proof, on a 16-vCPU gate VM (`ci:ubicloud --lanes verify --vms 1`, then the gate's `bun run verify` with the cap lifted to measure):**
+
+  | Load | Cold typecheck | Warm typecheck |
+  | --- | --- | --- |
+  | typecheck alone | 81 s | 16 s |
+  | inside verify's 16-way pool (the gate's load) | 84 s | 18-19 s |
+  | + 8 busy loops | 87 s | 22 s |
+  | + 16 busy loops (a loaded host) | 126 s, 123 s, over the cap | 32 s, 31 s |
+
+  With the new code, the gate's own verify step logged `local incremental typecheck (exit 0, 69s) uploaded …; verify's typecheck runs warm`, and its typecheck took 19 s. `check:test-isolation` (61-78 s) is now verify's longest check.
+- **`test/scripts/ubicloud-typecheck-state.test.ts`** pins that the uploaded file is the one the repo's typecheck script writes, and that building it reports the script's exit code even when the typecheck fails.
 
 ## [0.60.209.0] - 2026-10-13
 
