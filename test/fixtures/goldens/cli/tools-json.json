@@ -2,8 +2,8 @@
   "golden": {
     "exitCode": 0,
     "stderr": "",
-    "stdoutBytes": 231916,
-    "stdoutSha256": "f90172f5bf6ceeadbd086f6cca06121704a43e3f9c4ccec9c47649ec57c38deb",
+    "stdoutBytes": 231878,
+    "stdoutSha256": "483f72a8533acf46fd7ff62602c053a1d78c6b77b872d60e56b3982d63df1ed9",
     "toolNames": [
       "remember",
       "entity",
@@ -275,7 +275,7 @@
               "type": "string"
             },
             "visibility": {
-              "description": "world (default; pushed into new sessions) or private (local CLI recall only).",
+              "description": "world (default) or private (local CLI).",
               "enum": [
                 "world",
                 "private"
