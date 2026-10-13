@@ -489,6 +489,7 @@ async function buildRetrievalResponseMeta(
       ...(m.rerank ? { rerank: m.rerank } : {}),
       ...(m.answerability ? { answerability: m.answerability } : {}),
       ...(m.relational_plan ? { relational_plan: m.relational_plan } : {}),
+      ...(m.rerank_gate ? { rerank_gate: m.rerank_gate } : {}),
     } : {}),
     ...((m?.degraded !== undefined || degraded.length > 0) ? { degraded } : {}),
     projection_readiness: readiness,
@@ -773,6 +774,7 @@ const search: Operation = {
       salience: p.salience as 'off' | 'on' | 'strong' | undefined,
       recency: p.recency as 'off' | 'on' | 'strong' | undefined,
       decide: { remote: ctx.remote !== false },
+      ...(plan?.rankCut ? { pageRankCut: plan.rankCut } : {}),
     };
     const primary = await hybridSearchCached(ctx.engine, queryText, {
       ...searchOpts, onMeta: (m) => { capturedMeta = m; }, explain: p.explain === true, explainTarget: explainPrep?.trace,
@@ -1006,6 +1008,7 @@ const query: Operation = {
       until: typeof p.until === 'string' ? p.until : undefined,
       // v0.32.x search-lite: token budget + cache opt-outs.
       tokenBudget: !plan && typeof p.token_budget === 'number' ? (p.token_budget as number) : undefined,
+      ...(plan?.rankCut ? { pageRankCut: plan.rankCut } : {}),
       useCache: typeof p.use_cache === 'boolean' ? (p.use_cache as boolean) : undefined,
       intentWeighting: typeof p.intent_weighting === 'boolean' ? (p.intent_weighting as boolean) : undefined,
       // v0.36 cross-modal routing param.
@@ -1296,6 +1299,7 @@ const search_stats: Operation = {
             total_budget_dropped: 'sum of results dropped because the call exceeded its tokenBudget',
             graph_signals_enabled: 'whether graph_signals is on for the active mode (or via search.graph_signals override)',
             graph_signals_failures_count: 'count of fail-open events in the JSONL audit over the window',
+            rerank_gate_would_skip_rate: 'rerank_gate.would_skip / rerank_gate.graded — fraction of graded searches whose pre-rerank grade was strong for a skip reason (search.reranker.gate shadow)',
           },
         },
       };
