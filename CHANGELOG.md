@@ -10,6 +10,26 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [0.60.206.0] - 2026-10-13
+
+**CI's Playwright browser install is bounded and retried once, like `bun install` (#6594).** On master .204's Test run, the `admin-browser` job (115229768224) was cancelled at its 12-minute job timeout. `bunx playwright install --with-deps chromium` spent about 4 minutes fetching Ubuntu packages, then crawled through the Chrome download until the timeout hit. That step usually takes 15 to 50 s; across the last dozen runs it ranged from 15 s to 740 s. The bounded-run logic from #6594 is now one shared script, and it ends a stalled attempt together with every process the attempt started.
+
+### Itemized changes
+
+- **`scripts/ci-bounded-run.ts`** (new): `--attempt-s <n> [--retry-s <n>] [--hint <text>] -- <command…>`. It runs the command in its own process group. When an attempt is still running at its bound, it sends SIGTERM to the whole group and SIGKILL after a 10 s grace period. SIGTERM goes first so that `sudo apt-get`, which sudo can't forward a SIGKILL to, still gets the signal. The command is retried once, and a second failure stops the step with `::error::<command> stalled: no result after <n>s (<hint>) on attempt 2 of 2; giving up`. A failure that isn't a stall keeps its own output, is retried once, and is reported with its exit code.
+- **`scripts/ci-bun-install.ts`** now delegates to it, with the same environment knobs and the same annotation text. One behavior change: a stalled install's child processes now end with it. Before, only the direct child got SIGKILL, so a backgrounded grandchild outlived the attempt.
+- **`admin-browser` (`test.yml`):** `bun scripts/ci-bounded-run.ts --attempt-s 240 --retry-s 10 … -- bunx playwright install --with-deps chromium`, with a `timeout-minutes: 9` step cap, which covers two attempts, the pause and both grace periods. The job timeout stays at 12 minutes. A retry starts with whatever attempt 1 already finished: apt packages that got installed and a browser that got downloaded stay in place.
+- **Proof:**
+  - Forced stall: a real `bunx playwright install chromium`, with `PLAYWRIGHT_DOWNLOAD_HOST` pointed at a loopback server that accepts connections and never answers, and an 8 s bound. It was ended twice and stopped with the named error after 17 s, exit 1, with no Playwright process left behind.
+  - `test/scripts/ci-bounded-run.test.ts` uses real stalling commands:
+    - A stall leaves a backgrounded grandchild; the grandchild is gone after the attempt is ended, and the retry succeeds.
+    - Two stalls give the named error.
+    - A non-stall failure keeps exit code 100 and its stderr.
+    - A child that ignores SIGTERM is killed after the grace period.
+    - Usage errors exit 2.
+    - A workflow check requires the Playwright step to be bounded, with a step cap that covers both attempts.
+  - The old `ci-bun-install.ts` left a stalled attempt's backgrounded grandchild running; the new one does not.
+
 ## [0.60.205.0] - 2026-10-13
 
 **Every `search` and `query` response now says where its time went.**

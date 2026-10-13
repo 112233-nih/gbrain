@@ -924,8 +924,9 @@ jobs:
         timeout-minutes: 8
         run: bun ../scripts/ci-bun-install.ts --frozen-lockfile --ignore-scripts
         working-directory: admin
-      - name: Install the pinned Chromium browser and OS dependencies
-        run: bunx playwright install --with-deps chromium
+      - name: Install the pinned Chromium browser and OS dependencies (bounded, retried once)
+        timeout-minutes: 9
+        run: bun scripts/ci-bounded-run.ts --attempt-s 240 --retry-s 10 --hint "an apt mirror or browser CDN stall; this normally takes 15-50s" -- bunx playwright install --with-deps chromium
       - name: Build the shipped admin assets
         run: bun run build:admin
       - name: Exercise owner administration and native OAuth in Chromium
