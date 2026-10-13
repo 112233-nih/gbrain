@@ -302,6 +302,7 @@ function result(cursor: Cursor | CursorHeader, status: SyncResult['status'], rea
     filesImported: cursor.index, bankedFiles: cursor.index,
     managedCursor: { index: cursor.index, total: 'total' in cursor ? cursor.total : cursor.entries.length, ...(cursor.progress ? { progress: cursor.progress } : {}) },
     ...(cursor.uncommitted ? { uncommitted: cursor.uncommitted } : {}), ...(reason ? { reason } : {}),
+    ...(cursor.knockOns ? { knockOns: { refrozen: cursor.knockOns } } : {}),
     ...(cursor.counts.skippedContextualMode || cursor.counts.skippedCanonicalBytes ? { legacySkips: {
       contextualMode: cursor.counts.skippedContextualMode ?? 0, canonicalBytes: cursor.counts.skippedCanonicalBytes ?? 0 } } : {}) };
 }
@@ -724,14 +725,19 @@ async function holdFailedFenceRequest(engine: BrainEngine, cursor: Cursor, key: 
 
 /** #6643: the terminal code of a run that stopped re-freezing knock-ons (per-index limit or per-run breaker). */
 export const KNOCK_ON_EXHAUSTED = 'knock_on_exhausted';
-/** #6643: the most knock-on re-freezes one run makes before it stops with the root cause (a per-run breaker, like `breakerAfter`). */
-export const KNOCK_ON_RUN_LIMIT = 25;
 const CHECKPOINT_REVIVAL_LIMIT = 3;
-/** `sync.knock_on_refreeze_limit`: knock-on re-freezes in a row at one index (default 3; 0 turns automatic re-freeze off). */
-export async function knockOnRefreezeLimit(engine: Pick<BrainEngine, 'getConfig'>): Promise<number> {
-  const raw = (await engine.getConfig('sync.knock_on_refreeze_limit').catch(() => null))?.trim();
-  const parsed = raw ? Number(raw) : NaN;
-  return Number.isInteger(parsed) && parsed >= 0 ? parsed : 3;
+/**
+ * #6643: `sync.knock_on_refreeze_limit`, knock-on re-freezes in a row at one index (default 3; 0 turns automatic
+ * re-freeze off), and `sync.knock_on_run_limit`, the most one run makes before it stops with the root cause (default
+ * 25, a per-run breaker like `breakerAfter`).
+ */
+export async function knockOnLimits(engine: Pick<BrainEngine, 'getConfig'>): Promise<{ perIndex: number; perRun: number }> {
+  const read = async (key: string, fallback: number) => {
+    const raw = (await engine.getConfig(key).catch(() => null))?.trim();
+    const parsed = raw ? Number(raw) : NaN;
+    return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
+  };
+  return { perIndex: await read('sync.knock_on_refreeze_limit', 3), perRun: await read('sync.knock_on_run_limit', 25) };
 }
 
 type SettleInput = Parameters<typeof settleFailedRequest>[1];
@@ -741,17 +747,17 @@ type SettleInput = Parameters<typeof settleFailedRequest>[1];
  * is re-frozen under a fresh request, whatever the hold policy, the source kind or `--retry-failed`: a knock-on never
  * published anything, so it is not a failure of its page. The re-freeze goes through the narrowed gate
  * (`holdUnderGate`), which settles the run's suffix under the cursor fence and records every stale receipt at the
- * index as superseded. Bounded per index (`sync.knock_on_refreeze_limit`) and per run (`KNOCK_ON_RUN_LIMIT`).
+ * index as superseded. Bounded per index (`sync.knock_on_refreeze_limit`) and per run (`sync.knock_on_run_limit`).
  */
-async function recoverKnockOn(engine: BrainEngine, input: SettleInput): Promise<null | 'pending' | { cursor: Cursor } | { exhausted: { attempts: number; limit: number; runCount: number } }> {
+async function recoverKnockOn(engine: BrainEngine, input: SettleInput): Promise<null | 'pending' | { cursor: Cursor } | { exhausted: { attempts: number; limit: number; runCount: number; runLimit: number } }> {
   const { cursor, key, pending, done, assertActive } = input;
   if (pending.intent.kind === 'managed_sync_checkpoint' || !isSyncKnockOn(done)) return null;
   const entry = cursor.entries[cursor.index];
   if (!entry || entry.path !== pending.intent.path) return null;
-  const limit = await knockOnRefreezeLimit(engine);
-  if (limit === 0) return null;
+  const limits = await knockOnLimits(engine);
+  if (limits.perIndex === 0) return null;
   const attempts = pending.knockOn?.attempts ?? 0, runCount = cursor.knockOns ?? 0;
-  if (attempts >= limit || runCount >= KNOCK_ON_RUN_LIMIT) return { exhausted: { attempts, limit, runCount } };
+  if (attempts >= limits.perIndex || runCount >= limits.perRun) return { exhausted: { attempts, limit: limits.perIndex, runCount, runLimit: limits.perRun } };
   const base: Cursor = { ...cursor }; delete base.pending; delete base.group; delete base.window;
   const refrozen = await freezeEntry(engine, base, key, assertActive, input.run);
   assertActive();
@@ -836,7 +842,7 @@ async function settleFailedRequest(engine: BrainEngine, input: { cursor: Cursor;
   const exhausted = knockOn && 'exhausted' in knockOn ? knockOn.exhausted : null;
   const { failure, ledgerRecorded } = await recordManagedSyncFailure(engine, { source_id: cursor.sourceId, source_incarnation: cursor.incarnation, path: pending.intent.path ?? '<checkpoint>',
     code: exhausted ? KNOCK_ON_EXHAUSTED : done.error_code ?? (done.state === 'cancelled' ? 'cancelled' : 'storage_error'),
-    message: exhausted ? `This page was re-frozen ${exhausted.attempts} time(s) at the same index (limit ${exhausted.limit}), or this run re-froze ${exhausted.runCount} knock-on page(s) (limit ${KNOCK_ON_RUN_LIMIT}), and an earlier page of the same sync still did not commit; the run stopped instead of re-freezing again.`
+    message: exhausted ? `This page was re-frozen ${exhausted.attempts} time(s) at the same index (sync.knock_on_refreeze_limit ${exhausted.limit}), or this run re-froze ${exhausted.runCount} knock-on page(s) (sync.knock_on_run_limit ${exhausted.runLimit}), and an earlier page of the same sync still did not commit; the run stopped instead of re-freezing again.`
       : done.error_message ?? 'The accepted sync request did not commit.',
     ...(rootCause ? { root_cause: rootCause } : {}),
     request_id: pending.requestId, run_id: cursor.runId, target: cursor.target, cursor_key: key,

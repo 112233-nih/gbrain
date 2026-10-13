@@ -7,6 +7,7 @@ import type { GBrainConfig } from '../config.ts';
 import type { Page } from '../types.ts';
 import { OperationError, opError, type OpErrorOpts } from '../ops/contract.ts';
 import type { Action } from '../agent-output.ts';
+import { readFix } from '../ops/op-fix.ts';
 import type { RegistryCode } from '../error-registry.ts';
 import { ownerGateInput, ownerImportTrust } from '../trust/channel.ts';
 import { importFromContent, importCodeFile, verifyPageReadable } from '../import-file.ts';
@@ -127,7 +128,7 @@ async function sourceSyncChecks(tx: BrainEngine, row: WriteRequest, p: SyncInten
     },
     () => readSyncCursorFence(tx, p.cursorKey),
     async () => {
-      if (after && !await windowPredecessorAllows(tx, row)) throw withSyncRefusal(syncPublicationRefusal('revision_conflict', EARLIER_PAGE_REFUSAL_MESSAGE, row, p,
+      if (after && !await windowPredecessorAllows(tx, row)) throw withSyncRefusal(knockOnRefusal(EARLIER_PAGE_REFUSAL_MESSAGE, row,
         `Request ${row.request_id} was admitted ahead of request ${after} of the same sync run, which did not commit, so this page must not publish after it.`), knockOnDetail('window_predecessor', after));
     },
     async () => {
@@ -162,6 +163,17 @@ function syncPublicationRefusal(code: RegistryCode, message: string, row: WriteR
     + `Once it is final and the cause is fixed, run: ${rerun}`, { fix, ...extra });
 }
 
+/**
+ * #6643: a refusal that is not a failure of its page (a knock-on, or a request whose run another run replaced). Its
+ * next step is the status read, never a `--retry-failed` rerun: the next sync pass re-freezes the entry by itself.
+ */
+function knockOnRefusal(message: string, row: WriteRequest, cause: string): OperationError {
+  const status = ['gbrain', 'sync', 'status', '--source', row.source_id, '--json'];
+  return opError('revision_conflict', message, `${cause} Request ${row.request_id} in ${row.source_id} published nothing, and the next sync pass re-freezes its page by itself; `
+    + `${status.join(' ')} names the request it waited on (root_cause). Do not resubmit it.`,
+    { fix: readFix('Shows the sync cursor, the root cause of this refusal and the next step, read-only.', { argv: status }) });
+}
+
 /** #6643: attaches the owner-side classification the coordinator stores as the receipt's `error_detail`. */
 function withSyncRefusal(error: OperationError, detail: object): OperationError {
   error.syncRefusal = { ...detail };
@@ -181,7 +193,8 @@ function cursorFenceRefusal(row: WriteRequest, p: SyncIntent, cursor: SyncCursor
   const cause = cursor.run_id !== p.runId ? 'run_replaced'
     : p.kind !== 'managed_sync_checkpoint' && cursorIndex !== null && Number.isFinite(cursorIndex) && p.index > cursorIndex ? 'window_dropped' : 'outside_fence';
   const fence = { run_id: cursor.run_id, expected_run_id: p.runId, request_id: cursor.request_id, members: cursor.group?.length ?? 0, index: cursorIndex, request_index: p.index };
-  const error = syncPublicationRefusal('revision_conflict', CURSOR_CHANGED_REFUSAL_MESSAGE, row, p,
+  const error = (cause === 'outside_fence' ? (why: string) => syncPublicationRefusal('revision_conflict', CURSOR_CHANGED_REFUSAL_MESSAGE, row, p, why)
+    : (why: string) => knockOnRefusal(CURSOR_CHANGED_REFUSAL_MESSAGE, row, why))(
     cause === 'run_replaced' ? `Another sync run of ${row.source_id} replaced the cursor this request belongs to.`
       : cause === 'window_dropped' ? `Request ${row.request_id} was admitted ahead of the cursor of ${row.source_id}, which dropped it after an earlier page of the same run did not commit.`
         : `Request ${row.request_id} is not the entry the cursor of ${row.source_id} holds (cursor at index ${cursorIndex ?? 'unknown'}, request ${cursor.request_id ?? 'none'}), so it must not publish.`);
@@ -450,7 +463,7 @@ export async function prepareManagedSyncMutation(unbounded: BrainEngine, row: Wr
       () => validateSyncAuthority(tx, p.syncAuthority, row.slug),
       async () => {
         const failed = await earlierGroupMemberFailed(tx, row);
-        if (failed) throw withSyncRefusal(syncPublicationRefusal('revision_conflict', EARLIER_PAGE_REFUSAL_MESSAGE, row, p,
+        if (failed) throw withSyncRefusal(knockOnRefusal(EARLIER_PAGE_REFUSAL_MESSAGE, row,
           `Request ${row.request_id} follows a page of the same bulk group that did not commit, so this page must not publish after it.`), knockOnDetail('group_member', failed));
       },
       async () => {

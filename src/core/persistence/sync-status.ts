@@ -62,6 +62,8 @@ export interface SyncStatusError extends SyncFaultVerdict {
   phase: ManagedSyncFailure['phase'];
   first_seen: string;
   attempts: number;
+  /** #6643: what caused this failure (a knock-on's root request, or the receipt blocking a checkpoint). */
+  root_cause?: ManagedSyncFailure['root_cause'];
 }
 
 export interface SyncStatus {
@@ -79,6 +81,8 @@ export interface SyncStatus {
   human_reason?: string;
   /** The resume arguments after `gbrain sync` for this source's cursor (its stored options when one exists). */
   resume_argv: string[];
+  /** #6643: every managed-sync cursor of the source under its current incarnation, newest first (at most 20). */
+  cursors: SyncStatusCursor[];
   next: Action | null;
 }
 
@@ -140,13 +144,19 @@ export async function readSyncStatus(engine: BrainEngine, sourceId: string): Pro
   const failures = (await readManagedSyncFailures(engine, [sourceId])).filter(failure => failure.code !== 'sync_incomplete');
   const failure = failures[0];
   const reason = typeof failure?.write_error_detail?.reason === 'string' ? failure.write_error_detail.reason : null;
-  const laneFault = (failure?.code === 'cancelled' ? laneFaultInMessage(failure.message) : null) ?? reason;
+  // #6643: a stop the run itself declared, then the root's recorded cause, then a knock-on, then the lane fault or reason.
+  const rootCause = failure?.root_cause;
+  const laneFault = failure?.code === 'knock_on_exhausted' ? null
+    : (rootCause?.cause === 'outside_fence' || rootCause?.cause === 'run_replaced' ? rootCause.cause : null)
+      ?? (rootCause && failure && ['cancelled', 'revision_conflict'].includes(failure.code) ? 'knock_on' : null)
+      ?? (failure?.code === 'cancelled' ? laneFaultInMessage(failure.message) : null) ?? reason;
   const retired = failure || header ? null : await retiredCursorStands(engine, sourceId, source.incarnation);
   const repairPreview: Action = { argv: ['gbrain', 'repair', 'managed-sync-orphans', '--source', sourceId], consent: [], actor: 'agent', requires_exclusive: false,
     why: 'Previews the sync bookkeeping nothing current can resume or clear (an old incarnation\'s cursor and failure rows, stale mirror rows) with the hash its --apply takes; writes nothing.' };
   const lastError: SyncStatusError | null = failure ? { code: failure.code, ...(laneFault ? { detail: laneFault } : {}), message: failure.message, ...(failure.write_error_detail ? { write_error_detail: failure.write_error_detail } : {}),
     path: failure.path, phase: failure.phase, first_seen: failure.first_seen, attempts: failure.attempts,
-    ...(failure.request_id ? { request_id: failure.request_id } : {}), ...classifySyncFault({ code: failure.code, detail: laneFault, message: failure.message }) }
+    ...(failure.request_id ? { request_id: failure.request_id } : {}), ...(rootCause ? { root_cause: rootCause } : {}),
+    ...classifySyncFault({ code: failure.code, detail: laneFault, message: failure.message }) }
     : retired ? { code: 'cursor_incarnation_retired', message: `An unfinished sync cursor of ${sourceId} was recorded under an incarnation the source no longer has; no current sync selects it, and it says nothing about whether the current files are imported. `
       + `Retire it with ${repairPreview.argv!.join(' ')} (preview, then --apply with the printed hash).`, phase: 'resume', first_seen: retired.first_seen, attempts: 1, ...classifySyncFault({ code: 'cursor_incarnation_retired' }) } : null;
   const unfinished = !!header && !header.done;
@@ -155,6 +165,8 @@ export async function readSyncStatus(engine: BrainEngine, sourceId: string): Pro
   const estimate = unfinished && p ? drainEstimate(remaining, p.lastIndex - p.startIndex, p.lastAt - p.startedAt) : { rate_pages_per_min: null, eta_seconds: null };
   const resume = managedSyncResumeArgs({ sourceId, processingOptions: header?.processingOptions, syncOptions: header?.syncOptions });
   const human = holds.find(hold => hold.needs_human) ?? (lastError?.needs_human ? lastError : undefined);
+  // #6643: a knock-on or a superseded run needs no --retry-failed: the plain sync re-freezes the entry.
+  const selfHealing = lastError?.detail === 'knock_on' || lastError?.detail === 'run_replaced';
   const actionable = holds.filter(hold => !hold.needs_human && hold.safe_actions[0] !== 'none');
   const verify = { argv: ['gbrain', 'sync', 'status', '--source', sourceId, '--json'] };
   const next: Action | null = human
@@ -167,14 +179,40 @@ export async function readSyncStatus(engine: BrainEngine, sourceId: string): Pro
           + ' and names the sync to run; it refuses the rest by name and drops nothing.' }
       : retired ? { ...repairPreview, verify }
       : unfinished || lastError
-        ? { argv: ['gbrain', 'sync', ...resume, ...(lastError ? ['--retry-failed'] : [])], consent: [], actor: 'agent', requires_exclusive: false, verify,
-          why: lastError ? `The last run recorded ${lastError.code} (${lastError.class}); this release holds or retries it, and --retry-failed converts the stopped entry in place without re-freezing the manifest.`
+        ? { argv: ['gbrain', 'sync', ...resume, ...(lastError && !selfHealing ? ['--retry-failed'] : [])], consent: [], actor: 'agent', requires_exclusive: false, verify,
+          why: lastError && selfHealing ? `The last run stopped on a page that only waited on another page of the same sync (${lastError.detail}); the same sync re-freezes it by itself${lastError.root_cause?.request_id ? `, and request ${lastError.root_cause.request_id} is what it waited on` : ''}.`
+            : lastError ? `The last run recorded ${lastError.code} (${lastError.class}); this release holds or retries it, and --retry-failed converts the stopped entry in place without re-freezing the manifest.`
             : `The cursor stands at ${header!.index}/${header!.total}; the same command resumes it against the frozen manifest.` }
         : null;
   return { source_id: sourceId, run_id: header?.runId ?? null,
     cursor: header ? { index: Number(header.index), total: Number(header.total), pinned_target: header.target ?? null, last_advance_at: p ? new Date(p.lastAt).toISOString() : null, done: !!header.done } : null,
     committed_last_10m: Number(committed?.n ?? 0), ...estimate, holds, last_error: lastError, needs_human: !!human, ...(human ? { human_reason: human.human_reason } : {}),
-    resume_argv: resume, next };
+    resume_argv: resume, cursors: await liveCursors(engine, sourceId, source.incarnation, header?.runId ?? null), next };
+}
+
+/** #6643: one managed-sync cursor of the source (the cursor key digests the writer principal, authority and options, so a source can have several). */
+export interface SyncStatusCursor {
+  key_prefix: string; run_id: string; index: number; total: number; done: boolean;
+  /** The principal whose syncs select this cursor (with matching options). */
+  writer: { kind: string; id: string } | null;
+  pending: { request_id: string; kind: string | null; state: string | null } | null;
+  updated_at: string;
+  /** The cursor the top-level `cursor`, `run_id` and `next` describe (the newest of the current incarnation). */
+  shown: boolean;
+  resume_argv: string[];
+}
+
+async function liveCursors(engine: BrainEngine, sourceId: string, incarnation: string, shownRun: string | null): Promise<SyncStatusCursor[]> {
+  const rows = await engine.executeRaw<{ fingerprint: string; header: CursorHeader & { authority?: { writer?: { principal?: { kind: string; id: string } } }; pending?: { requestId?: string; intent?: { kind?: string } } };
+    updated_at: string; state: string | null }>(
+    `SELECT c.fingerprint, c.completed_keys->0 AS header, to_char(c.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at, r.state
+       FROM op_checkpoints c LEFT JOIN persistence_requests r ON r.source_id=$1 AND r.request_id::text=c.completed_keys->0->'pending'->>'requestId'
+      WHERE c.op='managed-sync' AND c.completed_keys->0->>'sourceId'=$1 AND c.completed_keys->0->>'incarnation'=$2 ORDER BY c.updated_at DESC LIMIT 20`, [sourceId, incarnation]);
+  return rows.map(row => ({ key_prefix: row.fingerprint.slice(0, 12), run_id: row.header.runId, index: Number(row.header.index), total: Number(row.header.total), done: !!row.header.done,
+    writer: row.header.authority?.writer?.principal ?? null,
+    pending: row.header.pending?.requestId ? { request_id: row.header.pending.requestId, kind: row.header.pending.intent?.kind ?? null, state: row.state } : null,
+    updated_at: row.updated_at, shown: row.header.runId === shownRun,
+    resume_argv: managedSyncResumeArgs({ sourceId, processingOptions: row.header.processingOptions, syncOptions: row.header.syncOptions }) }));
 }
 
 /** #6377: what the content-repair lane did to one held path during `unblock --apply`; codes, tiers and hashes only. */
