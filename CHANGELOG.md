@@ -20,6 +20,17 @@ identifiers and attribution are available in the pre-removal Git revision
 - **Flake fix: `test/persistence-git-coalescing-5530.slow.test.ts` reads the writer-busy request after the consumer lets it go, not at the end of its 1.5 s wait (GBRA-87, from #6653).** The case holds the worktree lock, submits a put_page with `waitMs: 1500`, and read the request row as soon as that wait ended; on a loaded runner the consumer claimed the write late, so the read landed while the write was still in flight (`running`, phase `preparing` before #6628's claim stamp and `publishing` after it, as #6641's gate saw 15 ms after the claim), while the write itself still ended `queued` / `writer_busy` with no claim phase. The test now polls the row (50 ms steps, at most 30 s) until it leaves `running`, then makes the same assertion; `waitMs` and the expected row are unchanged. Forced probe on PGLite: a 2 s stall at `consumer:preparing`, at `consumer:prepared`, or right after the publishing claim stamp fails the old read and passes the new one; the Postgres arm passed 3 of 3.
 - **Diagnostic: `test/cli-exit-drain.test.ts` failure messages carry each stream's end state and event order.** One run (38352625321) read 0 of 100 stdout bytes while the exit code and the sibling cases were fine, and the message could not tell a stream closed under its reader from one that ended cleanly empty; it now records `readableEnded`/`destroyed`/`errored` for both streams and the order of `end`, `close` and `exit` events. No assertion changed; the three cases still assert the same bytes.
 
+## [0.60.213.0] - 2026-10-13
+
+**`gbrain eval longmemeval --call-plan FILE` prices a paid LongMemEval run before it runs.** It writes the run's call plan in gstack's `GSTACK_EVAL_CALLS` v1 format: one line per paid lane (embeddings, rerank, trajectory extraction, per-chunk synopsis, fact keys, expansion, reader, judge) with its model, call count and token bounds. It makes no provider call and opens no brain. `gstack-eval-plan price-gate --plan-file FILE` then prices it against a cap, so a run like tokenmax's per-chunk synopses on about 100k chunks is priced before approval, not discovered in a smoke run.
+
+### Itemized changes
+
+- **Counts:** trajectory extraction and synopsis calls are exact. Haystacks are chunked offline with the import's own functions, and on the mini fixture the plan matches a real run at 13 of 13 calls each. Reader, rerank and judge inputs are upper bounds. Input tokens use one conservative rule, `ceil(chars / 3)`, and output tokens are each call's cap times its calls, so the price is a ceiling.
+- **Binding:** the plan names the exact gate command (`--call-plan-gate` overrides it), the commit, and each tracked input's sha256. An outside dataset is named by its sha256 and basename only.
+- **Preconditions** name each lane's model source and env vars (set or unset, never values), the spend caps, and that caches and retries are not counted.
+- **Refusals:** a lane the planner can't bound refuses with exit 1 and writes nothing: `--decide`, `--via-operation`, cross-modal LLM intent, or an expansion model other than claude-haiku-4-5.
+
 ## [0.60.212.0] - 2026-10-13
 
 **CI test shards are packed from fresh timings again.** CI splits each test lane across several machines using the recorded run time of every test file. Test files added since the last refresh had no recorded time, so shards were packed from guesses for them. This release re-measures all three lanes from green master runs. No product behaviour changes.
