@@ -788,13 +788,10 @@ async function recoverKnockOn(engine: BrainEngine, input: SettleInput): Promise<
 
 /** #6643: checkpoint revivals per sync invocation (keyed by its run options object), so a refusal loop ends the invocation, never the cursor. */
 const checkpointRevivalsByRun = new WeakMap<object, number>();
-const NOT_FULLY_COMMITTED_MESSAGE = 'The sync cursor is not fully committed.';
-const revivableCheckpointRefusal = (done: Pick<WriteRequest, 'state' | 'error_code' | 'error_message' | 'recovery'>) => !done.recovery
-  && ((done.state === 'failed' && done.error_code === 'recovery_required')
-    || (['failed', 'conflict'].includes(done.state) && done.error_code === 'revision_conflict' && done.error_message === NOT_FULLY_COMMITTED_MESSAGE));
+/** A same-run index lag ("The sync cursor is not fully committed.") stays a recorded failure (managed-sync-checkpoint-replaced.test.ts pins it). */
+const revivableCheckpointRefusal = (done: Pick<WriteRequest, 'state' | 'error_code' | 'recovery'>) => !done.recovery && done.state === 'failed' && done.error_code === 'recovery_required';
 /**
- * #6643: a checkpoint refused because a receipt blocked it (`recovery_required`) or because the cursor had not reached
- * its end yet ("not fully committed") is re-assessed whenever the run resumes: when nothing blocks it any more (a
+ * #6643: a checkpoint refused because a receipt blocked it (`recovery_required`) is re-assessed whenever the run resumes: when nothing blocks it any more (a
  * knock-on, a receipt at an index the cursor settled), a fresh checkpoint request replaces it by cursor swap, and its
  * publication validates everything again. The completed manifest and the old receipt stay as they are. Null when it
  * still blocks, or after `CHECKPOINT_REVIVAL_LIMIT` revivals in this invocation (the next invocation re-assesses).
