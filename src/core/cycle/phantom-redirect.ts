@@ -85,6 +85,8 @@ export interface PhantomPassResult {
   skipped_drift: number;
   no_canonical: number;
   not_phantom: number;
+  /** #6650: phantoms held this pass because they still own legacy (unfenced) fact rows. */
+  held_legacy_rows: number;
   /** True iff the pass was skipped wholesale because the writer lock was busy. */
   lock_busy: boolean;
   /** True iff more phantoms exist than the per-cycle cap — caller surfaces to operator. */
@@ -119,6 +121,7 @@ export function emptyPhantomPassResult(): PhantomPassResult {
     skipped_drift: 0,
     no_canonical: 0,
     not_phantom: 0,
+    held_legacy_rows: 0,
     lock_busy: false,
     more_pending: false,
     touched_canonicals: [],
@@ -659,6 +662,7 @@ export async function runPhantomRedirectPass(
   sourceId: string,
   dryRun: boolean,
   signal?: AbortSignal,
+  holdSlugs: ReadonlySet<string> = new Set(),
 ): Promise<PhantomPassResult> {
   const result = emptyPhantomPassResult();
   const limitRaw = process.env.GBRAIN_PHANTOM_REDIRECT_LIMIT;
@@ -698,6 +702,10 @@ export async function runPhantomRedirectPass(
       // #1972: bail between phantoms on abort (each is independently committed).
       if (isAborted(signal)) break;
       const slug = rows[i].slug;
+      // #6650: a phantom that still owns legacy (unfenced) fact rows is held:
+      // the redirect moves rows by fence position and would strand them on
+      // the deleted phantom. Every other phantom of the source proceeds.
+      if (holdSlugs.has(slug)) { result.held_legacy_rows += 1; continue; }
       const page = await engine.getPage(slug, { sourceId });
       if (!page) continue;
       result.scanned += 1;

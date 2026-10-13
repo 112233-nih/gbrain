@@ -847,7 +847,7 @@ export async function runExtractFacts(
         : 'could not be fenced this run, so those pages keep their fact index and skip reconciliation while the other pages reconcile. ' +
           'The FACTS_FENCE_FAILED warnings name each page and why; ' +
           'a page whose canonical file does not exist on this host is fenced by the cycle on the host that holds the file; ' +
-          'a row the fence codec cannot render stays active and searchable (doctor fence_integrity lists it); the phantom-redirect pass waits until the source has no unfenced rows. ' +
+          'a row the fence codec cannot render stays active and searchable (doctor fence_integrity lists it); the phantom-redirect pass holds only the phantoms that own such rows. ' +
           'Individual rows can instead be drained via `forget_fact`.'),
     );
     // #3683: a guard-triggered run books its halt here for doctor
@@ -875,10 +875,11 @@ export async function runExtractFacts(
   // IS NOT NULL` so a half-redirected page (soft-deleted, .md still on
   // disk) won't be re-redirected.
   // #6278: the pass moves rows by their fence position and would strand a
-  // legacy row (no position) on a deleted phantom, so it still waits for the
-  // whole source to be fenced; the reconcile walk below is per page.
+  // legacy row (no position) on a deleted phantom. #6650: only the phantoms
+  // that own legacy rows are held, so one unadoptable row no longer stops
+  // the pass for the whole source.
   let phantomResult: PhantomPassResult = emptyPhantomPassResult();
-  if (opts.brainDir && legacyCount === 0) {
+  if (opts.brainDir) {
     try {
       phantomResult = await runPhantomRedirectPass(
         engine,
@@ -886,6 +887,7 @@ export async function runExtractFacts(
         sourceId,
         opts.dryRun ?? false,
         opts.signal,
+        legacySlugs,
       );
     } catch (e) {
       // The pass owns its own per-phantom try/catch; reaching this catch
