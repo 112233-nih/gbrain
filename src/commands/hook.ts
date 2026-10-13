@@ -1131,7 +1131,7 @@ async function hookUserPrompt(io: HookIo): Promise<number> {
     let priorContextText: string | undefined;
     let transcriptPath: string | undefined;
     if (j.transcript_path !== undefined && j.transcript_path !== null) {
-      const conf = confineTranscriptPath(j.transcript_path, {
+      const conf = captureSpecFor(io.harness).confine(j.transcript_path, { // #5941: codex rollouts live under CODEX_HOME/sessions
         ...(io.transcriptRoot ? { root: io.transcriptRoot } : {}),
         // #5701: bounded tail read below — the 50MiB whole-file gate must not
         // reject a long session before it runs (full rationale in
@@ -1141,7 +1141,7 @@ async function hookUserPrompt(io: HookIo): Promise<number> {
       if (!conf.ok) return { outcome: 'degraded', reason: `transcript_${conf.reason}` };
       transcriptPath = conf.path;
       try {
-        const parsed = parseTranscript(conf.path, { maxBytes: USER_PROMPT_TRANSCRIPT_MAX_BYTES });
+        const parsed = captureSpecFor(io.harness).parse(conf.path, { maxBytes: USER_PROMPT_TRANSCRIPT_MAX_BYTES });
         turns = parsed.turns.slice(-USER_PROMPT_WINDOW_TURNS);
         // Cross-turn dedupe: feed the blocks WE previously injected this
         // session back as priorContextText (slug-only suppression + volunteer
@@ -1217,7 +1217,7 @@ async function hookUserPrompt(io: HookIo): Promise<number> {
       return { outcome: 'degraded', reason: reasonCode(resp.error ?? 'server_error'), turns: turns.length };
     }
     // Context-pressure notice (pressure.ts) leads the block so the cap loop never trims it.
-    const pressure = transcriptPath ? claudeCodePressure(resp.block?.pressure, transcriptPath, sessionId) : null;
+    const pressure = transcriptPath && io.harness !== 'codex' ? claudeCodePressure(resp.block?.pressure, transcriptPath, sessionId) : null;
     const text = [pressure?.notice, resp.block?.text].filter(Boolean).join('\n\n');
     if (!text) return { outcome: 'ok', reason: 'empty_block', turns: turns.length };
 
