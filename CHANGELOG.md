@@ -10,16 +10,16 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
-## [Unreleased]
+## [0.60.213.0] - 2026-10-13
 
-**`search` and `query` start the query embed (and `query`'s expansion) alongside the keyword arms instead of after them, so a search no longer waits for both one after the other.** On a 20,000-page Postgres brain with Voyage embeddings and reranking, the median warm `search` dropped from 578 ms to 424 ms and `query` from 578 ms to 448 ms (two rounds of 40 unique questions each); on a 400-page PGLite brain the saving is the keyword arms' 13 to 15 ms. Results are unchanged.
+**`gbrain eval longmemeval --call-plan FILE` prices a paid LongMemEval run before it runs.** It writes the run's call plan in gstack's `GSTACK_EVAL_CALLS` v1 format: one line per paid lane (embeddings, rerank, trajectory extraction, per-chunk synopsis, fact keys, expansion, reader, judge) with its model, call count and token bounds. It makes no provider call and opens no brain. `gstack-eval-plan price-gate --plan-file FILE` then prices it against a cap, so a run like tokenmax's per-chunk synopses on about 100k chunks is priced before approval, not discovered in a smoke run.
 
 ### Itemized changes
 
-- **Vector side runs alongside the lexical arms** (`src/core/search/hybrid.ts`, `src/core/search/hybrid/arms.ts`): after the keyword-only gate, `startVectorSide` begins modality resolution, expansion, the query embeds and the vector searches, then the keyword, title and relational arms run as before, and `joinVectorSide` waits for the vector side. That side reads nothing the lexical and relational arms produce. Its `degraded[]` stamps (vector-pool exhaustion included) go to their own list and are appended after the lexical ones, so the order matches a sequential run. A keyword-only search (no embedding provider, embeddings opted out, System One keyword-only) starts no vector work. When the lexical arms throw, the vector side is allowed to settle before the error is rethrown.
-- **Timings** (`src/core/search/stage-timings.ts`): `StageTimer` gains `branch()` and `join()`. The part of `expansion`, `embed` and `vector` that finished while the lexical arms ran is now listed in `overlapped_ms` under the stage's name; `stages_ms` keeps the part the request waited for (the stage key is present even at 0). `sum(stages_ms) + other_ms = total_ms` still holds.
-- **Parity:** the refactor-wave-1 bench result digests match master on PGLite and on Postgres (400 pages each). With stub embedder and reranker on one retained 20,000-page Postgres brain, all 80 result lists match master's. At 4,000 fresh-imported Postgres pages master's own digests differ run to run (the HNSW index is rebuilt on each import), so that size is not a parity check.
-- **Tests:** a fail-first probe in `test/search/stage-timings-ops.test.ts` with a 300 ms embed and 300 ms lexical arms (632 ms on the old flow, under 550 ms now), a degraded-order case where the embed fails before the keyword arm, and branch/join accounting cases in `test/search/stage-timings.test.ts`.
+- **Counts:** trajectory extraction and synopsis calls are exact. Haystacks are chunked offline with the import's own functions, and on the mini fixture the plan matches a real run at 13 of 13 calls each. Reader, rerank and judge inputs are upper bounds. Input tokens use one conservative rule, `ceil(chars / 3)`, and output tokens are each call's cap times its calls, so the price is a ceiling.
+- **Binding:** the plan names the exact gate command (`--call-plan-gate` overrides it), the commit, and each tracked input's sha256. An outside dataset is named by its sha256 and basename only.
+- **Preconditions** name each lane's model source and env vars (set or unset, never values), the spend caps, and that caches and retries are not counted.
+- **Refusals:** a lane the planner can't bound refuses with exit 1 and writes nothing: `--decide`, `--via-operation`, cross-modal LLM intent, or an expansion model other than claude-haiku-4-5.
 
 ## [0.60.212.0] - 2026-10-13
 
