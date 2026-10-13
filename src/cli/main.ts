@@ -1772,7 +1772,7 @@ export function formatResult(
     // flag, so the argv probe is safe).
     case 'remember': {
       if (process.argv.includes('--json')) break;
-      return formatRememberResult(result as Record<string, any>);
+      return formatRememberResult(result as Record<string, any>, params);
     }
     case 'entity': {
       if (process.argv.includes('--json')) break;
