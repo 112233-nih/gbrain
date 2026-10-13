@@ -10,6 +10,14 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [Unreleased]
+
+**A long-running PGLite process picks up fresh planner statistics instead of keeping the plans it made before them.** PGLite has no autovacuum, so a freshly imported brain has no statistics until planner-stats' first-read refresh runs `ANALYZE`. But gbrain's PGLite statement cache keeps named prepared statements, and PostgreSQL keeps a prepared statement's plan across `ANALYZE`, so every statement prepared before the refresh kept its no-statistics plan for the life of the process (a `gbrain serve`, an agent session, a script). On a 55,838-page brain imported without statistics, `entity names` with 50 names stayed at 3.4 to 3.7 s for every call after the refresh. With this fix the calls after the first take 1.2 to 1.5 s, the same as a freshly started process.
+
+### Itemized changes
+
+- **`ANALYZE` and `VACUUM` clear the PGLite statement cache** (`src/core/pglite-statements.ts`), like DDL already did, so the next call re-prepares and plans with the new statistics. This covers planner-stats' refreshes, `gbrain repair planner-stats`, projection statistics and the persistence journal's `VACUUM (ANALYZE)`. Postgres is unchanged. `test/pglite-statements.test.ts` checks that a statement prepared before `ANALYZE` is re-prepared after it; the check fails without the fix.
+
 ## [0.60.190.0] - 2026-10-13
 
 **No Postgres statement outlives its budget now, a stalled managed sync says what is blocking it, and doctor stops misleading on managed and image-heavy brains (#6543, part 2).** v0.60.187.0 stopped the Supavisor wedge itself. This release closes the gaps the reporter hit around it. A statement that kept receiving bytes was never retired, so `/health?deep=1` stayed red forever. A sync stalled 300-600 s with "claimable here: no" no matter the cause. `repair failed-writes --apply` stopped at every pending write. Doctor recommended a `--retry-failed` that did nothing on a managed brain, and reported existing images as missing when only their letter case differed.
