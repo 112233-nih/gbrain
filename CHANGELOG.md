@@ -10,6 +10,16 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [0.60.204.0] - 2026-10-13
+
+**`recall` takes `since: "6 weeks ago"` or `"last month"`, and ranks expired facts for a `question` when you pass `include_expired: true`. Both used to be refused.**
+
+### Itemized changes
+
+- `since` on `recall` (MCP and `gbrain recall --since`) falls back to relative phrases after its existing grammar: `"N weeks|months|years ago"`, `"a week ago"`, `"an hour ago"`, compact `"3w"`, `"2mo"`, `"1y"`, and `"last month"`, `"past 2 weeks"`, `"the last 6 weeks"`. Months and years step the UTC calendar and clamp the day. Every value that parsed before gives the same instant (`src/core/facts/since-parse.ts`). In the dev-only A12 agent smoke, an agent's `since: "6 weeks ago"` was refused and it fell back to a less precise call.
+- `question` with `include_expired: true` ranks expired, superseded and lapsed facts alongside active ones, under the same read policy and filters, instead of returning `invalid_params`. Each row keeps its `expired_at` and `valid_until`. Without `include_expired`, ranking covers active facts only, as before. `question` with `supersessions` is still refused.
+- `include_expired`'s description now reads "Also expired; question ranks them." To stay inside recall's schema budget, three other strings on recall got shorter, with the same meaning. No parameter was added, renamed, retyped or made required.
+
 ## [0.60.203.0] - 2026-10-13
 
 **`gbrain setup claude-code` and `gbrain setup codex` no longer end the install on a question: the first-run settings are relayed as settings in effect in the reply that reports the install.** The wave 2 Cat 41 setup run (gbrain-evals v0.10.80) missed its 60 s wired-recall target at 83.8 s because each install session wired gbrain and then asked about search mode or automatic saving; the reply session cost 13 to 33 s while the agent applied a setting the fresh session did not need. Setup had passed `gbrain init`'s standalone output through unchanged: the search-mode "ask which mode they want" banner, a stale `harness_wiring` decision, "Reply 'defaults' to keep the recommended settings" and a `claude mcp add` quickstart for a step setup had just done. The user still sees the search-mode cost matrix and still chooses; only when and how it is asked changed. No setting, default, CLI flag or MCP schema changed.
