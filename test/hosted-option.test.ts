@@ -38,7 +38,7 @@ describe('hosted_option notice', () => {
   });
 
   test('the registry row matches the builder kind, so the code is muteable', () => {
-    expect(NOTICE_CODES.hosted_option.kind).toBe(hostedOptionNotice('setup', new Set())!.kind);
+    expect(hostedOptionNotice('setup', new Set())!.kind).toBe(NOTICE_CODES.hosted_option.kind);
     expect(MUTEABLE_NOTICE_CODES).toContain('hosted_option');
   });
 
