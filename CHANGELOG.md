@@ -10,6 +10,14 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [0.60.207.0] - 2026-10-13
+
+**The claim root probe's buffer test no longer depends on how random worktree ids happen to sort.** `test/e2e/claim-earlier-equivalence.test.ts` checks that the indexed root probe reads fewer than 0.85× the buffers of the former COALESCE key. Its fixture queued each worktree's rows as one contiguous block. The former key's scan of the pending index `(worktree_id, sequence)` can only use `sequence` as an index condition, so it skipped every root whose rows all came after the candidate. When the random ids sorted in reverse insert order, the former key read 1388 buffers against the current probe's 1309 (ratio 0.943) and the test failed. It failed in #6613's CI at 1308 against `< 1205.3`.
+
+### Itemized changes
+
+- `explainEarlierProbe` (`test/helpers/claim-earlier-fixture.ts`) now queues rows round-robin across the worktrees, the way worktrees syncing at the same time queue them. Every root ahead of the candidate in id order then holds earlier rows, which is the "walks every root's pending rows" case the 6.1 → 1.4 ms claim describes. The threshold and the assertions are unchanged. Forced probe on pg16 and pg17: before, the ratio was 0.576 with ids in insert order, 0.943 reversed and 0.55–0.76 random; after, it is 0.241, 0.248 and 0.243–0.246 over 20 random runs. No product code changed.
+
 ## [0.60.206.0] - 2026-10-13
 
 **CI's Playwright browser install stops on a real stall, finishes a slow download instead of restarting it, and usually skips the CDN.** On master .204 and .205, the `admin-browser` job was cancelled at its 12-minute job timeout. `bunx playwright install --with-deps chromium` crawled through the Chrome download, which Playwright's CDN was serving at about 250 KB/s. A plain per-attempt cap doesn't fix that. The first version of this PR used a 240 s cap and failed on its own CI: the download was still moving (10%, then 30%), and Playwright doesn't resume downloads, so each retry started over from 0%. The second version failed too: its single attempt was still downloading when the 480 s budget ran out, after `apt-get update` alone took 4 minutes at 54 kB/s. So a stall now means silence, the whole step has one time budget sized to the job, only the headless shell the suite uses is downloaded, and the downloaded browser is cached. The bounded-run logic from #6594 is now one shared script, and it ends a stalled attempt together with every process the attempt started.
