@@ -283,8 +283,12 @@ export async function probeDeepHealth(
     if (timer !== null) clearTimeout(timer);
   }
   const snapshot = pool();
-  if (snapshot && budgetMs !== null && snapshot.inflight_oldest_ms > budgetMs) {
-    return unavailable('pool_inflight_over_budget', `A pooled statement has waited ${snapshot.inflight_oldest_ms} ms for the server, past the pool budget of ${budgetMs} ms`);
+  // #6543 (A4): a driver with per-statement budgets reports the statements past their own budget, so a transaction that
+  // declared a longer statement_timeout (or an index build that declared 0) is not called over budget; an older driver
+  // falls back to the pool budget.
+  const over = snapshot ? snapshot.inflight_over_budget_ms ?? (budgetMs !== null && snapshot.inflight_oldest_ms > budgetMs ? snapshot.inflight_oldest_ms : 0) : 0;
+  if (over > 0) {
+    return unavailable('pool_inflight_over_budget', `A pooled statement has waited ${over} ms for the server, past its in-flight budget${budgetMs !== null ? ` (the pool's is ${budgetMs} ms)` : ''}`);
   }
   return { ok: true, status: 200, body: { status: 'ok', deep: true, version, engine: engineName, probe_ms: Date.now() - started, pool: pool(), transport } };
 }
