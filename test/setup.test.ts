@@ -82,6 +82,10 @@ describe('gbrain setup claude-code: install lifecycle', () => {
     expect(entry).toEqual({ type: 'stdio', command: b.bin, args: ['serve', '--surface', 'full'], env: { GBRAIN_HOME: b.gbrainHome } });
     expect(Object.keys(readJson(settings(b)).hooks).sort()).toEqual(['SessionStart', 'UserPromptSubmit']);
     expect(readJson(receipt(b)).status).toBe('installed');
+    const [bundle] = first.doc.notices;
+    expect(bundle).toMatchObject({ code: 'first_run_decisions', kind: 'ask' });
+    expect(bundle.decisions.map((d: any) => d.id)).not.toContain('harness_wiring');
+    expect(bundle.user_message).not.toContain("Reply 'defaults'");
 
     const before = [readFileSync(claudeJson(b), 'utf8'), readFileSync(settings(b), 'utf8'), readFileSync(receipt(b), 'utf8')];
     const second = await setup(b, ['claude-code', '--json']);
@@ -89,6 +93,22 @@ describe('gbrain setup claude-code: install lifecycle', () => {
     expect(second.doc.steps.map((s: any) => s.action)).toEqual(['keep', 'keep', 'keep']);
     expect([readFileSync(claudeJson(b), 'utf8'), readFileSync(settings(b), 'utf8'), readFileSync(receipt(b), 'utf8')]).toEqual(before);
     expect(existsSync(`${settings(b)}.bak`)).toBe(false);
+  });
+
+  test('human output ends with one non-blocking settings block after Next, and none of init\'s standalone steps', async () => {
+    const b = box();
+    const r = await setup(b, ['claude-code']);
+    expect(r.exitCode).toBe(0);
+    for (const stale of ['Do this next', 'claude mcp add', "Reply 'defaults'", 'Before continuing', 'gbrain install check', '(id: harness_wiring)']) expect(r.stdout).not.toContain(stale);
+    expect(r.stdout).toContain('Brain ready at ');
+    const next = r.stdout.indexOf('Next: open a new Claude Code session');
+    const block = r.stdout.indexOf('[AGENT]');
+    expect(next).toBeGreaterThan(-1);
+    expect(block).toBeGreaterThan(next);
+    expect(r.stdout.match(/\[AGENT\]/g)).toHaveLength(1);
+    expect(r.stdout.slice(block)).toContain('in the reply that reports this install');
+    expect(r.stdout.slice(block)).toContain('(id: search_mode)');
+    expect(r.stdout.trimEnd().endsWith('[/AGENT]')).toBe(true);
   });
 
   test('--remove deletes exactly the owned entries; foreign hooks, other MCP servers and the brain stay', async () => {
