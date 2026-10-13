@@ -93,13 +93,13 @@ export function knockOnRoot(row: Pick<WriteRequest, 'error_detail'>): string | n
 const sqlString = (value: string) => `'${value.replaceAll("'", "''")}'`;
 /**
  * The same predicate as `isSyncKnockOn` over a `persistence_requests` alias, for the checkpoint's clause 3. Literal
- * strings only (no parameters), so every engine plans it the same way.
+ * strings only (no parameters), so every engine plans it the same way; never NULL, so `NOT` of it is safe.
  */
 export function syncKnockOnSql(alias: string): string {
   const r = alias;
-  return `(${r}.state IN ('cancelled','failed','conflict') AND ${r}.recovery IS NULL AND NOT COALESCE(${r}.publication_started,false)
+  return `COALESCE((${r}.state IN ('cancelled','failed','conflict') AND ${r}.recovery IS NULL AND NOT COALESCE(${r}.publication_started,false)
     AND (${r}.error_detail->>'origin' = ${sqlString(SYNC_KNOCK_ON_ORIGIN)}
       OR (${r}.state='cancelled' AND ${r}.error_code='cancelled' AND (${r}.error_message IN (${LEGACY_KNOCK_ON_CANCEL_MESSAGES.map(sqlString).join(',')})
         OR ${LEGACY_KNOCK_ON_CANCEL_PATTERNS.map(pattern => `${r}.error_message LIKE ${sqlString(pattern)}`).join(' OR ')}))
-      OR (${r}.state IN ('conflict','failed') AND ${r}.error_code='revision_conflict' AND ${r}.error_message=${sqlString(EARLIER_PAGE_REFUSAL_MESSAGE)})))`;
+      OR (${r}.state IN ('conflict','failed') AND ${r}.error_code='revision_conflict' AND ${r}.error_message=${sqlString(EARLIER_PAGE_REFUSAL_MESSAGE)}))), false)`;
 }

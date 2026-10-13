@@ -165,7 +165,7 @@ export async function readSyncStatus(engine: BrainEngine, sourceId: string): Pro
   const estimate = unfinished && p ? drainEstimate(remaining, p.lastIndex - p.startIndex, p.lastAt - p.startedAt) : { rate_pages_per_min: null, eta_seconds: null };
   const resume = managedSyncResumeArgs({ sourceId, processingOptions: header?.processingOptions, syncOptions: header?.syncOptions });
   const human = holds.find(hold => hold.needs_human) ?? (lastError?.needs_human ? lastError : undefined);
-  // #6643: a knock-on or a superseded run needs no --retry-failed: the plain sync re-freezes the entry.
+  // #6643: a knock-on or a superseded run is not a failure of its page: the resume re-freezes the entry.
   const selfHealing = lastError?.detail === 'knock_on' || lastError?.detail === 'run_replaced';
   const actionable = holds.filter(hold => !hold.needs_human && hold.safe_actions[0] !== 'none');
   const verify = { argv: ['gbrain', 'sync', 'status', '--source', sourceId, '--json'] };
@@ -179,8 +179,8 @@ export async function readSyncStatus(engine: BrainEngine, sourceId: string): Pro
           + ' and names the sync to run; it refuses the rest by name and drops nothing.' }
       : retired ? { ...repairPreview, verify }
       : unfinished || lastError
-        ? { argv: ['gbrain', 'sync', ...resume, ...(lastError && !selfHealing ? ['--retry-failed'] : [])], consent: [], actor: 'agent', requires_exclusive: false, verify,
-          why: lastError && selfHealing ? `The last run stopped on a page that only waited on another page of the same sync (${lastError.detail}); the same sync re-freezes it by itself${lastError.root_cause?.request_id ? `, and request ${lastError.root_cause.request_id} is what it waited on` : ''}.`
+        ? { argv: ['gbrain', 'sync', ...resume, ...(lastError ? ['--retry-failed'] : [])], consent: [], actor: 'agent', requires_exclusive: false, verify,
+          why: lastError && selfHealing ? `The last run stopped on a page that only waited on another page of the same sync (${lastError.detail}); --retry-failed (or the same sync) re-freezes it under a fresh request${lastError.root_cause?.request_id ? `, and request ${lastError.root_cause.request_id} is what it waited on` : ''}.`
             : lastError ? `The last run recorded ${lastError.code} (${lastError.class}); this release holds or retries it, and --retry-failed converts the stopped entry in place without re-freezing the manifest.`
             : `The cursor stands at ${header!.index}/${header!.total}; the same command resumes it against the frozen manifest.` }
         : null;

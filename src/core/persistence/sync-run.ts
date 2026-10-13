@@ -847,7 +847,7 @@ async function settleFailedRequest(engine: BrainEngine, input: { cursor: Cursor;
     ...(rootCause ? { root_cause: rootCause } : {}),
     request_id: pending.requestId, run_id: cursor.runId, target: cursor.target, cursor_key: key,
     syncOptions: cursor.syncOptions ?? syncOptions, processingOptions: cursor.processingOptions ?? processingOptions,
-    phase: pending.intent.kind === 'managed_sync_checkpoint' ? 'checkpoint' : 'receipt', state: done.state, observation_id: pending.requestId,
+    phase: pending.intent.kind === 'managed_sync_checkpoint' ? 'checkpoint' : 'receipt', state: done.state, observation_id: exhausted ? `${pending.requestId}:${KNOCK_ON_EXHAUSTED}` : pending.requestId,
     first_seen: new Date(done.completed_at ?? done.updated_at).toISOString(), ...(done.error_detail ? { write_error_detail: publicFailureDetail(done.error_detail) } : {}) });
   // #5762: the hint is built after the failed transaction, from a fresh read of the request indexes.
   const hint = done.error_code === CHECKPOINT_VALIDATION_TIMEOUT && !remote ? await checkpointTimeoutHint(engine,
@@ -1310,12 +1310,12 @@ async function retryFailedStart(engine: BrainEngine, cursor: Cursor, key: string
   // #6643: a knock-on, and a checkpoint refused only by a receipt that no longer blocks it, recover in place in the drain
   // (settleFailedRequest), which waits only on the narrowed gate; neither rediscovers the frozen manifest.
   if (failed && cursor.pending && (isSyncKnockOn(failed) || (cursor.pending.intent.kind === 'managed_sync_checkpoint' && failed.error_code === 'recovery_required' && !failed.recovery))) return null;
-  const blocker = await oldRunBlocker(engine, cursor, key);
-  assertActive();
-  if (blocker) return { wait: blocker };
   const recorded = await engine.executeRaw("SELECT 1 FROM op_checkpoints WHERE op='managed-sync-failure' AND fingerprint=$1 AND completed_keys->0->>'run_id'=$2", [key, cursor.runId]);
   assertActive();
   if (!((failed && ['failed', 'conflict', 'cancelled'].includes(failed.state)) || (recorded.length && (failed?.state === 'committed' || !failed)))) return null;
+  const blocker = await oldRunBlocker(engine, cursor, key);
+  assertActive();
+  if (blocker) return { wait: blocker };
   // Only the #6340 page faults convert here (a content refusal under --retry-failed keeps its explicit rediscovery; #6513: a checkpoint is never a page fault).
   const pageFault = !!failed && !!cursor.pending && cursor.pending.intent.kind !== 'managed_sync_checkpoint' && (pinnedWorktreeConflict(failed) || failed.error_code === 'revision_conflict');
   const screen = pageFault ? await loadSyncScreenRun(input.startupConfig, cursor.sourceId, cursor.processingOptions ?? processingOptions, authority.writer.remote) : null;
