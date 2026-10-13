@@ -10,19 +10,19 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
-## [0.60.192.0] - 2026-10-12
+## [0.60.191.0] - 2026-10-13
 
-**CI test shards are packed from fresh timings after wave 16.** CI splits each test lane across several machines using the recorded run time of every test file. Wave 16 moved the #6210 durability probes out of the 5530 coalescing tests into their own files and added several new test files, so the recorded times no longer matched the tests. This release re-measures every lane from green master runs at wave 16's merge. No product behaviour changes.
+**`gbrain setup codex` gives Codex memory in one command, with the same target-first, hash-owned shape as `gbrain setup claude-code` (D8's Codex slice).** It shows the brain, source, launcher and owner before writing, creates a keyless brain only when none exists, and wires the MCP server plus the read-context hooks SessionStart and UserPromptSubmit. In three fresh installs on codex-cli 0.162.1, a fresh Codex session answered a question only the injected context could answer, with 0 tool calls. The bootstrap harness also stops wiring Codex transcript capture when capture was declined or in registrar mode.
 
 ### Itemized changes
 
-| Lane | Files with no recorded time, before | After | Bound | Source run |
-|---|---|---|---|---|
-| Unit | 47 of 3290 (1.4%) | 17 of 3290 (0.5%) | 5% | Test 38327955481 |
-| Serial | 6 of 398 (1.5%) | 1 of 398 (0.3%) | 10% | Test 38327955481 |
-| E2E | 22 of 573 (3.8%) | 5 of 573 (0.9%) | 10% | E2E 38328059186 (full profile) |
-
-- `scripts/test-weights.json`, `scripts/serial-weights.json` and `scripts/e2e-weights.json`, plus their `.metadata.json` provenance files, are re-mined with `bun run weights:mine` from master runs whose test jobs all passed. The 5530 coalescing files drop to their new run times, and the new 6210 and 6517 files are measured for the first time. `GITHUB_EVENT_NAME=schedule bun scripts/check-weight-coverage.ts` reports OK with no dead entries.
+- **`gbrain setup codex`** (`src/core/setup/codex.ts`, `src/commands/setup.ts`): Codex needs three writes, `[mcp_servers.<name>]` in `config.toml`, the hook groups in `hooks.json` and a `[hooks.state."<key>"]` trust table per group (without it Codex lists the hook and never runs it). Memory-only by default; SessionEnd capture only with `--capture`, providers only with `--providers`, existing opt-outs win; `--scope project` exits 2 because Codex keeps hooks and config in `CODEX_HOME`. `--dry-run`, `--json`, `--surface`, `--no-hooks`, `--remove` and `GBRAIN_SURFACE` work as for Claude Code.
+- **Ownership and crash safety:** receipt `.gbrain-connection-codex-<name>.json` beside `config.toml` (receipt version 2) with a sha256 fingerprint per owned entry; write order receipt → brain → MCP → inert hook groups → trust tables, reversed on `--remove`, so every crash point leaves the hooks inert or fully wired and resume never duplicates. An entry the user edited is preserved and reported; the other owned entries are still written or removed. Setup's groups carry `GBRAIN_HOOK_LANE=setup`, and a bootstrap-lane wiring of the same events is refused as an owner conflict. `codex-toml.ts` gains single-table read, append and remove that keep every other byte.
+- **Bootstrap Codex capture gate** (`src/core/bootstrap/harness.ts`): `--no-capture` now suppresses the Codex SessionEnd capture hook and registrar mode (a non-loopback `--url`) no longer wires it, since it would capture into the local brain instead of the registered remote one. Disclosed in BEHAVIOR_CHANGES.
+- **`gbrain hook user-prompt --harness codex`** confines and parses Codex transcripts with the Codex capture spec and skips the Claude Code pressure probe; before, every native Codex prompt degraded with `transcript_outside_projects_dir`.
+- **Capability table v2:** the Codex row reports setup supported, pull connection-verified and push native-verified only when the receipt owns the UserPromptSubmit trust entry (otherwise native-pending), with a `push_evidence` field. `docs/mcp/CODEX.md` no longer says Codex has no lifecycle hooks.
+- **Tests:** the Codex lifecycle in `test/setup.test.ts` (byte-exact remove, crash resume at every seam, edited-entry preservation, a shifted hook index, two installs, unowned and remote MCP tables, consent and flags, the bootstrap-lane conflict, live trust-hash vectors); registrar mode and `--no-capture` in `test/bootstrap-harness.serial.test.ts`; Codex transcript confinement in `test/hook-command.serial.test.ts`. The #6499 backup-verification tests now run their probe stub on a virtual clock (a forced 400 ms per-repo delay fails the old tests and passes the new ones), and `test/session-seat-synthesize.test.ts` prints the whole phase result when it fails.
+- Credit: the Codex context-hook approach draws on #6408 and #6409 by @benswinney and the #5577 discussion in #6283 by @andreineacsu (evidence only; those PRs stay open).
 
 ## [0.60.190.0] - 2026-10-13
 
