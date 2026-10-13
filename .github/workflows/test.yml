@@ -926,7 +926,8 @@ jobs:
         working-directory: admin
       # The browser download comes from Playwright's CDN, which has served it at
       # 250 KB/s (.204, #6613); restoring it keeps most runs off the CDN. The key
-      # is the browser revisions the installed Playwright pins.
+      # is the browser revisions the installed Playwright pins. The suite runs
+      # headless, so only the headless shell is installed (114 MiB, not 301).
       - name: Restore the pinned Chromium browser
         id: playwright-browsers
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
@@ -934,8 +935,8 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-browsers-${{ runner.os }}-${{ hashFiles('node_modules/playwright-core/browsers.json') }}
       - name: Install the pinned Chromium browser and OS dependencies (bounded, retried once)
-        timeout-minutes: 9
-        run: bun scripts/ci-bounded-run.ts --idle-s 120 --total-s 480 --retry-s 10 --hint "an apt mirror or browser CDN stall; this normally takes 15-50s" -- bunx playwright install --with-deps chromium
+        timeout-minutes: 10
+        run: bun scripts/ci-bounded-run.ts --idle-s 120 --total-s 560 --retry-s 10 --hint "an apt mirror or browser CDN stall; this normally takes 15-50s" -- bunx playwright install --with-deps --only-shell chromium
       - name: Save the pinned Chromium browser
         if: steps.playwright-browsers.outputs.cache-hit != 'true'
         uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3

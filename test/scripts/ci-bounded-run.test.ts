@@ -121,7 +121,7 @@ test('the Playwright install is bounded by silence and a total budget that fits 
   const job = doc.jobs['admin-browser']!;
   const at = job.steps.findIndex(entry => entry.run?.includes('playwright install'));
   const step = job.steps[at]!;
-  const match = /^bun scripts\/ci-bounded-run\.ts --idle-s (\d+) --total-s (\d+) --retry-s \d+ .*-- bunx playwright install --with-deps chromium$/.exec(step.run!);
+  const match = /^bun scripts\/ci-bounded-run\.ts --idle-s (\d+) --total-s (\d+) --retry-s \d+ .*-- bunx playwright install --with-deps --only-shell chromium$/.exec(step.run!);
   expect(match).not.toBeNull();
   expect(Number(match![1])).toBeLessThan(Number(match![2]));
   expect(step['timeout-minutes']! * 60).toBeGreaterThan(Number(match![2]) + 10);
