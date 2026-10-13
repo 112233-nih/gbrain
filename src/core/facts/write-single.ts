@@ -136,9 +136,9 @@ export async function writeSingleFact(
 
   const { isFactWithdrawn } = await import('./withdrawal.ts');
   if (await isFactWithdrawn(engine, sourceId, visibility, factText, resolvedSlug)) {
-    const { verbError } = await import('../ops/contract.ts');
-    throw verbError('invalid_params', 'fact_withdrawn: this exact claim was explicitly forgotten in this source and visibility.',
-      'Remember a corrected claim. Repeating the old claim does not restore withdrawn memory.');
+    const { factWithdrawnRefusal } = await import('./single-prepare.ts');
+    throw await factWithdrawnRefusal(engine, sourceId, { fact: factText, kind, visibility, entity_slug: resolvedSlug },
+      { excludePrivate: await resolveExcludePrivatePages(engine, input.remote) });
   }
 
   // Embedding (NOT an LLM call): powers dedup + downstream recall. Fail-soft —

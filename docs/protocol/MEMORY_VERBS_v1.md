@@ -298,13 +298,33 @@ near-duplicates may insert; dedup and supersession ride embedding similarity).
   supersedes the old ("X at acme-example" → "X left acme-example").
 - Omitted optional inputs echo as `null`, never absent.
 
+A claim that was forgotten is refused with `invalid_params` and the message
+prefix `fact_withdrawn`: remembering the same text again does not restore it,
+and a claim forgotten without an entity is withdrawn for every entity. To link
+a fact saved without an entity, do not forget it; remember it with `entity`
+and `replaces` set to its id.
+
+#### remember withdrawn refusal detail (additive)
+
+A `fact_withdrawn` refusal may carry `withdrawn: { at, subject, visibility }`:
+`at` is when the claim was forgotten (ISO 8601), `subject` the entity slug it
+was forgotten for or `all_entities` (forgotten without an entity), and
+`visibility` the forgotten fact's. When several withdrawals match, the one for
+the named entity wins over `all_entities`, then the newest. The same object
+rides the immediate refusal, the `items[]` error, the failed write receipt and
+`get_write_request`. It covers the exact normalized claim only, never a
+paraphrase, and its absence carries no meaning: the message prefix, code and
+suggestion are unchanged.
+
 #### remember replaces (additive)
 
 `replaces` (string): the `fact_id` this fact replaces, caller-directed: the
 old fact is no longer current (the texts need not mean the same). Zero model calls; the cosine rule does
 not apply. The target must be an active fact in the same source, with the same
 visibility (world only for remote callers, else `not_found`) and the same
-entity, on the same entity page. Refusals come back as `invalid_params` with a
+entity, on the same entity page. A target saved without an entity may be
+replaced by a fact with an entity: that links it (the unlinked fact is
+superseded, not forgotten, so the claim stays rememberable). Refusals come back as `invalid_params` with a
 code prefix and a `suggestion`: `target_withdrawn` (forgotten facts are not
 replaceable; remember without `replaces`), `target_superseded` (names the fact
 that replaced it), `target_expired`, `replaces_entity_mismatch`,
@@ -315,6 +335,13 @@ text equal to the target is `status: duplicate` and changes nothing. On success
 `replaced_by_caller` is `true`; the replaced fact is expired with
 `superseded_by` and its `## Facts` row is struck with `superseded by #N` in
 the same publication. Every `superseded` response carries `superseded_fact_id`.
+
+Remembering a claim with an entity (given or inferred) when the same claim is
+an active fact saved without an entity, in the same source and visibility,
+links that copy as if `replaces` named it: `status: superseded`,
+`superseded_fact_id` names the unlinked copy, `replaced_by_caller` is absent,
+and `status_text` says there is nothing to forget. When `replaces` would refuse
+(for example `replaces_cross_page`), the fact is saved as a new one instead.
 
 #### remember content_origin (additive)
 
@@ -355,15 +382,16 @@ fact, so it goes on its item; passing both `fact` and `items`, or a top-level
 
 Every item is validated before any is written: one invalid item refuses the
 whole call with `items[<i>]` in the message. Each item is then saved as its own
-write with a child `request_id` derived from the call's `request_id` and the
-item index, so replaying the same `request_id` replays each child's outcome and
+write with a child `request_id` derived from the call's `request_id` (the
+string the caller sent, so a batch accepted by an older server replays to the
+same receipts) and the item index, so replaying the same `request_id` replays each child's outcome and
 writes nothing twice.
 
-Response: `{ protocol_version, request_id, items[], saved, failed, partial,
+Response: `{ protocol_version, request_id, client_request_id?, items[], saved, failed, partial,
 hints?, next? }`. Each `items[]` entry is a compact receipt `{ index,
-request_id, status, id?, entity_slug?, warnings?, valid_until?, state? }`
+request_id, status, id?, entity_slug?, superseded_fact_id?, warnings?, valid_until?, state? }`
 (`state` and `retry_after_ms` only when the write is not yet committed), or
-`{ index, request_id, status: "failed", error: { code, message } }`. Hints the
+`{ index, request_id, status: "failed", error: { code, message, suggestion? } }`. Hints the
 single-fact response would repeat per item appear once in `hints`. `partial: true` means some items saved and some failed; resend
 only the failed items, in a new call with a new `request_id`.
 
@@ -390,6 +418,21 @@ backlink_count, active_fact_count }`.
 - `summary` passes the same privacy fences as `get_page` (takes + private
   facts stripped); remote callers never see private facts in the card.
 
+#### entity names: several lookups in one call (additive)
+
+`names` (1 to 50 strings) replaces `name` to resolve a list of names, codes or
+aliases at once; passing both, none or more than 50 is `invalid_params`. Each
+name resolves exactly as `name` does (same precedence, private pages hidden
+from remote callers), duplicates once, in first-seen order.
+
+Response: `{ protocol_version, latency_ms, results[], found, missing }`. Each
+row is `{ name, found: true, slug, title, type, aka[], lead, siblings? }` or
+`{ name, found: false, suggestions? }` (up to 3 `{slug, title}`). `lead` is the
+page's opening prose, up to 200 characters (headings, table rows, private
+fences and secrets removed); `siblings` lists the identity siblings with their
+own `slug`, `title`, `type`, `aka` and `lead`. Rows carry no references, facts
+or open threads: call `entity` with `name` for the full card.
+
 #### entity references and coverage (additive)
 
 The `entity` verb adds three optional card fields (ambient callers,
@@ -414,6 +457,17 @@ The `entity` verb adds three optional card fields (ambient callers,
   block. Coverage means recognized names within the caller's source.
 - `open_threads` (best-effort in v1): active commitment-kind facts + timeline
   entries from the last 90 days, capped at 3.
+
+#### entity identity fields (additive)
+
+The `entity` verb also adds: `aka_sources[]` (`{ origin, slug }` per `aka`
+entry; `aka` is unchanged and never claims completeness); `identity_siblings`
+(`{ pages[{ slug, title, type, aka[] }], capped }`: same subject under another
+title prefix, shown, never merged; more than 3 is `capped` with an
+`identity_siblings_capped` notice); `identity_excerpt[]` (`{ slug, line }`,
+verbatim name-like lines from the remote-sanitized body, 600 characters per
+page and 1,200 per card, `identity_excerpt_omitted[]`); `alias_guidance`
+(`{ text, requires_surface? }`). `recent_facts[]` (`{ id, fact, kind, valid_from, entity_slug? }`, the 5 newest active saved facts, also those saved under an identity sibling or the bare subject slug, which carry that `entity_slug`); `active_fact_count` and `recall {entity}` cover the same slugs.
 
 #### entity open_threads loop backing (additive)
 
@@ -504,6 +558,36 @@ purpose, no dedicated status); a `max_tokens`-cut envelope parses as
 `output_truncated` (warning `LLM_OUTPUT_TRUNCATED`) so a too-small output
 budget is distinguishable from malformed model output.
 
+#### synthesize evidence budget and provenance (additive, #5461)
+
+The pages the model reads are excerpts, not whole pages. Each gathered page
+gets `min(ceiling, floor(total / pages_gathered))` characters, never fewer
+than 600, with `total` from `think.pages_budget_chars` (4 000-200 000,
+default 12 000) and `ceiling` from `think.excerpt_ceiling_chars`
+(600-200 000, default 2 400), both set with `gbrain config set` on the brain
+host (the verb surface stays frozen: no new parameter). The total is a SOFT
+bound: the 600-character floor wins, so 40 pages at the default read 24 000
+characters. Raising the total alone never delivers whole pages while the
+ceiling holds, and even with both raised the unit shown is the gathered
+chunk or compiled text, so full pages are not promised. A value outside its
+range is refused at set time; a stored bad value is ignored for the call,
+the default applies and `warnings` carries
+`THINK_BUDGET_CONFIG_IGNORED:<key>`. Conversation-type pages (meetings,
+chats, transcripts) travel through evidence delivery instead, under
+`think.return_unit` and its token budget; the character budget does not
+apply to them.
+
+Two optional response fields report what happened:
+
+- `evidence_truncated: boolean` — true when at least one gathered page
+  reached the model in part (an excerpt cut at either end, or a delivered
+  block cut to its window). False means every gathered unit was shown whole.
+- `citations: [{ slug, source_id, row_num }]` — `sources[]` with
+  provenance, same order and length: `source_id` is the source the cited
+  page was gathered from (the highest-ranked gathered page with that slug);
+  `null` when the model cited a slug outside the gather (the response also
+  warns `CITATION_NOT_IN_GATHER:<slug>`). `sources: string[]` is unchanged.
+
 #### Answer feedback fields (additive)
 
 `recall` (when its `query` arm searched pages on the hybrid path) and
@@ -521,6 +605,14 @@ already-expired fact returns `expired: false` (success); unknown id ⇒
 `not_found`. Facts are expired with an audit trail, never deleted.
 
 Response: `{ id, expired, reason, protocol_version }`.
+
+A fact saved without an entity withdraws its claim under every entity. When the
+same claim is active on entity-linked facts (same source and visibility),
+forgetting the unlinked fact is refused with `invalid_params`, message prefix
+`claim_linked:`, naming those facts, and nothing changes. The `suggestion`
+says to keep them, or to forget them first to withdraw the claim everywhere.
+A forget never withdraws an active fact the caller cannot read; when one
+would be reached, the refusal keeps the `claim_linked:` prefix and names no fact.
 
 #### forget and purge (additive note)
 
@@ -550,7 +642,7 @@ empty list means no close match was found, not that every rewording is gone.
 #### Durable write receipts (additive)
 
 Write receipts distinguish accepted work from committed memory. Their public
-shape is `{request_id, state, retry_after_ms, revision?, outcome?, persistence?,
+shape is `{request_id, client_request_id?, state, retry_after_ms, revision?, outcome?, persistence?,
 compacted?, created_at?, updated_at?, diagnostic?}`. States are `queued`, `running`,
 `recovering`, `committed`, `conflict`, `failed`, and `cancelled`. Terminal
 receipts have `retry_after_ms: null`. `persistence.mode` distinguishes a
@@ -577,10 +669,19 @@ exists and the write named no `expected_revision`: read it and resend),
 retains the original memory-verb success fields.
 Compaction may remove diagnostics, but must preserve those frozen result fields.
 
-The optional caller-generated UUID `request_id` identifies one write intent.
-Retry the same verb with the original arguments and the same ID to recover
-its outcome, including on the verbs-only surface. A terminal request is never
-executed again. Corrected input requires a new ID. Clients that lose a response
+The optional caller-chosen `request_id` identifies one write intent; reuse it
+only to retry the same write. Any id of 1 to 128 printable ASCII characters
+(0x21 to 0x7E, no spaces) is accepted. A UUID is used as is (lowercased); any
+other id maps to a deterministic UUIDv5 under one fixed gbrain namespace, so
+`request_id` in every response stays a UUID and the id the caller sent comes
+back as `client_request_id`, which is kept for the life of the receipt. The
+receipt helpers find a write by either id. Retry the same verb with the original
+arguments and the same ID to recover its outcome, including on the verbs-only
+surface. A terminal request is never executed again. Corrected input requires a
+new ID: reusing an id for a different write is refused with
+`idempotency_conflict` ("this request_id was used for a different write; send a
+new one or omit it"), which `remember` reports as `invalid_params` with
+`write_error: "idempotency_conflict"`. Clients that lose a response
 without retaining its request ID cannot assume that retrying content is an
 exactly-once write. A receipt never contains queued content, recovery paths or
 execution credentials.

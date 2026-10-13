@@ -148,9 +148,11 @@ import * as timelineImpl from './engine-sql/timeline.ts';
 import * as sourcesImpl from './engine-sql/sources.ts';
 import * as filesImpl from './engine-sql/files.ts';
 import type { ChunkWindowRequest, ChunkWindowOpts, ChunkWindowPage } from './search/chunk-windows.ts';
+import type { KeywordPageWindow } from './search/keyword-statement.ts';
 import * as chunksImpl from './engine-sql/chunks.ts';
 import { searchKeywordCJK } from './engine-sql/cjk-search.ts';
 import * as titlesImpl from './engine-sql/titles.ts';
+import * as keywordPagesImpl from './engine-sql/keyword-pages.ts';
 import { applyForwardReferenceBootstrap, pgliteBootstrapTarget } from './engine-sql/bootstrap.ts';
 
 /**
@@ -910,17 +912,17 @@ export class PGLiteEngine implements BrainEngine {
           ...embedded,
         }),
       ));
-      // Snapshot-timezone parity: dumpDataDir bakes the BUILD process's
-      // TimeZone into the restored cluster's defaults, so a snapshot-loaded
-      // engine would run sessions in the build machine's zone while a
-      // cold-init engine follows this process (bun test pins TZ=UTC; bun run
-      // follows the host). That divergence shifted every naive-timestamp
-      // day-boundary comparison by the offset — date-dependent tests failed
-      // only in the evening, only under the snapshot. Pin the session to the
-      // RUNTIME zone so restored engines behave exactly like cold ones.
+      // Snapshot parity: dumpDataDir bakes the BUILD process's TimeZone into
+      // the cluster defaults (date-dependent tests failed only in the evening,
+      // only under the snapshot) and the BUILD time into the seeded sources'
+      // created_at (a CI-cached snapshot over an hour old made every fresh
+      // test brain fail the behavior_changes fresh-install grace, which reads
+      // MIN(sources.created_at)). Pin the RUNTIME zone and stamp now(), so
+      // restored engines behave like cold ones (bun test pins TZ=UTC).
       if (this._snapshotLoaded && this._db) {
         const runtimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
         await this._db.query(`SELECT set_config('TimeZone', $1, false)`, [runtimeZone]);
+        await this._db.query(`UPDATE sources SET created_at = now()`);
       }
       // Healthy open: close any repair episode left open by a prior failed
       // attempt (red-team: episodes otherwise stayed open forever — doctor
@@ -1471,6 +1473,7 @@ export class PGLiteEngine implements BrainEngine {
     // FTS config name (e.g. 'english', 'pt_br'). Validated by getFtsLanguage()
     // — safe to interpolate into raw SQL.
     const ftsLang = getFtsLanguage();
+    const rankParam = opts?.rankQuery ? `$${params.push(opts.rankQuery)}` : '$1';
 
     const keywordSql =
       `WITH ranked AS (
@@ -1482,7 +1485,7 @@ export class PGLiteEngine implements BrainEngine {
            CASE WHEN NULLIF(regexp_replace(p.frontmatter->>'message_id', '^[[:space:]]+|[[:space:]]+$', '', 'g'), '') IS NOT NULL
              THEN NULLIF(p.frontmatter->>'subject', '') END AS source_subject,
            cc.id as chunk_id, cc.chunk_index, cc.chunk_text, cc.chunk_source,
-           ts_rank(cc.search_vector, websearch_to_tsquery('${ftsLang}', $1)) * ${sourceFactorCase} AS score,
+           ts_rank(cc.search_vector, websearch_to_tsquery('${ftsLang}', ${rankParam})) * ${sourceFactorCase} AS score,
            CASE WHEN p.updated_at < (
              SELECT MAX(te.created_at) FROM timeline_entries te WHERE te.page_id = p.id
            ) THEN true ELSE false END AS stale
@@ -1535,6 +1538,14 @@ export class PGLiteEngine implements BrainEngine {
    * query CAN exact-match a single-token CJK title); the richer CJK ILIKE
    * fallback stays keyword-arm-only.
    */
+  /** Cat 40 Hard F2 strict keyword count and keyword-mode pages; SQL in engine-sql/keyword-pages.ts. */
+  async countKeywordPages(query: string, opts?: SearchOpts & { timeoutMs?: number }): Promise<number> {
+    return keywordPagesImpl.countKeywordPages(async (read) => read(scopedRead(this.engineSql)), query, opts, {});
+  }
+  async searchKeywordPages(query: string, opts: SearchOpts | undefined, page: KeywordPageWindow): Promise<SearchResult[]> {
+    return keywordPagesImpl.searchKeywordPages(async (read) => read(scopedRead(this.engineSql)), query, opts, page, {});
+  }
+
   async searchTitles(query: string, opts?: SearchOpts): Promise<SearchResult[]> {
     return titlesImpl.searchTitles(async (read) => read(scopedRead(this.engineSql)), query, opts, { relaxedPrefersIndex: false, staleProbe: true });
   }
@@ -1869,6 +1880,9 @@ export class PGLiteEngine implements BrainEngine {
   async markPagesAttendanceBlocked(refs: Array<{ slug: string; source_id: string; revision: string }>): Promise<number> {
     return pagesImpl.markPagesAttendanceBlocked(this.engineSql, refs);
   }
+  async countStaleFrontmatterKeyPages(opts: { sourceIds: string[] }) { return pagesImpl.countStaleFrontmatterKeyPages(scopedRead(this.engineSql), opts); }
+  async listStaleFrontmatterKeyPages(opts: { sourceId: string; afterId: number; limit: number }) { return pagesImpl.listStaleFrontmatterKeyPages(scopedRead(this.engineSql), opts); }
+  async stripStaleFrontmatterKeys(opts: { sourceId: string; ids: number[] }) { return pagesImpl.stripStaleFrontmatterKeys(this.engineSql, opts); }
 
   // Links
   async addLink(
@@ -2886,14 +2900,14 @@ export class PGLiteEngine implements BrainEngine {
 
   async getCallersOf(
     qualifiedName: string,
-    opts?: { sourceId?: string; allSources?: boolean; limit?: number },
+    opts?: { sourceId?: string; allSources?: boolean; limit?: number; chunkId?: number },
   ): Promise<import('./types.ts').CodeEdgeResult[]> {
     return codeEdgesImpl.getCallersOf(unscopedExecutor(this.engineSql, 'code-edges: unscoped on master (EO4 inventory)'), qualifiedName, opts);
   }
 
   async getCalleesOf(
     qualifiedName: string,
-    opts?: { sourceId?: string; allSources?: boolean; limit?: number; bareFallback?: boolean },
+    opts?: { sourceId?: string; allSources?: boolean; limit?: number; bareFallback?: boolean; chunkId?: number },
   ): Promise<import('./types.ts').CodeEdgeResult[]> {
     return codeEdgesImpl.getCalleesOf(unscopedExecutor(this.engineSql, 'code-edges: unscoped on master (EO4 inventory)'), qualifiedName, opts);
   }

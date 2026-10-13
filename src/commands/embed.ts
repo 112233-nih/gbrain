@@ -16,6 +16,7 @@ import { carryChunkMetadata, probeEmbedder, resolveProvenanceStamp, stampIfPageP
 import type { StaleImageSweepResult } from '../core/embed-stale-images.ts';
 import { resolveMaxChunkTokens } from '../core/embedding-input-limit.ts';
 import { healOversizedPageChunks, healedChunksToStaleRows } from '../core/embed-oversize-heal.ts';
+import { healAndReportOverLength, statusFromCause } from '../core/embed-overlength-heal.ts';
 import {
   createEmbedStallWatchdog,
   resolveEmbedStallAbortSeconds,
@@ -23,6 +24,7 @@ import {
 } from '../core/embed-stall.ts';
 import { createProgress, type ProgressReporter } from '../core/progress.ts';
 import { getCliOptions, cliOptsToProgressOptions } from '../core/cli-options.ts';
+import { StaleChunkProgress } from '../core/embed-stale-progress.ts';
 import { assertEmbeddingEnabled } from '../core/embedding-dim-check.ts';
 import { writeCliError } from '../cli/cli-error.ts';
 import { countRestampOnlyChunks, invalidateStaleSignatureEmbeddingsGuarded } from '../core/embedding-invalidation.ts';
@@ -320,6 +322,8 @@ export interface EmbedResult {
    * misreporting embed failures.
    */
   lock_skipped?: boolean;
+  /** #6529: the image sweep a `--stale` run on a multimodal install made before its text drain (core/embed-stale-images.ts). */
+  images?: StaleImageSweepResult;
   /**
    * Set when the single-flight lock heartbeat discovered the lock was stolen
    * (refresh matched 0 rows) or kept erroring: mutual exclusion is gone, so
@@ -984,19 +988,18 @@ export async function runEmbed(engine: BrainEngine, args: string[], selectedConf
   // all work. Minion handlers call runEmbedCore directly with their own
   // onProgress (see jobs.ts).
   const progress = createProgress(cliOptsToProgressOptions(getCliOptions()));
-  let progressStarted = false;
-  opts.onProgress = (done, total, _embedded) => {
-    if (!progressStarted) {
-      progress.start('embed.pages', total);
-      progressStarted = true;
-    }
-    progress.tick(1);
+  let progressDone: number | null = null;
+  opts.onProgress = (done, total) => {
+    if (progressDone === null) progress.start('embed.pages', total); else progress.setTotal?.(total);
+    progress.tick(done - (progressDone ?? 0)); progressDone = done;
   };
 
   if (costCap) opts.signal = costCap.signal;
   try {
-    const result = costCap ? await costCap.metered(() => runEmbedCore(engine, opts)) : await runEmbedCore(engine, opts);
-    if (progressStarted) progress.finish();
+    // #6529: a multimodal install rebuilds its image pages first, inside the same cap (lazy: keeps import-file out of embed's graph).
+    const images = stale && slugsIdx < 0 ? await (await import('../core/embed-stale-images.ts')).runStaleImageSweepFirst(engine, { sourceId, dryRun, costCap }) : null;
+    const result = (await import('../core/embed-stale-images.ts')).foldImageSweep(costCap ? await costCap.metered(() => runEmbedCore(engine, opts)) : await runEmbedCore(engine, opts), images);
+    if (progressDone !== null) progress.finish();
     const capped = costCap?.hit();
     if (capped) {
       noteEmbedCostStop(result, capped, args);
@@ -1023,7 +1026,7 @@ export async function runEmbed(engine: BrainEngine, args: string[], selectedConf
     if (result.reason === 'time_budget') slog(embedBudgetStopVerdict(result));
     return result;
   } catch (e) {
-    if (progressStarted) progress.finish();
+    if (progressDone !== null) progress.finish();
     const capped = costCap?.hit();
     if (capped) {
       const stopped: EmbedResult = { embedded: 0, skipped: 0, would_embed: 0, total_chunks: 0, pages_processed: 0, failures: 0, failure_samples: [], dryRun: false, chunkless_pages_healed: 0 };
@@ -1166,6 +1169,7 @@ async function embedPage(
     recordFailure(result, toEmbed.length, slug, e);
     result.pages_processed++;
     serr(`  Error embedding ${slug}: ${e instanceof Error ? e.message : e}`);
+    await healAndReportOverLength(engine, slug, page.source_id, e, toEmbed.map(c => c.chunk_text), serr);
     return;
   }
   const embeddingMap = new Map<number, Float32Array>();
@@ -1197,6 +1201,7 @@ async function embedPage(
   if (failed > 0) {
     recordFailure(result, failed, slug, firstError);
     serr(`  ${slug}: ${failed} chunk(s) failed to embed; embedded the other ${toEmbed.length - failed}`);
+    await healAndReportOverLength(engine, slug, page.source_id, firstError, toEmbed.map(c => c.chunk_text), serr);
   }
   result.pages_processed++;
   if (!quiet) slog(`${slug}: embedded ${toEmbed.length - failed} chunks`);
@@ -1379,12 +1384,14 @@ async function embedAll(
       if (failed > 0) {
         recordFailure(result, failed, page.slug, firstError);
         serr(`\n  ${page.slug}: ${failed} chunk(s) failed to embed; embedded the other ${toEmbed.length - failed}`);
+        await healAndReportOverLength(engine, page.slug, pageSourceId, firstError, toEmbed.map(c => c.chunk_text), serr);
       }
     } catch (e: unknown) {
       // #3037: count the darkened page so the run can't exit 0 (abort is a
       // shutdown, not a failure).
       if (!isAborted(signal)) recordFailure(result, toEmbed.length, page.slug, e);
       serr(`\n  Error embedding ${page.slug}: ${e instanceof Error ? e.message : e}`);
+      if (!isAborted(signal)) await healAndReportOverLength(engine, page.slug, pageSourceId, e, toEmbed.map(c => c.chunk_text), serr);
     }
 
     processed++;
@@ -1794,6 +1801,7 @@ async function embedAllStale(
       ? { ...sourceOpt, signature, ...(includeNullSig && { includeNullSignature: true }) }
       : sourceOpt,
   );
+  const staleProgress = new StaleChunkProgress(staleCount);
   if (staleCount === 0) {
     await reportArchived();
     if (!staleOpts?.quiet) {
@@ -1923,7 +1931,7 @@ async function embedAllStale(
     if (remaining === 0) return false;
     if (result.embedded === lastReentryEmbedded) return false; // no forward progress
     lastReentryEmbedded = result.embedded;
-    reentries++;
+    reentries++; staleProgress.reentered(remaining);
     afterPageId = 0;
     afterChunkIndex = -1;
     afterUpdatedAt = null;
@@ -1962,7 +1970,7 @@ async function embedAllStale(
         if (await maybeReenter()) continue;
         break;
       }
-      totalChunksLoaded += batch.length;
+      totalChunksLoaded += batch.length; staleProgress.listed(batch.length);
 
       // Advance cursor to last row in this batch.
       const last = batch[batch.length - 1];
@@ -1994,11 +2002,13 @@ async function embedAllStale(
       const keys = allKeys.filter(k => (_embedFailureCounts.get(k) ?? 0) < QUARANTINE_AFTER);
       if (keys.length < allKeys.length) {
         serr(`\n  [embed] skipping ${allKeys.length - keys.length} page(s) quarantined after ${QUARANTINE_AFTER} consecutive failed embed attempts (this process); set frontmatter.embed_skip to skip permanently, or restart to retry`);
+        for (const k of allKeys) if (!keys.includes(k)) staleProgress.pageDone(byKey.get(k)!.length, 0);
       }
       result.total_chunks += batch.length;
 
       async function embedOneKey(key: string) {
         let stale = byKey.get(key)!;
+        const census = stale.length;
         const keySourceId = stale[0]?.source_id ?? 'default';
         const slug = stale[0].slug;
         try {
@@ -2077,6 +2087,7 @@ async function embedAllStale(
           if (failed > 0) {
             recordFailure(result, failed, slug, firstError);
             serr(`\n  ${slug}: ${failed} chunk(s) failed to embed; embedded the other ${stale.length - failed}`);
+            await healAndReportOverLength(engine, slug, keySourceId, firstError, stale.map(c => c.chunk_text), serr);
           }
           // #3622: reaching here means at least one chunk persisted (a total
           // embed failure throws) — progress, so the quarantine counter resets.
@@ -2087,13 +2098,12 @@ async function embedAllStale(
           if (effectiveSignal.aborted) return;
           recordFailure(result, stale.length, slug, e);
           serr(`\n  Error embedding ${slug}: ${e instanceof Error ? e.message : e}`);
-          noteEmbedQuarantineFailure(key, slug);
+          noteEmbedQuarantineFailure(key, slug); await healAndReportOverLength(engine, slug, keySourceId, e, stale.map(c => c.chunk_text), serr);
+        } finally {
+          const tally = staleProgress.pageDone(census, stale.length); onProgress?.(tally.done, tally.total, result.embedded);
         }
         processedPageKeys.add(key);
         result.pages_processed++;
-        // Use staleCount as the estimated total for progress (not exact after
-        // pagination starts, but directionally correct).
-        onProgress?.(processedPageKeys.size, Math.ceil(staleCount / PAGE_SIZE) * keys.length, result.embedded);
         // Cooperative DB-contention pace between keys (no-op when unpaced).
         // E-4 (Codex P1): pace() is subject to the EXTERNAL abort only, NOT the
         // wall-clock budget — a contended DB's sleep must not be cut by the
@@ -2156,18 +2166,6 @@ async function embedAllStale(
       serr(`\n  [embed] catch-up finished but ${remaining} chunk(s) remain stale after ${result.failures} embed failure(s). These are not embeddable as-is; re-running won't clear them until the underlying error is resolved.`);
     }
   }
-}
-
-/** Walk the cause chain (like detect429FromCause) for the first HTTP status. */
-function statusFromCause(e: unknown): number | undefined {
-  let cur: unknown = e;
-  for (let depth = 0; depth < 5 && cur !== undefined && cur !== null; depth++) {
-    const obj = cur as { status?: unknown; statusCode?: unknown; cause?: unknown };
-    if (typeof obj.status === 'number') return obj.status;
-    if (typeof obj.statusCode === 'number') return obj.statusCode;
-    cur = obj.cause;
-  }
-  return undefined;
 }
 
 /**

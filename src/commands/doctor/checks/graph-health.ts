@@ -318,6 +318,7 @@ export const timelineHistoryEntry: DoctorEntry = {
     'writer_version',
     'self_capture',
     'vector_plan',
+    'keyword_plan',
     'stale_embedding_effects',
     'google_file_modes',
     'extractor_facts_expired',
@@ -326,6 +327,7 @@ export const timelineHistoryEntry: DoctorEntry = {
     'captured_facts_active',
     'loop_facts_drift',
     'ontology_facts_fenced',
+    'stale_frontmatter_keys',
   ],
   run: runTimelineHistory,
 };

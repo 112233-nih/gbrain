@@ -3,6 +3,9 @@
 Each accepted mutation has a durable request UUID scoped to one brain and one
 authenticated principal. A response distinguishes acceptance from commitment.
 Keep the UUID and original arguments until the request reaches a terminal state.
+A caller may send any `request_id` of 1 to 128 printable ASCII characters; a
+non-UUID id maps to a deterministic UUID, receipts echo the original as
+`client_request_id`, and the receipt helpers accept either.
 
 **Say to your agent:** *"Update this page without overwriting a newer revision;
 use `get_page` and `put_page`, then check the durable receipt."* Or: *"Inspect my
@@ -13,8 +16,8 @@ the setup."*
 
 Read an existing page with `get_page` and `include_content: true`. Preserve its
 complete `content`, `revision`, and source. Send the edited complete content to
-`put_page` with `expected_revision` equal to that revision and a newly generated
-`request_id` UUID. Capture replacements, delete, restore, and version revert also
+`put_page` with `expected_revision` equal to that revision and a new
+`request_id` (or none). Capture replacements, delete, restore, and version revert also
 accept the revision precondition. `force: true` is an explicit overwrite choice;
 it is mutually exclusive with `expected_revision`.
 
@@ -283,6 +286,17 @@ cycle's lint phase repairs anything. `gbrain config set cycle.lint_fix false`
 makes it report-only on any brain (`details.lint_fix: false`, phase `warn`
 while issues remain); `gbrain config set cycle.lint_fix true` turns repairs
 back on. An explicit `gbrain lint <dir> --fix` is not affected.
+
+**Turn the lint phase off entirely:** `cycle.lint.enabled` (default `true`)
+is the off switch for the cycle's lint phase. A brain whose page contract
+differs from `gbrain lint`'s rules (its own frontmatter checks in write hooks
+or CI, say) otherwise carries a lint warning on every cycle that nothing can
+clear. `gbrain config set cycle.lint.enabled false` makes the phase report
+`skipped` (`details.reason: disabled`, with the enable command in
+`details.enable_hint`) without reading a single file; `gbrain dream --phase
+lint --once` runs it once while it is off; `gbrain config set
+cycle.lint.enabled true` turns it back on. `gbrain lint <dir>` and the
+`lint`/`lint-fix` minion jobs are not affected.
 
 **Skip files the cycle should not lint:** `cycle.lint_exclude` (string, default
 unset = exclude nothing) is a comma-separated list of directory or file

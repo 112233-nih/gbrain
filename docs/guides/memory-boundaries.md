@@ -66,6 +66,11 @@ for an edge needed immediately, then verify it with `get_links` or a graph query
 Check the write receipt and the graph separately; a saved page is not proof of
 graph reconciliation. See [graph setup](../../INSTALL_FOR_AGENTS.md#step-45-wire-the-knowledge-graph).
 
+A timeline entry has no update or remove operation: `add_timeline_entry`
+returns the rendered bullet, and editing or deleting that bullet in the page's
+Timeline section through `edit_page` (with `expected_revision`) refreshes or
+removes its row, because the page is the system of record for timeline rows.
+
 ## Where text goes
 
 Local storage does not mean every enabled feature runs locally. Keyless keyword
@@ -90,6 +95,23 @@ Read [brains and sources](../architecture/brains-and-sources.md#what-confines-re
 before choosing a sharing topology. Tests cover specific boundaries, not a
 universal security guarantee.
 
+<a id="fence-markers-in-code"></a>
+**Fence markers quoted in code.** Since 0.60.97.0 the readers (the fence
+parser, projections, repair) ignore a takes or facts fence marker that sits in
+inline code or inside a fenced code block, and since 0.60.162.0 a marker
+written into a cell is encoded, never live, so documenting the marker no longer
+creates a phantom fence (#5395). The remote privacy boundary deliberately does
+not follow: `sanitizeRemoteBody` still treats the first begin marker it sees,
+quoted or not, as the start of a protected region and hides everything after
+it from remote readers, and a remote whole-page replace of a page with an
+unpaired quoted marker is refused with "The takes fence must be repaired before
+replacing this page." The boundary only ever changes toward hiding more; a
+remote reader that cannot see the tail of a page that quotes the marker is
+seeing that rule, not a bug. To publish such a page remotely, write the marker
+in a form the scanner does not match (split it, or describe it) or move the
+mention after the real fence. Pinned by `test/fence-marker-code-context.test.ts`
+("remote privacy boundary" and "remote page replacement").
+
 Markdown export is a portable view of pages, **not a full database backup**.
 DB-only facts and pages, revision history, withdrawal state, jobs, settings, and
 authentication records may not be recoverable from Markdown. Use the engine's
@@ -103,6 +125,23 @@ and [isolated local backup guide](in-agent-setup.md#6-back-up-the-complete-local
 `forget` **expires**: the fact stops being recalled, cannot be saved again in
 the same source and visibility, and its row is struck in the page's Markdown.
 The text stays in the row, the file, page history and backups.
+
+Automatic extraction (sync import, `put_page`, `extract_facts`, the sweep)
+skips a candidate whose exact claim was forgotten in that source and visibility
+and still saves the other facts it found about the same entity; the entity and
+completion write receipts and the extraction result count the skips as
+`withdrawn_skipped`, and a group of only forgotten claims completes with nothing
+inserted. Explicitly remembering the forgotten claim still refuses with
+`fact_withdrawn`, and a purge tombstone still refuses the whole write with
+`purged_content`. A claim forgotten after an extraction's facts were prepared
+refuses that entity's write with `revision_conflict` and a detail naming the
+withdrawal; nothing is published. An extraction keyed by its input alone (sync
+import or the sweep, which have no request id) recovers on its next run from
+such a refusal, and from a batch an older release refused for a forgotten
+claim, by re-admitting the retained facts without another model call (at most
+three follow-ups per batch, each visible as its own write receipt; the refused
+receipts stay as they were). An extraction admitted under a request id replays
+its receipt; give it a new `request_id` to extract again.
 
 `gbrain forget <id> --purge` **purges**: an owner-only command on the brain
 host that removes the claim from the live stores gbrain controls and returns a

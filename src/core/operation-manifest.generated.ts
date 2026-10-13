@@ -30,7 +30,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "request_id": {
         "type": "string",
-        "description": "UUID; retry with it on timeout."
+        "description": "Reuse only to retry."
       },
       "content_origin": {
         "type": "string",
@@ -94,7 +94,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "replaces": {
         "type": "string",
-        "description": "fact_id this fact replaces (same entity).",
+        "description": "fact_id this fact replaces (same entity, or none).",
         "fullSurfaceOnly": true
       }
     },
@@ -118,12 +118,18 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "mutating": false,
     "idempotent": true,
     "outputRedaction": "retrieval",
-    "description": "MEMORY VERB (v1): person/company/account card, zero LLM. Previews are not evidence: fetch the page before stating status or dates. Miss: found:false with near matches and create_safety. Facts: recall.",
+    "description": "MEMORY VERB (v1): person/company/account card, zero LLM. Previews are not evidence: fetch the page before stating status or dates. Miss: found:false with near matches (create_safety). Facts: recall.",
     "params": {
       "name": {
         "type": "string",
-        "required": true,
-        "description": "Name, alias or slug (e.g. \"Alice Example\")."
+        "description": "Name, alias or slug."
+      },
+      "names": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Or up to 50 names/codes at once: compact rows."
       }
     },
     "scope": "read",
@@ -183,7 +189,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "UUID; retry with it on timeout."
+        "description": "Reuse only to retry."
       },
       "id": {
         "type": "string",
@@ -300,7 +306,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "request_id": {
         "type": "string",
-        "description": "UUID; retry with it on timeout."
+        "description": "Reuse only to retry."
       },
       "content_origin": {
         "type": "string",
@@ -367,7 +373,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "delete_page",
     "idempotent": true,
     "outputRedaction": "no_stored_text",
-    "description": "Soft-delete a page and remove its markdown file from the source working tree (the source local_path, or sync.repo_path when the source has none). File removal is skipped when sync.write_through is off; the committed receipt reports the persistence mode and write_through outcome. Read the page revision first and pass expected_revision; retain request_id for replay. The row is hidden from search and from get_page/list_pages, but is recoverable via restore_page within 72h, which re-creates the file. The autopilot purge phase hard-deletes after the recovery window. Pass include_deleted: true to get_page to verify the soft-delete landed. purge: true is trusted-local CLI only and removes the row, chunks, links and raw data immediately after its recorded markdown artifact is removed. Purge uses the same revision, request_id and recovery protocol, including for existing tombstones. A removal failure preserves the prior row and never reports purge success; repair the artifact and submit a new request_id. A committed purge warns that git history, synced copies, exports and derived rows may retain content; rotate exposed credentials.",
+    "description": "Soft-delete a page and remove its markdown file from the source working tree (the source local_path, or sync.repo_path when the source has none). File removal is skipped when sync.write_through is off; the committed receipt reports the persistence mode and write_through outcome. Read the page revision first and pass expected_revision; retain request_id for replay. The row is hidden from search and from get_page/list_pages, but is recoverable via restore_page within 72h, which re-creates the file. The autopilot purge phase hard-deletes after the recovery window. Pass include_deleted: true to get_page to verify the soft-delete landed. A page whose file another live page of the source records is hidden without touching that file (receipt write_through.skipped: shared_origin): the file and the surviving page remain, nothing is erased, and the next sync imports the file's current content into the surviving page. purge: true is trusted-local CLI only and removes the row, chunks, links and raw data immediately after its recorded markdown artifact is removed. Purge uses the same revision, request_id and recovery protocol, including for existing tombstones. A removal failure preserves the prior row and never reports purge success; repair the artifact and submit a new request_id. A purge of a page whose file is shared refuses and names the soft delete. A committed purge warns that git history, synced copies, exports and derived rows may retain content; rotate exposed credentials.",
     "params": {
       "source_id": {
         "type": "string",
@@ -383,7 +389,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "request_id": {
         "type": "string",
-        "description": "UUID; retry with it on timeout."
+        "description": "Reuse only to retry."
       },
       "slug": {
         "type": "string",
@@ -409,7 +415,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "list_pages",
     "idempotent": true,
     "outputRedaction": "retrieval",
-    "description": "List pages with filters. For 'what's recent / what did I touch this week' use sort=updated_desc. Default 50 rows (remote max 100); a full page may be truncated: continue with updated_after + updated_after_slug from the last row.",
+    "description": "List pages with filters. For 'what's recent / what did I touch this week' use sort=updated_desc. Default 50 rows; truncated: continue with updated_after + updated_after_slug from the last row.",
     "params": {
       "type": {
         "type": "string",
@@ -429,7 +435,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "updated_after": {
         "type": "string",
-        "description": "Only pages updated after this ISO time."
+        "description": "Pages updated after this ISO time."
       },
       "updated_after_slug": {
         "type": "string",
@@ -481,7 +487,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "request_id": {
         "type": "string",
-        "description": "UUID; retry with it on timeout."
+        "description": "Reuse only to retry."
       },
       "slug": {
         "type": "string",
@@ -536,7 +542,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "capture",
     "idempotent": true,
     "outputRedaction": "no_stored_text",
-    "description": "Quick note (\"just remember this\"): auto-slugged under inbox/ by date + content hash, so recapturing is idempotent. Use put_page to control slug or type; remember for facts about entities.",
+    "description": "Quick note (\"just remember this\"): slugged under inbox/ by date + content hash, so recapturing is idempotent. put_page controls slug or type; remember is for facts about entities.",
     "params": {
       "source_id": {
         "type": "string",
@@ -552,7 +558,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "request_id": {
         "type": "string",
-        "description": "UUID; retry with it on timeout."
+        "description": "Reuse only to retry."
       },
       "content_origin": {
         "type": "string",
@@ -584,6 +590,24 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
         "type": "string",
         "description": "Event depth page to link."
       },
+      "source_kind": {
+        "type": "string",
+        "required": false,
+        "fullSurfaceOnly": true,
+        "description": "Trusted local CLI provenance (capture-cli); a remote caller's value is replaced by the server-stamped mcp:capture."
+      },
+      "source_uri": {
+        "type": "string",
+        "required": false,
+        "fullSurfaceOnly": true,
+        "description": "Trusted local CLI provenance (stdin, cli-positional); a remote caller's value is replaced by the server-stamped mcp:capture."
+      },
+      "ingested_via": {
+        "type": "string",
+        "required": false,
+        "fullSurfaceOnly": true,
+        "description": "Trusted local CLI provenance (capture-cli); a remote caller's value is replaced by the server-stamped mcp:capture."
+      },
       "content": {
         "type": "string",
         "required": true,
@@ -602,7 +626,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       "type": {
         "type": "string",
         "required": false,
-        "description": "Schema-pack page type (default note)."
+        "description": "Page type (default note)."
       }
     },
     "scope": "write",
@@ -670,7 +694,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       "expected_revision": {
         "type": "string",
         "required": true,
-        "description": "revision from get_page include_content:true."
+        "description": "From get_page include_content:true."
       },
       "edits": {
         "type": "array",
@@ -682,7 +706,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
             "old_text": {
               "type": "string",
               "required": true,
-              "description": "Exact text to replace (must occur once)."
+              "description": "Exact text to replace."
             },
             "new_text": {
               "type": "string",
@@ -698,7 +722,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "request_id": {
         "type": "string",
-        "description": "UUID; retry with it on timeout."
+        "description": "Reuse only to retry."
       }
     },
     "mutating": true,
@@ -709,7 +733,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "put_pages",
     "idempotent": true,
     "outputRedaction": "no_stored_text",
-    "description": "Write up to 50 complete Markdown pages (8 MB total) in one call; use instead of put_page for more than 3 pages. Each page replaces its whole page, like put_page. Keep one request_id UUID per batch: replaying the identical call never writes twice, and put_pages with ONLY request_id reports progress without resending content. Waits up to wait_ms (default 25000) for commits; follow the returned `next`. Needs put_page permission.",
+    "description": "Write up to 50 complete Markdown pages (8 MB total) in one call; use instead of put_page for more than 3 pages. Each page replaces its whole page, like put_page. Keep one request_id per batch: replaying the identical call never writes twice, and put_pages with ONLY request_id reports progress without resending content. Waits up to wait_ms (default 25000) for commits; follow the returned `next`. Needs put_page permission.",
     "params": {
       "pages": {
         "type": "array",
@@ -744,7 +768,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "request_id": {
         "type": "string",
-        "description": "Batch UUID; reuse it to replay or poll.",
+        "description": "Batch id; reuse only to replay or poll.",
         "required": true
       },
       "source_id": {
@@ -767,12 +791,12 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "get_write_request",
     "idempotent": true,
     "outputRedaction": "no_stored_text",
-    "description": "Read your write's receipt by request_id (after write_pending or a lost reply). Poll at retry_after_ms until final.",
+    "description": "Your write's receipt by request_id (after write_pending or a lost reply). Poll at retry_after_ms until final.",
     "params": {
       "request_id": {
         "type": "string",
         "required": true,
-        "description": "The UUID you sent with the write."
+        "description": "The id you sent, or the receipt's."
       }
     },
     "scope": "write",
@@ -789,7 +813,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "list_write_requests",
     "idempotent": true,
     "outputRedaction": "no_stored_text",
-    "description": "List your write receipts in one source, newest first. Use when a request_id was lost.",
+    "description": "Your write receipts in one source, newest first (for a lost request_id).",
     "params": {
       "source_id": {
         "type": "string",
@@ -802,7 +826,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "before": {
         "type": "string",
-        "description": "next cursor from the previous page."
+        "description": "Previous page's next cursor."
       }
     },
     "scope": "write",
@@ -816,12 +840,12 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "cancel_write_request",
     "idempotent": true,
     "outputRedaction": "no_stored_text",
-    "description": "Cancel your accepted write before it publishes. Returns the actual receipt.",
+    "description": "Cancel your accepted write before it publishes; returns the receipt.",
     "params": {
       "request_id": {
         "type": "string",
         "required": true,
-        "description": "The UUID you sent with the write."
+        "description": "The id you sent, or the receipt's."
       }
     },
     "scope": "write",
@@ -838,7 +862,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "search",
     "idempotent": true,
     "outputRedaction": "retrieval",
-    "description": "Cheap hybrid search (vector + keyword), no LLM expansion, top 20: for exact tokens, names, field values. Results are NOT proof of coverage: concepts or landscape, use `query`; exhaustive lists, list_pages. return_unit returns whole sections or conversations. Personal: get_recent_salience; saved facts: recall. fields: \"full\" adds diagnostics.",
+    "description": "Cheap hybrid search, no LLM expansion, top 20: exact tokens, names, field values. NOT proof of coverage; match: \"keyword\" pages every keyword match and takes OR across quoted names or codes (\"A\" OR \"B\" OR …): one call lists every page matching any. Name lists: entity names. Concepts/landscape or people/companies/projects by topic: `query`; lists: list_pages; personal: get_recent_salience. return_unit: sections or conversations. fields: \"full\" adds diagnostics.",
     "params": {
       "query": {
         "type": "string",
@@ -847,11 +871,23 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "limit": {
         "type": "number",
-        "description": "Max results (default 20)."
+        "description": "Default 20."
       },
       "offset": {
         "type": "number",
         "description": "Rows to skip."
+      },
+      "match": {
+        "type": "string",
+        "enum": [
+          "hybrid",
+          "keyword"
+        ],
+        "description": "keyword: every match, paged."
+      },
+      "cursor": {
+        "type": "string",
+        "description": "From next."
       },
       "mode": {
         "type": "string",
@@ -870,7 +906,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "snippet_chars": {
         "type": "number",
-        "description": "Max chars per chunk_text (0 = full)."
+        "description": "Chars per row (0 = full)."
       },
       "return_unit": {
         "type": "string",
@@ -881,15 +917,15 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
           "page",
           "auto"
         ],
-        "description": "auto (default) returns whole conversations."
+        "description": "Default auto: whole conversations."
       },
       "return_window": {
         "type": "number",
-        "description": "Neighbor chunks each side for window (1-3)."
+        "description": "Window radius 1-3."
       },
       "token_budget": {
         "type": "number",
-        "description": "Evidence token cap (default 6000)."
+        "description": "Default 6000."
       },
       "salience": {
         "type": "string",
@@ -898,7 +934,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
           "on",
           "strong"
         ],
-        "description": "Boost emotional pages (default: auto)."
+        "description": "Boost emotional pages."
       },
       "recency": {
         "type": "string",
@@ -907,7 +943,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
           "on",
           "strong"
         ],
-        "description": "Boost recent pages (default: auto)."
+        "description": "Boost recent pages."
       },
       "fields": {
         "type": "string",
@@ -945,7 +981,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "query",
     "idempotent": true,
     "outputRedaction": "retrieval",
-    "description": "Hybrid search plus multi-query expansion for concept/landscape questions (expansion recovers synonym phrasings). Still top-K; return_unit returns whole sections/conversations. Lists: list_pages. Exact tokens: `search` is cheaper (no LLM call). Personal: get_recent_salience, find_anomalies; host transcripts: `gbrain transcripts recent`. Do NOT assume 'crazy' means impressive (often difficult or emotionally charged). Needs an embedding key (else keyword-only); expansion needs a chat key. Fact rows aren't pages: use follow_up. fields: \"full\" adds diagnostics.",
+    "description": "Hybrid search for concept/landscape questions and people/companies/projects by topic; expand adds multi-query expansion (expansion recovers synonyms). Still top-K; return_unit: sections or conversations. Lists: list_pages. Exact tokens: `search` is cheaper (no LLM call). Personal: get_recent_salience, find_anomalies; transcripts: `gbrain transcripts recent`. Do NOT assume 'crazy' means impressive (often difficult or emotionally charged). Needs an embedding key (else keyword-only); expansion needs a chat key. Fact rows: use follow_up. fields: \"full\" adds diagnostics.",
     "params": {
       "query": {
         "type": "string",
@@ -977,7 +1013,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "snippet_chars": {
         "type": "number",
-        "description": "Max chars per chunk_text (0 = full)."
+        "description": "Chars per row (0 = full)."
       },
       "return_unit": {
         "type": "string",
@@ -988,11 +1024,11 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
           "page",
           "auto"
         ],
-        "description": "auto (default) returns whole conversations."
+        "description": "Default auto: whole conversations."
       },
       "return_window": {
         "type": "number",
-        "description": "Neighbor chunks each side for window (1-3)."
+        "description": "Window radius 1-3."
       },
       "token_budget": {
         "type": "number",
@@ -1000,7 +1036,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "expand": {
         "type": "boolean",
-        "description": "Default true; false skips the LLM expansion."
+        "description": "Default per search mode (tokenmax on)."
       },
       "detail": {
         "type": "string",
@@ -1041,7 +1077,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
           "on",
           "strong"
         ],
-        "description": "Boost emotional pages (default: auto)."
+        "description": "Boost emotional pages."
       },
       "recency": {
         "type": "string",
@@ -1050,7 +1086,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
           "on",
           "strong"
         ],
-        "description": "Boost recent pages (default: auto)."
+        "description": "Boost recent pages."
       },
       "since": {
         "type": "string",
@@ -1080,11 +1116,11 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "adaptive_return": {
         "type": "boolean",
-        "description": "true when one answer is wanted (fewer rows; never returns empty); omit for breadth."
+        "description": "true for one answer (fewer rows, never empty); omit for breadth."
       },
       "autocut": {
         "type": "boolean",
-        "description": "Default on (never returns empty); false gives full top-K for breadth, unlike adaptive_return."
+        "description": "Default on (never empty); false: full top-K for breadth."
       },
       "relational": {
         "type": "boolean",
@@ -1151,7 +1187,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "return_window": {
         "type": "number",
-        "description": "Neighbor chunks each side for window (1-3)."
+        "description": "Window radius 1-3."
       },
       "token_budget": {
         "type": "number",
@@ -1323,7 +1359,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "UUID; retry with it on timeout."
+        "description": "Reuse only to retry."
       },
       "expected_revision": {
         "type": "string",
@@ -1365,7 +1401,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "UUID; retry with it on timeout."
+        "description": "Reuse only to retry."
       },
       "expected_revision": {
         "type": "string",
@@ -1631,7 +1667,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "mutating": false,
     "idempotent": true,
     "outputRedaction": "no_stored_text",
-    "description": "Link provenances in the brain (e.g. markdown, manual) with edge counts.",
+    "description": "Link provenances (e.g. markdown, manual) with their edge counts.",
     "params": {},
     "scope": "read",
     "cliHints": {
@@ -1644,7 +1680,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "mutating": false,
     "idempotent": true,
     "outputRedaction": "retrieval",
-    "description": "Walk the link graph from a page. Remote callers get bidirectional paths at depth 2 by default.",
+    "description": "Walk the link graph from a page. Remote default: both directions, depth 2.",
     "params": {
       "slug": {
         "type": "string",
@@ -1657,7 +1693,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "link_type": {
         "type": "string",
-        "description": "Follow only this link type."
+        "description": "Only this link type."
       },
       "direction": {
         "type": "string",
@@ -1737,11 +1773,11 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "add_timeline_entry",
     "idempotent": true,
     "outputRedaction": "retrieval",
-    "description": "Append a dated entry to a page timeline. Replaying the same entry changes nothing. A page's Timeline section needs no call.",
+    "description": "Append a dated entry to a page timeline. Replays change nothing; the Timeline section needs no call. To change or remove one, edit its bullet via edit_page with expected_revision.",
     "params": {
       "request_id": {
         "type": "string",
-        "description": "UUID; retry with it on timeout."
+        "description": "Reuse only to retry."
       },
       "expected_revision": {
         "type": "string",
@@ -1770,11 +1806,11 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "detail": {
         "type": "string",
-        "description": "Longer text."
+        "description": "Details."
       },
       "source": {
         "type": "string",
-        "description": "Provenance slug or URL."
+        "description": "Source slug or URL."
       }
     },
     "mutating": true,
@@ -1794,7 +1830,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "mutating": false,
     "idempotent": true,
     "outputRedaction": "retrieval",
-    "description": "Get timeline entries for a page, optionally filtered by date window",
+    "description": "Get timeline entries for a page, optionally filtered by date window. To change or remove an entry, edit its bullet in the page's Timeline section with edit_page (expected_revision from get_page include_content:true): the row follows the page.",
     "params": {
       "slug": {
         "type": "string",
@@ -1933,7 +1969,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "request_id": {
         "type": "string",
-        "description": "UUID; retry with it on timeout."
+        "description": "Reuse only to retry."
       },
       "slug": {
         "type": "string",
@@ -2063,7 +2099,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "limit": {
         "type": "number",
-        "description": "Version 2 page size (1-100)."
+        "description": "Page size or rank cap (1-100)."
       },
       "cursor": {
         "type": "string",
@@ -2076,6 +2112,11 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       "section": {
         "type": "string",
         "description": "Only this routing section."
+      },
+      "query": {
+        "type": "string",
+        "description": "Version 1 host catalog: rank skills by word overlap with this task (name, triggers, description), drop the rest, cap at limit (default 10). Refused on a shared catalog.",
+        "fullSurfaceOnly": true
       }
     },
     "scope": "read",
@@ -2105,7 +2146,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "expected_brain_id": {
         "type": "string",
-        "description": "Version 2 brain id to assert."
+        "description": "Brain id to assert."
       },
       "source_incarnation": {
         "type": "string",
@@ -2125,7 +2166,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "source_id": {
         "type": "string",
-        "description": "Fetch a brain-resident pack skill from this source."
+        "description": "Brain-resident pack skill from this source."
       }
     },
     "scope": "read",
@@ -2144,7 +2185,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "outputRedaction": {
       "exempt": "skill catalog files are installed instructions read verbatim; redaction would corrupt approved revisions"
     },
-    "description": "Skillpacks this brain ships, with skills and a scaffold spec to offer the user.",
+    "description": "Skillpacks this brain ships: skills and a scaffold spec to offer the user.",
     "publishGateKey": "mcp.publish_skills",
     "params": {},
     "scope": "read",
@@ -2182,7 +2223,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
   },
   {
     "name": "get_skill_asset",
-    "description": "Read an approved file from an exact skill revision (data only; never executed).",
+    "description": "Read an approved file from an exact skill revision (data, never executed).",
     "mutating": false,
     "idempotent": true,
     "outputRedaction": {
@@ -2779,7 +2820,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       "partial": {
         "type": "string",
         "required": true,
-        "description": "Partial slug or title, e.g. 'alice-ex'."
+        "description": "Partial slug or title."
       },
       "source_id": {
         "type": "string",
@@ -2859,7 +2900,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "mutating": false,
     "idempotent": true,
     "outputRedaction": "retrieval",
-    "description": "Recent ingestion log entries. Use when checking what was already imported.",
+    "description": "Recent ingestion log entries: what was already imported, and when.",
     "params": {
       "limit": {
         "type": "number",
@@ -3530,7 +3571,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "UUID; retry with it on timeout."
+        "description": "Reuse only to retry."
       },
       "expected_revision": {
         "type": "string",
@@ -3600,7 +3641,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "UUID; retry with it on timeout."
+        "description": "Reuse only to retry."
       },
       "expected_revision": {
         "type": "string",
@@ -3654,7 +3695,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "UUID; retry with it on timeout."
+        "description": "Reuse only to retry."
       },
       "expected_revision": {
         "type": "string",
@@ -3724,7 +3765,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "UUID; retry with it on timeout."
+        "description": "Reuse only to retry."
       },
       "expected_revision": {
         "type": "string",
@@ -3799,7 +3840,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "UUID; retry with it on timeout."
+        "description": "Reuse only to retry."
       },
       "expected_revision": {
         "type": "string",
@@ -3841,7 +3882,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "UUID; retry with it on timeout."
+        "description": "Reuse only to retry."
       },
       "slug": {
         "type": "string",
@@ -4028,7 +4069,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "name": "request_tools",
     "idempotent": false,
     "outputRedaction": "no_stored_text",
-    "description": "More tools: no arguments lists your catalog; {tools: [names]} returns schemas; {surface} widens it (per OAuth client; stdio: this session).",
+    "description": "More tools: no arguments lists your catalog; {tools: [names]} returns schemas; {surface} widens it (per client or stdio session).",
     "area": "discovery",
     "agentCallable": true,
     "params": {
@@ -4038,7 +4079,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
           "type": "string",
           "description": "A tool name from the catalog."
         },
-        "description": "Tool names to fetch schemas for."
+        "description": "Tool names to fetch."
       },
       "surface": {
         "type": "string",
@@ -4071,7 +4112,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "slugPrefix": {
         "type": "string",
-        "description": "Slug prefix, e.g. 'wiki/people'."
+        "description": "Slug prefix."
       },
       "recency_bias": {
         "type": "string",
@@ -4777,7 +4818,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "UUID; retry with it on timeout. Managed extraction returns durable receipts; when omitted, each call gets a new UUID. Unmanaged extraction retains its legacy non-journaled behavior."
+        "description": "Reuse only to retry. Managed extraction returns durable receipts; when omitted, each call gets a new UUID. Unmanaged extraction retains its legacy non-journaled behavior."
       },
       "turn_text": {
         "type": "string",
@@ -4945,7 +4986,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "since": {
         "type": "string",
-        "description": "Only open-thread events after this ISO time."
+        "description": "Open-thread events after this ISO time."
       },
       "session_id": {
         "type": "string",
@@ -5059,7 +5100,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "UUID; retry with it on timeout."
+        "description": "Reuse only to retry."
       },
       "id": {
         "type": "number",
@@ -5084,7 +5125,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "params": {
       "request_id": {
         "type": "string",
-        "description": "UUID; retry with it on timeout."
+        "description": "Reuse only to retry."
       },
       "id": {
         "type": "number",
@@ -6142,12 +6183,12 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
     "mutating": true,
     "idempotent": true,
     "outputRedaction": "no_stored_text",
-    "description": "Stop a coaching or info notice (or first_run_decisions) from appearing for this client; muted: false unmutes.",
+    "description": "Mute a coaching or info notice (or first_run_decisions) for this client.",
     "params": {
       "code": {
         "type": "string",
         "required": true,
-        "description": "Notice code, the word after `[gbrain notice` in the block."
+        "description": "The word after `[gbrain notice` in the block."
       },
       "muted": {
         "type": "boolean",
