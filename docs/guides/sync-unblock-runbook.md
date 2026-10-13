@@ -136,8 +136,13 @@ the root. A cursor refusal is classified by its recorded cause:
 `window_dropped` (a knock-on), or `outside_fence` (a request was not the
 entry its cursor held: a person stops the extra drain and reports it).
 After `sync.knock_on_refreeze_limit` re-freezes at one index (default 3;
-0 turns automatic re-freeze off), or 25 in one run, the run stops with
-`knock_on_exhausted` and names the root.
+0 turns automatic re-freeze off), or after `sync.knock_on_run_limit`
+re-freezes in one sync invocation (default 25), the run stops with
+`knock_on_exhausted` and names the root. The per-index count resets when
+the page commits; the per-invocation count resets on the next sync. A
+checkpoint refused by a receipt that turns out to be a knock-on, or at an
+index the cursor passed without a commit, is re-assessed on every resume and
+commits without rediscovering the manifest.
 
 An unknown code is systemic and human: `gbrain errors <code>` explains it
 offline, `gbrain doctor --json` says what the brain thinks.

@@ -97,12 +97,15 @@ export interface SyncIntent extends Record<string, unknown> {
  * admitted ahead (`window`). FOR KEY SHARE keeps the cursor row in place without blocking the drain's
  * cursor saves, so the next group is admitted while this one publishes.
  */
-interface SyncCursorFence { run_id: string; request_id: string | null; group: string[] | null; index: string | number | null }
+export interface SyncCursorFence { run_id: string; request_id: string | null; group: string[] | null; index: string | number | null;
+  /** #6643: the cursor's record of the window members it dropped (sync-run.ts `Cursor.dropped`). */
+  dropped?: Array<{ requestId: string; root: string | null }> | null }
 async function readSyncCursorFence(tx: BrainEngine, cursorKey: string): Promise<SyncCursorFence | undefined> {
   const [held] = await tx.executeRaw<SyncCursorFence>(
     `SELECT completed_keys->0->>'runId' AS run_id,completed_keys->0->'pending'->>'requestId' AS request_id,completed_keys->0->>'index' AS index,
       (SELECT jsonb_agg(m->>'requestId') FROM (SELECT m FROM jsonb_array_elements(COALESCE(completed_keys->0->'group','[]'::jsonb)) m
-        UNION ALL SELECT m FROM jsonb_array_elements(COALESCE(completed_keys->0->'window','[]'::jsonb)) g, jsonb_array_elements(g) m) members) AS group
+        UNION ALL SELECT m FROM jsonb_array_elements(COALESCE(completed_keys->0->'window','[]'::jsonb)) g, jsonb_array_elements(g) m) members) AS group,
+      completed_keys->0->'dropped' AS dropped
      FROM op_checkpoints WHERE op='managed-sync' AND fingerprint=$1 FOR KEY SHARE`, [cursorKey]);
   return held;
 }
@@ -167,9 +170,11 @@ function syncPublicationRefusal(code: RegistryCode, message: string, row: WriteR
  * #6643: a refusal that is not a failure of its page (a knock-on, or a request whose run another run replaced). Its
  * next step is the status read, never a `--retry-failed` rerun: the next sync pass re-freezes the entry by itself.
  */
-function knockOnRefusal(message: string, row: WriteRequest, cause: string): OperationError {
+function knockOnRefusal(message: string, row: WriteRequest, cause: string, superseded = false): OperationError {
   const status = ['gbrain', 'sync', 'status', '--source', row.source_id, '--json'];
-  return opError('revision_conflict', message, `${cause} Request ${row.request_id} in ${row.source_id} published nothing, and the next sync pass re-freezes its page by itself; `
+  return opError('revision_conflict', message, superseded
+    ? `${cause} Request ${row.request_id} in ${row.source_id} published nothing; the run that replaced its cursor covers its page, and ${status.join(' ')} shows that run. Do not resubmit it.`
+    : `${cause} Request ${row.request_id} in ${row.source_id} published nothing, and the next sync pass re-freezes its page by itself; `
     + `${status.join(' ')} names the request it waited on (root_cause). Do not resubmit it.`,
     { fix: readFix('Shows the sync cursor, the root cause of this refusal and the next step, read-only.', { argv: status }) });
 }
@@ -183,22 +188,24 @@ function withSyncRefusal(error: OperationError, detail: object): OperationError 
 /**
  * #6643: "The accepted sync cursor changed before publication." has three causes, recorded with a fence snapshot:
  * - `run_replaced`: another run of the source replaced the cursor; this request's run is superseded, not failed.
- * - `window_dropped`: the request was admitted ahead of the cursor (its index is past the cursor's) in a window the
- *   cursor dropped after an earlier page did not commit, and validated before that drop reached it (a lane row the
- *   window cancel skipped because it was already claimed). A knock-on of the request the cursor now waits on.
- * - `outside_fence`: anything else (a duplicate admission at or behind the cursor): a coordination fault, a root.
+ * - `window_dropped`: the cursor recorded this request as a member of a window it dropped after an earlier page did
+ *   not commit (a lane row the window cancel skipped because it was already claimed). A knock-on of the request whose
+ *   failure dropped it, as recorded then.
+ * - `outside_fence`: anything else (a duplicate admission, a request ahead of the cursor it never dropped): a
+ *   coordination fault, a root.
  */
-function cursorFenceRefusal(row: WriteRequest, p: SyncIntent, cursor: SyncCursorFence): OperationError {
+export function cursorFenceRefusal(row: WriteRequest, p: SyncIntent, cursor: SyncCursorFence): OperationError {
   const cursorIndex = cursor.index == null ? null : Number(cursor.index);
-  const cause = cursor.run_id !== p.runId ? 'run_replaced'
-    : p.kind !== 'managed_sync_checkpoint' && cursorIndex !== null && Number.isFinite(cursorIndex) && p.index > cursorIndex ? 'window_dropped' : 'outside_fence';
+  const drop = cursor.run_id === p.runId && p.kind !== 'managed_sync_checkpoint' && Array.isArray(cursor.dropped)
+    ? cursor.dropped.find(member => member?.requestId === row.request_id) : undefined;
+  const cause = cursor.run_id !== p.runId ? 'run_replaced' : drop ? 'window_dropped' : 'outside_fence';
   const fence = { run_id: cursor.run_id, expected_run_id: p.runId, request_id: cursor.request_id, members: cursor.group?.length ?? 0, index: cursorIndex, request_index: p.index };
   const error = (cause === 'outside_fence' ? (why: string) => syncPublicationRefusal('revision_conflict', CURSOR_CHANGED_REFUSAL_MESSAGE, row, p, why)
-    : (why: string) => knockOnRefusal(CURSOR_CHANGED_REFUSAL_MESSAGE, row, why))(
+    : (why: string) => knockOnRefusal(CURSOR_CHANGED_REFUSAL_MESSAGE, row, why, cause === 'run_replaced'))(
     cause === 'run_replaced' ? `Another sync run of ${row.source_id} replaced the cursor this request belongs to.`
       : cause === 'window_dropped' ? `Request ${row.request_id} was admitted ahead of the cursor of ${row.source_id}, which dropped it after an earlier page of the same run did not commit.`
         : `Request ${row.request_id} is not the entry the cursor of ${row.source_id} holds (cursor at index ${cursorIndex ?? 'unknown'}, request ${cursor.request_id ?? 'none'}), so it must not publish.`);
-  return withSyncRefusal(error, cause === 'window_dropped' ? { ...knockOnDetail('window_dropped', cursor.request_id), cause, fence }
+  return withSyncRefusal(error, cause === 'window_dropped' ? { ...knockOnDetail('window_dropped', drop?.root ?? null), cause, fence }
     : { origin: SYNC_CURSOR_FENCE_ORIGIN, cause, fence });
 }
 

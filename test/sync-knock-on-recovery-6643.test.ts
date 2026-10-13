@@ -25,6 +25,8 @@ import { BULK_GROUP_CANCEL_MESSAGE, EARLIER_PAGE_REFUSAL_MESSAGE, isSyncKnockOn,
   syncKnockOnSql } from '../src/core/persistence/sync-knock-on.ts';
 import { CODES } from '../src/core/error-registry.ts';
 import { addSettledRange, findIncompleteSyncReceipt } from '../src/core/persistence/checkpoint-validation.ts';
+import { publicFailureDetail } from '../src/core/persistence/publication-failure.ts';
+import { cursorFenceRefusal } from '../src/core/persistence/sync-prepare.ts';
 import { withEnv } from './helpers/with-env.ts';
 
 const home = mkdtempSync(join(tmpdir(), 'gbrain-6643-'));
@@ -213,14 +215,67 @@ for (const retryFailed of [false, true]) test(`a checkpoint refused by a receipt
     const refused = await performManagedSync(engine, f.opts);
     expect(refused.status).toBe('blocked_by_failures');
     expect(refused.failures?.[0]).toMatchObject({ code: 'recovery_required', phase: 'checkpoint', root_cause: { request_id: f.stopped } });
-    const runId = (await readSyncStatus(engine, f.id)).run_id;
-    // The receipt that refused it was a knock-on all along (a pre-#6643 producer's message).
+    const before = await readSyncStatus(engine, f.id);
+    const runId = before.run_id;
+    expect(before.checkpoint_blockers).toEqual([expect.objectContaining({ request_id: f.stopped, slug: 'b', knock_on: false })]);
+    // The receipt that refused it was a knock-on all along (a pre-#6643 producer's message): status previews that nothing blocks now.
     await asKnockOn(f.stopped, WINDOW_CANCEL_MESSAGE, null);
+    expect((await readSyncStatus(engine, f.id)).checkpoint_blockers).toEqual([]);
     const revived = await performManagedSync(engine, { ...f.opts, retryFailed });
     expect(revived.status).not.toBe('blocked_by_failures');
     const status = await readSyncStatus(engine, f.id);
     expect(status).toMatchObject({ run_id: runId, cursor: { done: true } });
     const [source] = await engine.executeRaw<{ last_commit: string }>('SELECT last_commit FROM sources WHERE id=$1', [f.id]);
     expect(source!.last_commit).toBe(git(f.root, 'rev-parse', 'HEAD'));
+  } finally { await clearConfig(); }
+}), 120_000);
+
+test('a stop on an outside_fence refusal is a root that needs a person in sync status, not a retryable revision_conflict', async () => withEnv({ GBRAIN_HOME: home, GBRAIN_SYNC_FAILURES_DIR: home }, async () => {
+  expect(publicFailureDetail({ origin: 'sync_cursor_fence', cause: 'outside_fence', fence: { index: 3 } })).toMatchObject({ cause: 'outside_fence' });
+  expect(publicFailureDetail({ origin: 'sync_cursor_fence', cause: 'anything else' })).not.toHaveProperty('cause');
+  try {
+    const f = await stoppedRun();
+    await engine.executeRaw(`UPDATE op_checkpoints SET completed_keys=jsonb_set(jsonb_set(completed_keys,'{0,code}','"revision_conflict"'),'{0,write_error_detail}',$1::jsonb)
+      WHERE op='managed-sync-failure' AND completed_keys->0->>'source_id'=$2`, [JSON.stringify({ origin: 'sync_cursor_fence', cause: 'outside_fence' }), f.id]);
+    const status = await readSyncStatus(engine, f.id);
+    expect(status.last_error).toMatchObject({ code: 'revision_conflict', detail: 'outside_fence', class: 'systemic', needs_human: true });
+    expect(status.needs_human).toBe(true);
+    expect(status.next?.argv).not.toContain('--retry-failed');
+    expect(status.cursors).toHaveLength(1);
+    expect(status.cursors[0]).toMatchObject({ run_id: status.run_id, shown: true, done: false, pending: { request_id: f.stopped } });
+  } finally { await clearConfig(); }
+}), 120_000);
+
+test('the cursor fence names window_dropped only for a member the cursor recorded dropping, with the root recorded then', () => {
+  const run = randomUUID(), root = randomUUID(), member = randomUUID(), stray = randomUUID(), now = randomUUID();
+  const row = (id: string) => ({ request_id: id, source_id: 'default' }) as never;
+  const intent = { kind: 'managed_sync_import', runId: run, index: 7 } as never;
+  const fence = { run_id: run, request_id: now, group: null, index: 3, dropped: [{ requestId: member, root }] };
+  const detail = (id: string, f: typeof fence) => cursorFenceRefusal(row(id), intent, f).syncRefusal as Record<string, unknown>;
+  // A dropped member is a knock-on of the request whose failure dropped it, not of whatever the cursor holds now.
+  expect(detail(member, fence)).toMatchObject({ cause: 'window_dropped', origin: 'sync_knock_on', root_request_id: root });
+  // A request ahead of the cursor that it never dropped is a coordination fault, not a knock-on.
+  expect(detail(stray, fence)).toMatchObject({ cause: 'outside_fence', origin: 'sync_cursor_fence' });
+  expect(detail(member, { ...fence, dropped: undefined as never })).toMatchObject({ cause: 'outside_fence' });
+  expect(detail(member, { ...fence, run_id: randomUUID() })).toMatchObject({ cause: 'run_replaced' });
+});
+
+test('with two cursors, sync status shows the one its recorded failure belongs to and lists both', async () => withEnv({ GBRAIN_HOME: home, GBRAIN_SYNC_FAILURES_DIR: home }, async () => {
+  try {
+    const f = await stoppedRun();
+    const blockedRun = (await readSyncStatus(engine, f.id)).run_id!;
+    await clearConfig();
+    // A newer cursor of the same source, selected by different options, runs to the end.
+    const other = await performManagedSync(engine, { ...f.opts, exclude: ['nothing-matches/**'] });
+    expect(other.status).not.toBe('blocked_by_failures');
+    const status = await readSyncStatus(engine, f.id);
+    expect(status.run_id).toBe(blockedRun);
+    expect(status.cursor?.done).toBe(false);
+    expect(status.last_error?.code).toBe('source_changed');
+    expect(status.next?.argv).not.toContain('--exclude');
+    expect(status.cursors).toHaveLength(2);
+    expect(status.cursors.filter(cursor => cursor.shown).map(cursor => cursor.run_id)).toEqual([blockedRun]);
+    expect(status.cursors.find(cursor => !cursor.shown)).toMatchObject({ done: true, last_error_code: null });
+    expect(status.cursors.find(cursor => !cursor.shown)!.resume_argv).toContain('--exclude');
   } finally { await clearConfig(); }
 }), 120_000);

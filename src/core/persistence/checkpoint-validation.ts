@@ -78,6 +78,18 @@ export async function findIncompleteSyncReceipt(tx: Pick<BrainEngine, 'executeRa
   }
 }
 
+/**
+ * #6643: every receipt (up to 20) that would block the run's checkpoint now, with what `sync status` needs to tell a
+ * knock-on from a root; read-only. The checkpoint itself names only the first (`findIncompleteSyncReceipt`).
+ */
+export async function listIncompleteSyncReceipts(engine: Pick<BrainEngine, 'executeRaw'>, worktreeId: string, runId: string, superseded: string[] = [],
+  settled: SyncSettledIndexes | null = null, total = 0): Promise<Array<{ request_id: string; slug: string; state: string; code: string | null; index: number | null; recovery: boolean }>> {
+  const ranges = settled?.ranges ?? [];
+  return engine.executeRaw(`SELECT r.request_id::text AS request_id, r.slug, r.state, r.error_code AS code, (r.intent->>'index')::int AS index, r.recovery IS NOT NULL AS recovery
+      FROM persistence_requests r WHERE r.request_id::text IN (SELECT request_id FROM (${INCOMPLETE_SYNC_RECEIPT_SQL.replaceAll('LIMIT 1', 'LIMIT 20')}) blockers) ORDER BY r.sequence LIMIT 20`,
+    [worktreeId, runId, superseded, ranges.map(range => range[0]), ranges.map(range => range[1]), settled ? settled.from : total]);
+}
+
 /** #6643: `settled` with `[from, to]` added, merged into the last range when contiguous. */
 export function addSettledRange(settled: SyncSettledIndexes, from: number, to: number): SyncSettledIndexes {
   if (to < from) return settled;

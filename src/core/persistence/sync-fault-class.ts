@@ -71,7 +71,7 @@ export const SYNC_FAULT_TABLE: ReadonlyArray<SyncFaultRule> = [
   { code: 'outside_fence', class: 'systemic', safe_actions: ['none'], needs_human: true, escalate: 'always: a request published outside the cursor that admitted it',
     human_reason: 'A sync request was not the entry its cursor held (two drains of one cursor, or a writer defect). gbrain sync status --source <source> --json lists the live cursors; stop the extra drain (gbrain autopilot pause --reason <why>) and report the fence snapshot the error carries.' },
   { code: 'knock_on_exhausted', class: 'systemic', safe_actions: ['none'], needs_human: true, escalate: 'always: re-freezing did not get past the failing page',
-    human_reason: 'The same page kept being cancelled because an earlier page of the sync never committed. Fix the root request the error names, or raise sync.knock_on_refreeze_limit, then rerun the sync; the count resets when the page commits.' },
+    human_reason: 'The same page kept being cancelled because an earlier page of the sync never committed. Fix the root request the error names, or raise sync.knock_on_refreeze_limit (per page) or sync.knock_on_run_limit (per sync), then rerun the sync; the per-page count resets when the page commits.' },
   { code: 'sync_incomplete', class: 'page', safe_actions: ['retry'], needs_human: false, escalate: 'never: an unfinished cursor resumes with the same command' },
   // Connection class: transport only; the cursor and manifest stand.
   { code: 'connection_lost', class: 'connection', safe_actions: ['retry'], needs_human: false, escalate: 'three reruns in a row end connection_lost (the database is unreachable from this host)' },

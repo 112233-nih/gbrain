@@ -103,6 +103,12 @@ interface Cursor extends SyncDiscovery { runId: string; index: number; authority
   settled?: SyncSettledIndexes;
   /** #6643: knock-on re-freezes this run made (the per-run breaker), and checkpoint revivals. */
   knockOns?: number; checkpointRevivals?: number;
+  /**
+   * #6643: the window members this run dropped after an earlier page did not commit, each with the request whose
+   * failure dropped it (newest last, at most `DROPPED_KEPT`). A member already claimed when its window was cancelled
+   * can still validate later; the cursor fence names it a knock-on of `root` only from this record.
+   */
+  dropped?: Array<{ requestId: string; root: string | null }>;
   /** #6278 (1.5): the systemic breaker over this run's `preparation_stalled` receipts; recorded with the cursor CAS that consumes each. */
   breaker?: CursorBreaker;
   /** #5984: the active drain window (reset when a new drain starts), so a backlog ETA never counts downtime. */
@@ -173,6 +179,12 @@ function stampProgress(prior: CursorProgress | undefined, fromIndex: number, ind
 const OP = 'managed-sync';
 type CursorHeader = Omit<Cursor, 'entries' | 'companyPlan'> & { total: number };
 const header = ({ entries, companyPlan: _plan, ...value }: Cursor): CursorHeader => ({ ...value, total: entries.length });
+const DROPPED_KEPT = 512;
+/** #6643: `dropped` with every member of `window` recorded as dropped by `root`. */
+function withDropped(dropped: Cursor['dropped'], window: Pending[][] | undefined, root: string | null): Cursor['dropped'] {
+  const members = (window ?? []).flat().map(member => ({ requestId: member.requestId, root }));
+  return members.length ? [...(dropped ?? []), ...members].slice(-DROPPED_KEPT) : dropped;
+}
 /** A managed sync run stopped before admitting the current entry; the recorded failure lets --retry-failed rediscover. */
 function syncRunRefusal(code: RegistryCode, message: string, retry: Parameters<typeof checkpointRetryCommand>[0], cause: string): OperationError {
   return opError(code, message, `${cause} Pages committed earlier in this run stay committed. Check the source with the command in fix, then run: ${checkpointRetryCommand(retry)}`,
@@ -565,6 +577,8 @@ async function holdUnderGate(engine: BrainEngine, input: { cursor: Cursor; key: 
       const stale = await tx.executeRaw<{ request_id: string }>(`SELECT request_id::text AS request_id FROM persistence_requests WHERE worktree_id=$1::uuid AND intent->>'runId'=$2
         AND ${SYNC_PAGE_KINDS_SQL} AND intent->>'index'=$3 AND state IN ('failed','cancelled','conflict')`, [cursor.binding.worktree_id, cursor.runId, String(cursor.index)]);
       const converted = [...new Set([...(cursor.convertedFromFailed ?? []), ...stale.map(row => row.request_id), pending.requestId])];
+      const dropped = withDropped(cursor.dropped, cursor.window, pending.requestId);
+      if (dropped) base.dropped = dropped;
       const next: Cursor = input.hold ? advanceHeld(base, converted)
         : input.knockOn ? { ...base, convertedFromFailed: converted, knockOns: (cursor.knockOns ?? 0) + 1,
           pending: { ...input.refrozen, ...(pending.converted ? { converted: true as const } : {}), knockOn: input.knockOn } }
@@ -729,7 +743,7 @@ const CHECKPOINT_REVIVAL_LIMIT = 3;
 /**
  * #6643: `sync.knock_on_refreeze_limit`, knock-on re-freezes in a row at one index (default 3; 0 turns automatic
  * re-freeze off), and `sync.knock_on_run_limit`, the most one run makes before it stops with the root cause (default
- * 25, a per-run breaker like `breakerAfter`).
+ * 25 per sync invocation, a breaker like `breakerAfter`; the next invocation starts counting again).
  */
 export async function knockOnLimits(engine: Pick<BrainEngine, 'getConfig'>): Promise<{ perIndex: number; perRun: number }> {
   const read = async (key: string, fallback: number) => {
@@ -741,6 +755,8 @@ export async function knockOnLimits(engine: Pick<BrainEngine, 'getConfig'>): Pro
 }
 
 type SettleInput = Parameters<typeof settleFailedRequest>[1];
+/** #6643: knock-on re-freezes per sync invocation (keyed by its run options object): `sync.knock_on_run_limit` bounds one invocation, and the next starts again. */
+const knockOnsByRun = new WeakMap<object, number>();
 
 /**
  * #6643: the entry of a knock-on (a page cancelled or refused only because another page of its sync did not commit)
@@ -756,9 +772,10 @@ async function recoverKnockOn(engine: BrainEngine, input: SettleInput): Promise<
   if (!entry || entry.path !== pending.intent.path) return null;
   const limits = await knockOnLimits(engine);
   if (limits.perIndex === 0) return null;
-  const attempts = pending.knockOn?.attempts ?? 0, runCount = cursor.knockOns ?? 0;
+  const attempts = pending.knockOn?.attempts ?? 0, runCount = knockOnsByRun.get(input.run) ?? 0;
   if (attempts >= limits.perIndex || runCount >= limits.perRun) return { exhausted: { attempts, limit: limits.perIndex, runCount, runLimit: limits.perRun } };
   const base: Cursor = { ...cursor }; delete base.pending; delete base.group; delete base.window;
+  knockOnsByRun.set(input.run, runCount + 1);
   const refrozen = await freezeEntry(engine, base, key, assertActive, input.run);
   assertActive();
   const observedAt = input.run.observedAt ?? new Date().toISOString();
@@ -769,21 +786,31 @@ async function recoverKnockOn(engine: BrainEngine, input: SettleInput): Promise<
   return gated === 'pending' ? 'pending' : { cursor: gated };
 }
 
+/** #6643: checkpoint revivals per sync invocation (keyed by its run options object), so a refusal loop ends the invocation, never the cursor. */
+const checkpointRevivalsByRun = new WeakMap<object, number>();
+const NOT_FULLY_COMMITTED_MESSAGE = 'The sync cursor is not fully committed.';
+const revivableCheckpointRefusal = (done: Pick<WriteRequest, 'state' | 'error_code' | 'error_message' | 'recovery'>) => !done.recovery
+  && ((done.state === 'failed' && done.error_code === 'recovery_required')
+    || (['failed', 'conflict'].includes(done.state) && done.error_code === 'revision_conflict' && done.error_message === NOT_FULLY_COMMITTED_MESSAGE));
 /**
- * #6643: a checkpoint refused `recovery_required` because a receipt blocked it is re-assessed when the run resumes:
- * when nothing blocks it any more (a knock-on, a receipt at an index the cursor settled), a fresh checkpoint request
- * replaces it by cursor swap. The completed manifest and the old receipt stay as they are. Null when it still blocks.
+ * #6643: a checkpoint refused because a receipt blocked it (`recovery_required`) or because the cursor had not reached
+ * its end yet ("not fully committed") is re-assessed whenever the run resumes: when nothing blocks it any more (a
+ * knock-on, a receipt at an index the cursor settled), a fresh checkpoint request replaces it by cursor swap, and its
+ * publication validates everything again. The completed manifest and the old receipt stay as they are. Null when it
+ * still blocks, or after `CHECKPOINT_REVIVAL_LIMIT` revivals in this invocation (the next invocation re-assesses).
  */
 async function reviveCheckpoint(engine: BrainEngine, input: SettleInput): Promise<Cursor | null> {
   const { cursor, key, pending, done } = input;
-  if (pending.intent.kind !== 'managed_sync_checkpoint' || done.state !== 'failed' || done.error_code !== 'recovery_required' || done.recovery
-    || cursor.index !== cursor.entries.length || (cursor.checkpointRevivals ?? 0) >= CHECKPOINT_REVIVAL_LIMIT) return null;
+  const refused = revivableCheckpointRefusal(done);
+  const revivals = checkpointRevivalsByRun.get(input.run) ?? 0;
+  if (pending.intent.kind !== 'managed_sync_checkpoint' || !refused || done.recovery || cursor.index !== cursor.entries.length || revivals >= CHECKPOINT_REVIVAL_LIMIT) return null;
   const base: Cursor = { ...cursor }; delete base.pending; delete base.group; delete base.window;
   const fresh = await freezeEntry(engine, base, key, input.assertActive, input.run);
   if ('hold' in fresh) return null;
   const blocker = await findIncompleteSyncReceipt(engine, cursor.binding.worktree_id, cursor.runId, fresh.intent.supersededRequests ?? [], fresh.intent.settled ?? null, cursor.entries.length);
   input.assertActive();
   if (blocker) return null;
+  checkpointRevivalsByRun.set(input.run, revivals + 1);
   return saveCursor(engine, key, cursor, { ...base, checkpointRevivals: (cursor.checkpointRevivals ?? 0) + 1, pending: fresh }, false, input.assertActive);
 }
 
@@ -1226,6 +1253,7 @@ async function groupStep(engine: BrainEngine, cursor: Cursor, key: string, bulk:
     if (!await cancelWindow(engine, next.window, principal, stuck!.requestId, { cursorKey: key, expectedRequestId: cursor.pending!.requestId, principal, worktreeId: cursor.binding.worktree_id })) {
       return { cursor: await currentCursor(engine, key, cursor) };
     }
+    next.dropped = withDropped(next.dropped, next.window, stuck!.requestId);
     delete next.window;
   }
   const saved = committed || failed || next.group?.length !== members.length ? await saveCursor(engine, key, cursor, next) : cursor;
@@ -1309,7 +1337,7 @@ async function retryFailedStart(engine: BrainEngine, cursor: Cursor, key: string
   assertActive();
   // #6643: a knock-on, and a checkpoint refused only by a receipt that no longer blocks it, recover in place in the drain
   // (settleFailedRequest), which waits only on the narrowed gate; neither rediscovers the frozen manifest.
-  if (failed && cursor.pending && (isSyncKnockOn(failed) || (cursor.pending.intent.kind === 'managed_sync_checkpoint' && failed.error_code === 'recovery_required' && !failed.recovery))) return null;
+  if (failed && cursor.pending && (isSyncKnockOn(failed) || (cursor.pending.intent.kind === 'managed_sync_checkpoint' && cursor.index === cursor.entries.length && revivableCheckpointRefusal(failed)))) return null;
   const recorded = await engine.executeRaw("SELECT 1 FROM op_checkpoints WHERE op='managed-sync-failure' AND fingerprint=$1 AND completed_keys->0->>'run_id'=$2", [key, cursor.runId]);
   assertActive();
   if (!((failed && ['failed', 'conflict', 'cancelled'].includes(failed.state)) || (recorded.length && (failed?.state === 'committed' || !failed)))) return null;
@@ -1415,7 +1443,7 @@ async function runManagedSync(engine: BrainEngine, opts: SyncOpts, slice: { maxP
       const discovery = await discoverManagedSync(engine, opts, context);
       assertActive();
       const replaced = await replaceCursor(engine, key, error.cursor, { ...discovery, authority, processingOptions, syncOptions, runId: discoveryRun, index: 0, counts: { added: 0, modified: 0, deleted: 0, chunks: 0 } }, assertActive);
-      if ('wait' in replaced) return { ...result(error.cursor, 'partial', 'writer_pending'), retryWait: replaced.wait };
+      if ('wait' in replaced) return { ...result(error.cursor, 'partial', 'writer_pending'), ...(authority.writer.remote ? {} : { retryWait: replaced.wait }) };
       cursor = replaced;
     }
     assertActive();
@@ -1423,7 +1451,8 @@ async function runManagedSync(engine: BrainEngine, opts: SyncOpts, slice: { maxP
       const failed = cursor.pending ? await getWriteRequest(engine, cursor.authority.writer.principal, cursor.pending.requestId) : null;
       const unfinished = await engine.executeRaw("SELECT id FROM persistence_requests WHERE source_id=$1 AND (state IN ('queued','running','recovering') OR recovery IS NOT NULL) LIMIT 1", [cursor.sourceId]);
       assertActive();
-      if (!unfinished.length && (failed && ['failed', 'conflict', 'cancelled'].includes(failed.state) || !cursor.pending && !cursor.processingOptions)) {
+      // #6643: a knock-on recovers in the drain (recoverKnockOn), which keeps its per-index and per-run budgets.
+      if (!unfinished.length && (failed && ['failed', 'conflict', 'cancelled'].includes(failed.state) && !isSyncKnockOn(failed) || !cursor.pending && !cursor.processingOptions)) {
         if (cursor.processingOptions && digest(cursor.processingOptions) !== digest(processingOptions)) {
           throw syncRunRefusal('invalid_params', 'The approved company sync must retain its original processing options.',
             { sourceId: cursor.sourceId, processingOptions: cursor.processingOptions, syncOptions: cursor.syncOptions ?? syncOptions, repoPath: frozenRun.repoPath },
@@ -1437,7 +1466,7 @@ async function runManagedSync(engine: BrainEngine, opts: SyncOpts, slice: { maxP
     const startupConfig = await preparationConfigView(engine); // #5984 G3: one config read answers the startup's config reads
     if (cursor && opts.retryFailed && !opts.dryRun && !company && !cursor.done) {
       const retried = await retryFailedStart(engine, cursor, key, { opts, context, authority, processingOptions, syncOptions, startupConfig, frozenRun, runStartedAt, discoveryRun, assertActive });
-      if (retried && 'wait' in retried) return { ...result(cursor, 'partial', 'writer_pending'), retryWait: retried.wait };
+      if (retried && 'wait' in retried) return { ...result(cursor, 'partial', 'writer_pending'), ...(authority.writer.remote ? {} : { retryWait: retried.wait }) };
       if (retried) { cursor = retried.cursor; if (retried.discoveryTarget) { phase = 'discovery'; discoveryTarget = retried.discoveryTarget; } }
     }
     assertActive();

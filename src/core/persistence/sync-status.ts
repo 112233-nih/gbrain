@@ -35,6 +35,8 @@ import { resolveRepairScope, type RepairKind, type RepairResult } from '../repai
 import type { RepairKindSpec } from '../repair/registry.ts';
 import { headCommittedBytes } from './sync-page-fault.ts';
 import { laneFaultInMessage } from './sync-window.ts';
+import { cursorFenceCause, syncKnockOnSql } from './sync-knock-on.ts';
+import { listIncompleteSyncReceipts, type SyncSettledIndexes } from './checkpoint-validation.ts';
 import { drainEstimate } from './sync-drain.ts';
 import { resolveManagedSyncContext } from './sync-discovery.ts';
 
@@ -81,6 +83,8 @@ export interface SyncStatus {
   human_reason?: string;
   /** The resume arguments after `gbrain sync` for this source's cursor (its stored options when one exists). */
   resume_argv: string[];
+  /** #6643: for a cursor whose checkpoint has not committed, every receipt that would block it now (empty: the next sync commits it). */
+  checkpoint_blockers?: Array<{ request_id: string; slug: string; state: string; code: string | null; index: number | null; recovery: boolean; knock_on: boolean }>;
   /** #6643: every managed-sync cursor of the source under its current incarnation, newest first (at most 20). */
   cursors: SyncStatusCursor[];
   next: Action | null;
@@ -88,13 +92,19 @@ export interface SyncStatus {
 
 interface CursorHeader { runId: string; index: number; total: number; target: string | null; done?: boolean;
   progress?: { startedAt: number; startIndex: number; lastAt: number; lastIndex: number };
-  processingOptions?: { noEmbed?: boolean; noExtract?: boolean; noSchemaPack?: boolean }; syncOptions?: Parameters<typeof managedSyncResumeArgs>[0]['syncOptions'] }
+  processingOptions?: { noEmbed?: boolean; noExtract?: boolean; noSchemaPack?: boolean }; syncOptions?: Parameters<typeof managedSyncResumeArgs>[0]['syncOptions'];
+  binding?: { worktree_id?: string }; settled?: SyncSettledIndexes;
+  pending?: { requestId?: string; intent?: { kind?: string; supersededRequests?: string[]; settled?: SyncSettledIndexes | null } } }
 
-/** The newest cursor a current sync of the source can select: #6518, one recorded under its current incarnation. */
-async function cursorHeader(engine: BrainEngine, sourceId: string, incarnation: string): Promise<CursorHeader | null> {
-  const rows = await engine.executeRaw<{ header: CursorHeader }>(
-    `SELECT completed_keys->0 AS header FROM op_checkpoints WHERE op='managed-sync' AND completed_keys->0->>'sourceId'=$1 AND completed_keys->0->>'incarnation'=$2 ORDER BY updated_at DESC LIMIT 1`, [sourceId, incarnation]);
-  return rows[0]?.header ?? null;
+/**
+ * The newest cursor a current sync of the source can select: #6518, one recorded under its current incarnation.
+ * #6643: the cursor the recorded failure belongs to comes first, so the shown cursor, its error and `next` agree.
+ */
+async function cursorHeader(engine: BrainEngine, sourceId: string, incarnation: string, failedKey: string | null): Promise<{ header: CursorHeader; key: string } | null> {
+  const rows = await engine.executeRaw<{ header: CursorHeader; key: string }>(
+    `SELECT completed_keys->0 AS header, fingerprint AS key FROM op_checkpoints WHERE op='managed-sync' AND completed_keys->0->>'sourceId'=$1 AND completed_keys->0->>'incarnation'=$2
+      ORDER BY (fingerprint=$3) DESC, updated_at DESC LIMIT 1`, [sourceId, incarnation, failedKey ?? '']);
+  return rows[0] ?? null;
 }
 
 /** #6518: whether an unfinished cursor of the source stands under an incarnation it no longer has (nothing current resumes it). */
@@ -134,20 +144,23 @@ function holdStatus(record: GitHoldRecord, auto?: FenceAutoRepair): SyncStatusHo
 export async function readSyncStatus(engine: BrainEngine, sourceId: string): Promise<SyncStatus> {
   const [source] = await engine.executeRaw<{ incarnation: string }>('SELECT incarnation::text AS incarnation FROM sources WHERE id=$1 AND archived IS NOT TRUE', [sourceId]);
   if (!source) throw Object.assign(new Error(`Source ${sourceId} does not exist.`), { code: 'not_found' });
-  const header = await cursorHeader(engine, sourceId, source.incarnation);
+  const failures = (await readManagedSyncFailures(engine, [sourceId])).filter(failure => failure.code !== 'sync_incomplete');
+  const selected = await cursorHeader(engine, sourceId, source.incarnation, failures[0]?.cursor_key ?? null);
+  const header = selected?.header ?? null;
   const [committed] = await engine.executeRaw<{ n: number | string }>(`SELECT count(*) AS n FROM persistence_requests WHERE source_id=$1 AND state='committed'
     AND intent->>'kind' IN ('managed_sync_import','managed_sync_delete') AND completed_at > now() - interval '10 minutes'`, [sourceId]);
   const records = ((await readGitSourceHolds(engine, { sourceIds: [sourceId] }))[0]?.holds ?? []).filter(hold => hold.incarnation === source.incarnation);
   const auto = await fenceAutoRepairFor(engine, records);
   const holds = records.map(record => holdStatus(record, auto));
   const repairable = records.filter(record => contentHoldDisposition(record, auto).action === 'repair').length;
-  const failures = (await readManagedSyncFailures(engine, [sourceId])).filter(failure => failure.code !== 'sync_incomplete');
+  // #6643: the shown cursor is the one this failure belongs to whenever that cursor stands, so error and `next` agree.
   const failure = failures[0];
   const reason = typeof failure?.write_error_detail?.reason === 'string' ? failure.write_error_detail.reason : null;
   // #6643: a stop the run itself declared, then the root's recorded cause, then a knock-on, then the lane fault or reason.
   const rootCause = failure?.root_cause;
   const laneFault = failure?.code === 'knock_on_exhausted' ? null
-    : (rootCause?.cause === 'outside_fence' || rootCause?.cause === 'run_replaced' ? rootCause.cause : null)
+    : (failure && cursorFenceCause(failure.write_error_detail) !== 'window_dropped' ? cursorFenceCause(failure.write_error_detail) : null)
+      ?? (rootCause?.cause === 'outside_fence' || rootCause?.cause === 'run_replaced' ? rootCause.cause : null)
       ?? (rootCause && failure && ['cancelled', 'revision_conflict'].includes(failure.code) ? 'knock_on' : null)
       ?? (failure?.code === 'cancelled' ? laneFaultInMessage(failure.message) : null) ?? reason;
   const retired = failure || header ? null : await retiredCursorStands(engine, sourceId, source.incarnation);
@@ -187,7 +200,20 @@ export async function readSyncStatus(engine: BrainEngine, sourceId: string): Pro
   return { source_id: sourceId, run_id: header?.runId ?? null,
     cursor: header ? { index: Number(header.index), total: Number(header.total), pinned_target: header.target ?? null, last_advance_at: p ? new Date(p.lastAt).toISOString() : null, done: !!header.done } : null,
     committed_last_10m: Number(committed?.n ?? 0), ...estimate, holds, last_error: lastError, needs_human: !!human, ...(human ? { human_reason: human.human_reason } : {}),
-    resume_argv: resume, cursors: await liveCursors(engine, sourceId, source.incarnation, header?.runId ?? null), next };
+    resume_argv: resume, ...(await checkpointBlockers(engine, header)), cursors: await liveCursors(engine, sourceId, source.incarnation, selected?.key ?? null, failures), next };
+}
+
+/**
+ * #6643: a cursor at its end whose checkpoint has not committed lists every receipt that would block that checkpoint now
+ * (the checkpoint's own refusal names only the first), each marked when it is a knock-on; empty means the next sync commits it.
+ */
+async function checkpointBlockers(engine: BrainEngine, header: CursorHeader | null): Promise<{ checkpoint_blockers?: Array<Awaited<ReturnType<typeof listIncompleteSyncReceipts>>[number] & { knock_on: boolean }> }> {
+  const intent = header?.pending?.intent;
+  if (!header || header.done || intent?.kind !== 'managed_sync_checkpoint' || !header.binding?.worktree_id) return {};
+  const rows = await listIncompleteSyncReceipts(engine, header.binding.worktree_id, header.runId, intent.supersededRequests ?? [], intent.settled ?? null, Number(header.total));
+  const knockOns = new Set(rows.length ? (await engine.executeRaw<{ request_id: string }>(`SELECT request_id::text AS request_id FROM persistence_requests r
+    WHERE r.request_id::text = ANY($1::text[]) AND ${syncKnockOnSql('r')}`, [rows.map(row => row.request_id)])).map(row => row.request_id) : []);
+  return { checkpoint_blockers: rows.map(row => ({ ...row, recovery: row.recovery === true, knock_on: knockOns.has(row.request_id) })) };
 }
 
 /** #6643: one managed-sync cursor of the source (the cursor key digests the writer principal, authority and options, so a source can have several). */
@@ -197,12 +223,14 @@ export interface SyncStatusCursor {
   writer: { kind: string; id: string } | null;
   pending: { request_id: string; kind: string | null; state: string | null } | null;
   updated_at: string;
-  /** The cursor the top-level `cursor`, `run_id` and `next` describe (the newest of the current incarnation). */
+  /** The cursor the top-level `cursor`, `run_id`, `last_error` and `next` describe (the one with the recorded failure, else the newest). */
   shown: boolean;
+  /** The code of this cursor's recorded failure, if any. */
+  last_error_code: string | null;
   resume_argv: string[];
 }
 
-async function liveCursors(engine: BrainEngine, sourceId: string, incarnation: string, shownRun: string | null): Promise<SyncStatusCursor[]> {
+async function liveCursors(engine: BrainEngine, sourceId: string, incarnation: string, shownKey: string | null, failures: Array<{ cursor_key: string; code: string }>): Promise<SyncStatusCursor[]> {
   const rows = await engine.executeRaw<{ fingerprint: string; header: CursorHeader & { authority?: { writer?: { principal?: { kind: string; id: string } } }; pending?: { requestId?: string; intent?: { kind?: string } } };
     updated_at: string; state: string | null }>(
     `SELECT c.fingerprint, c.completed_keys->0 AS header, to_char(c.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS updated_at, r.state
@@ -211,7 +239,7 @@ async function liveCursors(engine: BrainEngine, sourceId: string, incarnation: s
   return rows.map(row => ({ key_prefix: row.fingerprint.slice(0, 12), run_id: row.header.runId, index: Number(row.header.index), total: Number(row.header.total), done: !!row.header.done,
     writer: row.header.authority?.writer?.principal ?? null,
     pending: row.header.pending?.requestId ? { request_id: row.header.pending.requestId, kind: row.header.pending.intent?.kind ?? null, state: row.state } : null,
-    updated_at: row.updated_at, shown: row.header.runId === shownRun,
+    updated_at: row.updated_at, shown: row.fingerprint === shownKey, last_error_code: failures.find(failure => failure.cursor_key === row.fingerprint)?.code ?? null,
     resume_argv: managedSyncResumeArgs({ sourceId, processingOptions: row.header.processingOptions, syncOptions: row.header.syncOptions }) }));
 }
 
@@ -285,7 +313,8 @@ export async function unblockSync(engine: BrainEngine, sourceId: string, opts: U
   const [source] = await engine.executeRaw<{ incarnation: string }>('SELECT incarnation::text AS incarnation FROM sources WHERE id=$1 AND archived IS NOT TRUE', [sourceId]);
   if (!source) throw Object.assign(new Error(`Source ${sourceId} does not exist.`), { code: 'not_found' });
   const holds = ((await readGitSourceHolds(engine, { sourceIds: [sourceId] }))[0]?.holds ?? []).filter(hold => hold.incarnation === source.incarnation);
-  const header = await cursorHeader(engine, sourceId, source.incarnation);
+  const [failed] = (await readManagedSyncFailures(engine, [sourceId])).filter(failure => failure.code !== 'sync_incomplete');
+  const header = (await cursorHeader(engine, sourceId, source.incarnation, failed?.cursor_key ?? null))?.header;
   const resume = managedSyncResumeArgs({ sourceId, processingOptions: header?.processingOptions, syncOptions: header?.syncOptions });
   const context = holds.some(hold => hold.code === 'worktree_dirty') ? await resolveManagedSyncContext(engine, { sourceId, noPull: true }).catch(() => null) : null;
   const auto = await fenceAutoRepairFor(engine, holds);
