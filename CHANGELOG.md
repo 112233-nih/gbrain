@@ -10,6 +10,17 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [0.60.210.0] - 2026-10-13
+
+**gstack lanes now run gbrain's own mechanical gates before they report done, and a push of sealed eval output to this public repo is refused.** gbrain commits its gstack config (`.gstack/pregate.json`, `.gstack/ship-policy.json`, read by gstack 1.91.98.0 and later). A lane that adds a serial test without a manifest row, changes a CLI surface without regenerating its goldens, leaves a generated file stale or lands a migration out of order now fails `gstack-pregate` with the fix line, instead of failing the full gate on the integrated tree. Nothing changes for gbrain users or for anyone not running gstack.
+
+### Itemized changes
+
+- **Repo guards** (`.gstack/pregate.json` `guards`): `serial-manifest` (`test/scripts/serial-files.test.ts`), `cli-goldens` (CLI goldens, dispatch phase, export surface), `regen-check` (`bun scripts/regen-all.ts --check`) and `migration-order` (`scripts/check-schema-migration-order.ts`), each run only when the branch touches its files.
+- **Sealed output** (`sealed`): `gstack-pregate sealed` and gstack's managed pre-push hook refuse a push that adds eval run reports, sealed-confirmation or counted cell directories, or per-cell `results.jsonl`/`usage.jsonl.gz` files. Local home paths are not checked here: gbrain's tests carry them by design.
+- **Ship policy** (`.gstack/ship-policy.json`): the release stamp files and version patterns, and the schema-migration numbering, so `gstack-pregate regate` and `gstack-tree-receipt` classify a gbrain restamp the way the tree rule does.
+- `.gitignore` admits the two files; `CONTRIBUTING.md` says what each one does.
+
 ## [0.60.209.0] - 2026-10-13
 
 **A large page publishes in a few dozen statements instead of thousands, so a slow database link no longer blocks its source forever (#6574).** Publishing a page re-sent every canonical timeline bullet, fact row and take as its own statement on every write, even a one-word edit. Behind Supabase's transaction pooler with pipelining off (the #6543 setting), each one waited a full round trip. A reported 1.1 MB company page with about 4,100 timeline rows and 1,012 facts needed about 6,000 statements at 56 ms each, ran past the 300 s publication ceiling on every attempt, restarted from zero, and held 99 writes behind it for 16 hours. The same projection on a 2,000-row test page went from 6,036 statements to 21.
