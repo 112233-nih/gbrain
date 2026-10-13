@@ -18,6 +18,20 @@ identifiers and attribution are available in the pre-removal Git revision
 
 - **`ANALYZE` and `VACUUM` clear the PGLite statement cache** (`src/core/pglite-statements.ts`), like DDL already did, so the next call re-prepares and plans with the new statistics. This covers planner-stats' refreshes, `gbrain repair planner-stats`, projection statistics and the persistence journal's `VACUUM (ANALYZE)`. Postgres is unchanged. `test/pglite-statements.test.ts` checks that a statement prepared before `ANALYZE` is re-prepared after it; the check fails without the fix.
 
+## [0.60.192.0] - 2026-10-13
+
+**CI test shards are packed from fresh timings after wave 16.** CI splits each test lane across several machines using the recorded run time of every test file. Wave 16 moved the #6210 durability probes out of the 5530 coalescing tests into their own files and added several new test files, so the recorded times no longer matched the tests. This release re-measures every lane from green master runs at wave 16's merge. No product behaviour changes.
+
+### Itemized changes
+
+| Lane | Files with no recorded time, before | After | Bound | Source run |
+|---|---|---|---|---|
+| Unit | 47 of 3290 (1.4%) | 17 of 3290 (0.5%) | 5% | Test 38327955481 |
+| Serial | 6 of 398 (1.5%) | 1 of 398 (0.3%) | 10% | Test 38327955481 |
+| E2E | 22 of 573 (3.8%) | 5 of 573 (0.9%) | 10% | E2E 38328059186 (full profile) |
+
+- `scripts/test-weights.json`, `scripts/serial-weights.json` and `scripts/e2e-weights.json`, plus their `.metadata.json` provenance files, are re-mined with `bun run weights:mine` from master runs whose test jobs all passed. The 5530 coalescing files drop to their new run times, and the new 6210 and 6517 files are measured for the first time. `GITHUB_EVENT_NAME=schedule bun scripts/check-weight-coverage.ts` reports OK with no dead entries.
+
 ## [0.60.191.0] - 2026-10-13
 
 **`gbrain setup codex` gives Codex memory in one command, with the same target-first, hash-owned shape as `gbrain setup claude-code` (D8's Codex slice).** It shows the brain, source, launcher and owner before writing, creates a keyless brain only when none exists, and wires the MCP server plus the read-context hooks SessionStart and UserPromptSubmit. In three fresh installs on codex-cli 0.162.1, a fresh Codex session answered a question only the injected context could answer, with 0 tool calls. The bootstrap harness also stops wiring Codex transcript capture when capture was declined or in registrar mode.
