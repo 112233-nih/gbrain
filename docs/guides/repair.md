@@ -1451,7 +1451,20 @@ with "still pending publication" or "the canonical writer ... is held", check
 
 Every applying kind waits for each publication with the CLI write wait: `--wait <seconds>`, then
 `GBRAIN_WRITE_WAIT_MS`, then `persistence.write_wait_ms`, else 30 seconds. That includes the doctor
-remediation run and the replay of a restore a previous `extractor-facts` apply left pending. A malformed
+remediation run and the replay of a restore a previous `extractor-facts` apply left pending.
+
+A write that is accepted but still pending when its wait ends does not stop the run while a consumer
+on this host is publishing (#6543). The run keeps the receipt, leaves its saved position before that
+item, and admits the remaining items without a per-item wait. At most half the principal's
+outstanding-request cap (`persistence.limits.principal_outstanding`, at most 64) stays unresolved at
+once; past that the run waits for earlier receipts first. All receipts settle against one shared wait:
+the run gives up only when nothing it admitted has published for the write wait. A preview-bound kind
+(`--expect`) settles every earlier receipt before its last item, so its approved set is kept until
+every admitted item is accounted for. When the run still stops, `pending` lists the receipts (item and
+`request_id`) and rerunning the same apply command replays them; a crash leaves the position before
+the first unresolved receipt, so the rerun does the same. `--wait 0` waits for nothing: it admits what
+it can and stops with `pending`. With no live consumer on this host, or one that reports
+`restart_required`, the run stops at the first pending write as before and its `fix` names the owner. A malformed
 `GBRAIN_WRITE_WAIT_MS` refuses the apply with `invalid_write_wait` before anything is written; a preview
 never reads it.
 
@@ -1994,9 +2007,8 @@ codes when that target is not safe to wire. A refusal writes nothing. Guide:
 
 ### Setup harness unsupported
 
-`setup_harness_unsupported`: setup wires Claude Code only in this release. The
-message names the guide for the harness you asked for (Codex:
-[docs/mcp/CODEX.md](../mcp/CODEX.md), OpenClaw:
+`setup_harness_unsupported`: setup wires Claude Code and Codex in this release.
+The message names the guide for the harness you asked for (OpenClaw:
 [docs/mcp/OPENCLAW.md](../mcp/OPENCLAW.md), Hermes:
 [docs/mcp/HERMES.md](../mcp/HERMES.md)); follow its manual steps.
 `gbrain setup --help` lists the supported harnesses.
@@ -2011,7 +2023,7 @@ message names the guide for the harness you asked for (Codex:
   registration would start a second server that fails on the lock. Stop that
   server (quit the agent session that started it), or keep it and connect
   through it: a shared `gbrain serve --http` is wired with
-  `gbrain bootstrap harness --harness claude-code`.
+  `gbrain bootstrap harness --harness <claude-code|codex>`.
 - `unowned_entry`: the harness configuration already has an entry under the
   same MCP server name, and its hash is not one this setup recorded (you or
   another tool wrote it, or you edited it). Setup never overwrites it. Pick
@@ -2022,7 +2034,10 @@ message names the guide for the harness you asked for (Codex:
   each install owns its own entries.
 - `harness_lane`: `gbrain bootstrap harness` (or a workspace bootstrap
   install) already wires gbrain hooks or MCP in this configuration. Keep that
-  wiring, or remove it with `gbrain bootstrap harness --remove` first.
+  wiring, or remove it with `gbrain bootstrap harness --remove` first. On
+  Codex this also fires when the bootstrap Codex lane's `SessionEnd` hook is in
+  `hooks.json` and you passed `--capture`: keep that lane and run setup without
+  `--capture`.
 
 `gbrain setup claude-code --dry-run --json` shows the resolved target and the
 blocking owner without writing anything.
@@ -2035,7 +2050,7 @@ the harness configuration, or a `gbrain connect --install` receipt), and no
 `gbrain setup` receipt owns it. Setup never falls back to a new local brain,
 because sessions would then read an empty brain while useful memory stays on
 the hosted one. Manage that connection with `gbrain connect <mcp-url>
---harness claude-code --install`; `gbrain doctor --only harness_wiring` shows
+--harness <claude-code|codex> --install`; `gbrain doctor --only harness_wiring` shows
 which brain the registration reaches.
 
 ## Connection notices
