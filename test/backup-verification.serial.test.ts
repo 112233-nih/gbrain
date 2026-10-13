@@ -386,3 +386,38 @@ test('assessBackupRepository with less than a full slot left starts no git proce
     expect(killed.verification).toMatchObject({ state: 'unavailable', cause: 'timeout' });
   } finally { probe.mockRestore(); }
 }, 15_000);
+
+/** The error execFileSync throws when its `timeout` kills a slow git (what a loaded runner produced). */
+function timeOutLocalGit(match: (args: string[]) => boolean) {
+  const real = childProcess.execFileSync;
+  return spyOn(childProcess, 'execFileSync').mockImplementation(((file: string, args: string[], options: unknown) => {
+    if (file === 'git' && match(args)) throw Object.assign(new Error('spawnSync git ETIMEDOUT'), { code: 'ETIMEDOUT', signal: 'SIGTERM', status: null });
+    return real(file, args, options as Parameters<typeof real>[2]);
+  }) as unknown as typeof childProcess.execFileSync);
+}
+
+test('a local git probe that times out keeps an established bad verdict and never certifies a repository', async () => {
+  const { root } = await repository('slow-local');
+  git(root, 'commit', '--allow-empty', '-m', 'unpushed after a failed push');
+  const statusPath = pushStatusPathForRoot(root);
+  mkdirSync(join(statusPath, '..'), { recursive: true });
+  writeFileSync(statusPath, JSON.stringify({ schema_version: 'gbrain-push-status-v1', root, ok: false, reason: 'offline', timestamp: now.toISOString() }));
+  let slow = timeOutLocalGit(args => args.includes('status'));
+  try {
+    const failed = await assessBackupRepository(root, 'source_repo', 'source-id', now);
+    expect(failed).toMatchObject({ state: 'failing', detail: 'last_push_failed' });
+    const result = await computeBackupCoverage(engine([root]), verified);
+    expect(result.totals.failing).toBe(1);
+    expect(result.totals.recoverable_repos).toBe(0);
+  } finally { slow.mockRestore(); }
+  rmSync(statusPath);
+  slow = timeOutLocalGit(args => args.includes('--absolute-git-dir'));
+  try {
+    expect(await assessBackupRepository(root, 'source_repo', 'source-id', now)).toMatchObject({ state: 'unpushed', ahead: 1 });
+  } finally { slow.mockRestore(); }
+  git(root, 'push');
+  slow = timeOutLocalGit(args => args.includes('--absolute-git-dir'));
+  try {
+    expect(await assessBackupRepository(root, 'source_repo', 'source-id', now)).toMatchObject({ state: 'unknown', detail: 'probe_failed' });
+  } finally { slow.mockRestore(); }
+});
