@@ -1419,8 +1419,8 @@ export const KNOWN_CONFIG_KEYS: readonly string[] = [
   'search.entity_anchoring', // entity-anchored retrieval for entity-scoped current-state query/search (default off; search/entity-anchor.ts)
   'search.query_facts_arm', // query adds matching active facts as rows in spare capacity (default on; search/facts-arm.ts)
   'search.temporal_fact_reserve', // temporal-cue queries reserve up to 15% of the token budget for question-ranked dated facts (default off; search/facts-arm.ts)
-  'search.page_rank_cut', // W5: off | whole_pages — page unit + caller token_budget stops adding pages once their whole pages fill the budget (default off; search/page-rank-cut.ts)
-  'search.page_rank_cut_factor', // W5: whole_pages target = factor x the budget (default 1.0)
+  'search.page_rank_cut', // W5: whole_pages (default) | off — page unit + caller token_budget stops adding pages once their whole pages fill factor x the budget (search/page-rank-cut.ts)
+  'search.page_rank_cut_factor', // W5: whole_pages target = factor x the budget (default 1.5)
   'think.return_unit',
   'think.pages_budget_chars', // #5461: total chars for the synthesize pages block (4000-200000, default 12000; soft: the 600-char floor wins); think/pages-budget.ts
   'think.excerpt_ceiling_chars', // #5461: per-page excerpt cap for the synthesize pages block (600-200000, default 2400); think/pages-budget.ts

@@ -6,9 +6,10 @@
  * mode's `search.tokenBudget` (4000 conservative, none under tokenmax). Under
  * tokenmax delivery was handed far more pages than it could deliver whole, and
  * each arrived as a sliver; under a mode cut, small pages under-filled the
- * budget. `search.page_rank_cut: whole_pages` (default off) instead stops
- * adding page candidates once their whole delivered pages fill
- * `factor x caller budget` (`search.page_rank_cut_factor`, default 1.0).
+ * budget. `search.page_rank_cut: whole_pages` (the default; `off` restores the
+ * old path) instead stops adding page candidates once their whole delivered
+ * pages fill `factor x caller budget` (`search.page_rank_cut_factor`, default
+ * 1.5, picked on memory proof wave 2 dev).
  *
  * Ranking lifts the mode's chunk-token cut for such a call (`liftModeCut`), so
  * a mode cut can never under-fill the budget, and delivery applies the cut
@@ -20,7 +21,7 @@ import type { ResolvedSearchKnobs } from './mode.ts';
 
 export const PAGE_RANK_CUT_KEY = 'search.page_rank_cut';
 export const PAGE_RANK_CUT_FACTOR_KEY = 'search.page_rank_cut_factor';
-export const DEFAULT_PAGE_RANK_CUT_FACTOR = 1;
+export const DEFAULT_PAGE_RANK_CUT_FACTOR = 1.5;
 
 /** The cut a page-unit plan asks for (resolved once per call). */
 export interface PageRankCut {
@@ -47,9 +48,9 @@ async function readConfig(engine: BrainEngine, key: string): Promise<string | nu
   }
 }
 
-/** Undefined unless `search.page_rank_cut` is `whole_pages`; a factor that is not a positive finite number reads as 1.0. */
+/** Undefined only when `search.page_rank_cut` is `off`; any other value is `whole_pages`, and a factor that is not a positive finite number reads as the default. */
 export async function resolvePageRankCut(engine: BrainEngine, callerBudget: number): Promise<PageRankCut | undefined> {
-  if ((await readConfig(engine, PAGE_RANK_CUT_KEY))?.trim().toLowerCase() !== 'whole_pages') return undefined;
+  if ((await readConfig(engine, PAGE_RANK_CUT_KEY))?.trim().toLowerCase() === 'off') return undefined;
   const raw = await readConfig(engine, PAGE_RANK_CUT_FACTOR_KEY);
   const n = raw == null || raw === '' ? NaN : Number(raw);
   return { mode: 'whole_pages', factor: Number.isFinite(n) && n > 0 ? n : DEFAULT_PAGE_RANK_CUT_FACTOR, caller_budget: callerBudget };
