@@ -10,6 +10,15 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [0.60.191.0] - 2026-10-13
+
+**A Postgres read that follows a failed statement on the same pooled connection now gets back only its own rows.** A statement that streamed rows and then failed (a runtime error after its first rows, or a cancel or timeout while it was still producing them) left its row count behind in the driver. The next statement on that connection then returned its rows after that many empty slots. So `persistence_brain`'s one-row read came back as two rows, and a managed connector sync refused with `storage_error` ("requires exactly one known boolean persistence state") before its sweep started. Before the strict readers, the same read came back as `enabled = false` and the run took the unmanaged path (#6482). A cancel at consumer stop is enough to leave the count behind.
+
+### Itemized changes
+
+- **Driver row count.** The vendored driver resets a statement's row count at every ReadyForQuery, not only at CommandComplete. The fix went in through `patches/postgres@3.4.9.patch`. Three tests fail on the base driver: an error after the first rows, a cancel mid-stream, and a statement pipelined behind a mid-stream failure.
+- **Connector retry flake.** In the one-off `persistence-connector-retry` failure, the `--retry-failed` run threw `storage_error` with no sweep and left one failed receipt instead of two. That signature now reproduces deterministically: every pooled connection's last statement streams a row and then fails before the retry run. The new case fails before this fix and passes after it.
+
 ## [0.60.190.0] - 2026-10-13
 
 **No Postgres statement outlives its budget now, a stalled managed sync says what is blocking it, and doctor stops misleading on managed and image-heavy brains (#6543, part 2).** v0.60.187.0 stopped the Supavisor wedge itself. This release closes the gaps the reporter hit around it. A statement that kept receiving bytes was never retired, so `/health?deep=1` stayed red forever. A sync stalled 300-600 s with "claimable here: no" no matter the cause. `repair failed-writes --apply` stopped at every pending write. Doctor recommended a `--retry-failed` that did nothing on a managed brain, and reported existing images as missing when only their letter case differed.
