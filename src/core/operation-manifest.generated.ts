@@ -4868,7 +4868,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
         ]
       }
     },
-    "description": "MEMORY VERB (v1): read saved facts by entity, since or session_id; `query` also searches pages. Remote callers see world facts only. One card: entity; reasoning: synthesize.",
+    "description": "MEMORY VERB (v1): read facts by entity, since or session_id; `query` also searches pages. Remote callers: world facts only. One card: entity; reasoning: synthesize.",
     "params": {
       "entity": {
         "type": "string",
@@ -4896,11 +4896,11 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "source_id": {
         "type": "string",
-        "description": "One source you may read."
+        "description": "One readable source."
       },
       "since": {
         "type": "string",
-        "description": "ISO 8601, \"8 hours ago\" or \"last month\"."
+        "description": "ISO 8601 or \"8 hours ago\"."
       },
       "session_id": {
         "type": "string",
@@ -4908,7 +4908,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "include_expired": {
         "type": "boolean",
-        "description": "Include expired facts (with question, ranked too)."
+        "description": "Also expired; question ranks them."
       },
       "supersessions": {
         "type": "boolean",
@@ -4939,7 +4939,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "return_window": {
         "type": "number",
-        "description": "Window size 1-3."
+        "description": "Window 1-3."
       },
       "min_trust": {
         "type": "string",
