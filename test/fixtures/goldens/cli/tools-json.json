@@ -2,8 +2,8 @@
   "golden": {
     "exitCode": 0,
     "stderr": "",
-    "stdoutBytes": 231878,
-    "stdoutSha256": "b1d2ef871d92ce9360a547ac5cc1651136a6eb12a96799fcdd317459870690b9",
+    "stdoutBytes": 231928,
+    "stdoutSha256": "2cf3ded2c08406a354bd1a845e551f793f1f59e7a3a09b0102235aa190783844",
     "toolNames": [
       "remember",
       "entity",
@@ -5817,7 +5817,7 @@
               "type": "string"
             },
             "include_expired": {
-              "description": "Include expired.",
+              "description": "Include expired facts (with question, ranked too).",
               "type": "boolean"
             },
             "include_pending": {
@@ -5868,7 +5868,7 @@
               "type": "string"
             },
             "since": {
-              "description": "ISO 8601 or \"8 hours ago\".",
+              "description": "ISO 8601, \"8 hours ago\" or \"last month\".",
               "type": "string"
             },
             "source_id": {

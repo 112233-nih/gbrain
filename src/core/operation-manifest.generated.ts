@@ -4900,7 +4900,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "since": {
         "type": "string",
-        "description": "ISO 8601 or \"8 hours ago\"."
+        "description": "ISO 8601, \"8 hours ago\" or \"last month\"."
       },
       "session_id": {
         "type": "string",
@@ -4908,7 +4908,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
       },
       "include_expired": {
         "type": "boolean",
-        "description": "Include expired."
+        "description": "Include expired facts (with question, ranked too)."
       },
       "supersessions": {
         "type": "boolean",

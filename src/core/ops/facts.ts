@@ -49,6 +49,7 @@ import { activationSuppressionNotice, suppressionSummary } from '../eligibility/
 import { stampPageTrust, stampRowTrust } from '../eligibility/stamp.ts';
 import type { TrustTier } from '../trust/tier.ts';
 import { AUDIT_ROW_SOURCES } from '../facts/audit-sources.ts';
+import { parseRelativeSince } from '../facts/since-parse.ts';
 import { parseQuestionParam, questionRecallNotices, rankFactsByQuestion, recallHintNotice, unlinkedNamesakes, type EntityCandidate, type QuestionRecall } from '../facts/question-recall.ts';
 
 // ============================================================
@@ -270,9 +271,9 @@ const recall: Operation = {
     budget_tokens: { type: 'number', description: 'Token budget; facts pack first.' },
     budget_policy: { type: 'string', enum: ['facts_first', 'query_first'], description: 'Default facts_first.' },
     source_id: { type: 'string', description: 'One source you may read.' },
-    since: { type: 'string', description: 'ISO 8601 or "8 hours ago".' },
+    since: { type: 'string', description: 'ISO 8601, "8 hours ago" or "last month".' },
     session_id: { type: 'string', description: "This session's facts." },
-    include_expired: { type: 'boolean', description: 'Include expired.' },
+    include_expired: { type: 'boolean', description: 'Include expired facts (with question, ranked too).' },
     supersessions: { type: 'boolean', description: 'Supersession log only.' },
     limit: { type: 'number', description: 'Per-arm max (default 50, cap 100).' },
     grep: { type: 'string', description: 'Text substring.' },
@@ -375,7 +376,7 @@ const recall: Operation = {
       throw verbError(
         'invalid_params',
         `since is not a parseable timestamp or duration: "${String(p.since).slice(0, 60)}"`,
-        'Pass an ISO 8601 datetime (e.g. "2026-08-11T00:00:00Z"), Unix epoch millis, or a duration such as "8 hours ago" / "2d".',
+        'Pass an ISO 8601 datetime (e.g. "2026-08-11T00:00:00Z"), Unix epoch millis, a duration such as "8 hours ago" / "2d", or a relative phrase such as "6 weeks ago" / "last month".',
       );
     }
     const question = parseQuestionParam(p);
@@ -394,7 +395,7 @@ const recall: Operation = {
     };
 
     if (question !== null) {
-      ranking = await rankFactsByQuestion(ctx, { question, params: p, factSources, limit, entity: entityParam, sessionId: sessionParam, since, grep,
+      ranking = await rankFactsByQuestion(ctx, { question, params: p, factSources, limit, entity: entityParam, sessionId: sessionParam, since, grep, includeExpired,
         scope: { sourceIds: factSources, remote: ctx.remote !== false, excludePrivate, minTrust: eligibility.floor, suppressFlagged: eligibility.suppressFlagged } });
       ({ rows, ambiguousEntity } = ranking);
       for (const notice of questionRecallNotices(ranking)) ctx.emitNotice?.(notice);
@@ -1262,10 +1263,11 @@ export function clampRecallLimit(raw: unknown): number {
 
 /**
  * Parse a `since` parameter into a Date. Accepts ISO 8601, plain duration
- * shorthand ("8 hours ago", "3 days ago", "30m", "1h", "2d", "7d"), or
- * Unix epoch millis. Returns null on unparseable input.
+ * shorthand ("8 hours ago", "3 days ago", "30m", "1h", "2d", "7d"), Unix
+ * epoch millis, or a relative phrase (since-parse.ts: "6 weeks ago",
+ * "last month"). Returns null on unparseable input.
  */
-function parseSinceParam(raw: unknown): Date | null {
+export function parseSinceParam(raw: unknown): Date | null {
   if (raw == null) return null;
   if (typeof raw === 'number' && Number.isFinite(raw)) return new Date(raw);
   if (typeof raw !== 'string') return null;
@@ -1288,7 +1290,7 @@ function parseSinceParam(raw: unknown): Date | null {
       n * 24 * 60 * 60 * 1000;
     return new Date(Date.now() - ms);
   }
-  return null;
+  return parseRelativeSince(s);
 }
 
 /**
