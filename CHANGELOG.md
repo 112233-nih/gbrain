@@ -17,6 +17,19 @@ identifiers and attribution are available in the pre-removal Git revision
 ### Itemized changes
 
 - **`ANALYZE` and `VACUUM` clear the PGLite statement cache** (`src/core/pglite-statements.ts`), like DDL already did, so the next call re-prepares and plans with the new statistics. This covers planner-stats' refreshes, `gbrain repair planner-stats`, projection statistics and the persistence journal's `VACUUM (ANALYZE)`. Postgres is unchanged. `test/pglite-statements.test.ts` checks that a statement prepared before `ANALYZE` is re-prepared after it; the check fails without the fix.
+- **Shell jobs keep output that is read after the child's `'exit'`** (`src/core/minions/handlers/shell.ts`). The handler resolved on `'exit'` and took `stdout_tail`/`stderr_tail` right after reaping the process group, but `'exit'` can fire before the last chunk is read; only `'close'` means the pipes ended. A CI run on Bun 1.4.3 got `stdout_tail: ""` for an `echo hello` job that exited 0 (`test/e2e/minions-shell-pglite.test.ts`). After the reap, the handler now waits for `'close'`, at most 2 s, before taking the tails; #5062's reap still ends the job when its leader exits, and a process that left the group and holds a pipe costs at most those 2 s. `test/minions-shell-process-tree.test.ts` adds a writer that leaves the group and writes after the leader exits: it fails without the fix and passes with it. Diagnosis with GBRA-84.
+
+## [0.60.198.0] - 2026-10-13
+
+**The lock-order race test retries a topology change that ran out of lock wait, as the product tells callers to, so a single lock timeout on a loaded runner no longer fails it (#6586).** `test/e2e/persistence-publish-lock-order-postgres.test.ts` checks that ordinary writes racing claims and topology changes never form a lock-wait cycle and never deadlock. Each topology change runs with the production 1 s `lock_timeout`. When that wait runs out, the change ends `write_pending` with "Retry the same lifecycle request_id after the current writer finishes". The race recorded that as a failure. On #6591's gate-ahead run it did, once: one topology step hit 55P03 on a loaded gate VM with `cycles: []` and `deadlocks: 0`. The rerun on the same head passed, and 60 local runs with four CPU burners passed.
+
+### Itemized changes
+
+- **The race retries a lone timeout and keeps everything else strict.** Each topology step now has a fixed `request_id`. A step that ends `write_pending` right after its own 55P03 is retried with that same `request_id`, up to three attempts. That's what the error tells a caller to do, and it matches how the file already treats writer lock timeouts. The test still requires no lock-wait cycle in its `pg_blocking_pids` sampling, no deadlock in `pg_stat_database`, no write error, and every topology change committed. The retry count appears in the `[lock-order race]` line as `topologyRetries`.
+- **Forced probes (scratch copies, not committed):**
+  - A lone lock timeout with no inversion: a separate session holds the `persistence_brain` row for 1.5 s just before one topology step. The old test fails on `write_pending`, plus two `not_found` steps that followed it. The new test passes with `topologyRetries: 1`.
+  - A real inversion: two sessions take `persistence_brain` and `sources` in opposite orders during the race. Both the old and the new test fail on it, through the sampled cycle on the old file and `deadlocks: 2` on the new one.
+  - With four CPU burners on a 4-CPU machine, the whole file passed 10 of 10 runs on Bun 1.4.3.
 
 ## [0.60.197.0] - 2026-10-13
 
