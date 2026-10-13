@@ -85,7 +85,11 @@ export interface PhantomPassResult {
   skipped_drift: number;
   no_canonical: number;
   not_phantom: number;
-  /** #6650: phantoms held this pass because they still own legacy (unfenced) fact rows. */
+  /**
+   * #6650: top-level pages held this pass because they own legacy (unfenced)
+   * fact rows: the redirect moves rows by fence position and would strand
+   * them on the deleted phantom. Every other phantom of the source proceeds.
+   */
   held_legacy_rows: number;
   /** True iff the pass was skipped wholesale because the writer lock was busy. */
   lock_busy: boolean;
@@ -686,14 +690,19 @@ export async function runPhantomRedirectPass(
   try {
     // Find unprefixed phantoms in this source. We over-fetch by 1 so
     // `more_pending` reflects whether the cap actually clipped work.
+    // #6650: held phantoms are excluded before the cap, so they never use up
+    // the pass's candidate positions.
+    const held = [...holdSlugs].filter(slug => !slug.includes('/'));
+    result.held_legacy_rows = held.length;
     const rows = await engine.executeRaw<{ slug: string }>(
       `SELECT slug FROM pages
        WHERE source_id = $1
          AND deleted_at IS NULL
          AND slug NOT LIKE '%/%'
+         AND slug <> ALL($3::text[])
        ORDER BY slug ASC
        LIMIT $2`,
-      [sourceId, limit + 1],
+      [sourceId, limit + 1, held],
     );
     result.more_pending = rows.length > limit;
 
@@ -702,10 +711,6 @@ export async function runPhantomRedirectPass(
       // #1972: bail between phantoms on abort (each is independently committed).
       if (isAborted(signal)) break;
       const slug = rows[i].slug;
-      // #6650: a phantom that still owns legacy (unfenced) fact rows is held:
-      // the redirect moves rows by fence position and would strand them on
-      // the deleted phantom. Every other phantom of the source proceeds.
-      if (holdSlugs.has(slug)) { result.held_legacy_rows += 1; continue; }
       const page = await engine.getPage(slug, { sourceId });
       if (!page) continue;
       result.scanned += 1;

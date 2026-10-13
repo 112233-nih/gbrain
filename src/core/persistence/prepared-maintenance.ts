@@ -312,7 +312,7 @@ function deterministicAdoptionRefusal(prior: Pick<WriteRequest, 'error_code' | '
 
 /** What `planFactFenceAdoption` decided: submit (or replay) `requestId`, or skip because this build already refused these inputs. */
 export type FactFenceAdoptionPlan =
-  | { kind: 'submit'; requestId: string; intent: Record<string, unknown> }
+  | { kind: 'submit'; requestId: string; intent: Record<string, unknown>; facts: FactSnapshot[] }
   | { kind: 'suppressed'; prior: WriteRequest };
 
 /**
@@ -332,7 +332,7 @@ export async function planFactFenceAdoption(engine: BrainEngine, authority: Main
   for (let attempt = 0; ; attempt++) {
     const requestId = maintenanceRequestId({ authority: authority.writer, slug, intent, ...(attempt ? { attempt } : {}) });
     const prior = await getWriteRequest(engine, authority.writer.principal, requestId);
-    if (!prior || prior.state === 'committed' || !isTerminal(prior)) return { kind: 'submit', requestId, intent };
+    if (!prior || prior.state === 'committed' || !isTerminal(prior)) return { kind: 'submit', requestId, intent, facts: current };
     if (prior.state === 'failed' && deterministicAdoptionRefusal(prior)
       && Date.now() - new Date(prior.completed_at ?? prior.updated_at).getTime() < ADOPTION_REFUSAL_HOLD_MS) {
       return { kind: 'suppressed', prior };

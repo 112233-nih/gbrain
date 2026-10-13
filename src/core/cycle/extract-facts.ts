@@ -880,9 +880,15 @@ export async function runExtractFacts(
   // #6278: the pass moves rows by their fence position and would strand a
   // legacy row (no position) on a deleted phantom. #6650: only the phantoms
   // that own legacy rows are held, so one unadoptable row no longer stops
-  // the pass for the whole source.
+  // the pass for the whole source. A phantom that is the provenance page of
+  // an ontology observation is held too: the move would rewrite the
+  // observation's subject and expire it.
   let phantomResult: PhantomPassResult = emptyPhantomPassResult();
   if (opts.brainDir) {
+    const holdSlugs = new Set([...legacySlugs, ...(await engine.executeRaw<{ slug: string }>(
+      `SELECT DISTINCT source_markdown_slug AS slug FROM facts
+        WHERE source_id = $1 AND dimension IS NOT NULL AND expired_at IS NULL AND source_markdown_slug NOT LIKE '%/%'`,
+      [sourceId])).map(row => row.slug)]);
     try {
       phantomResult = await runPhantomRedirectPass(
         engine,
@@ -890,7 +896,7 @@ export async function runExtractFacts(
         sourceId,
         opts.dryRun ?? false,
         opts.signal,
-        legacySlugs,
+        holdSlugs,
       );
     } catch (e) {
       // The pass owns its own per-phantom try/catch; reaching this catch

@@ -21,7 +21,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { BrainEngine } from '../src/core/engine.ts';
 import { fenceCellReadBackProblem, parseFactsFence, renderFactsTable, replaceOrInsertFactsFence, type ParsedFact } from '../src/core/facts-fence.ts';
-import { planFence, type UnfencedFactRow } from '../src/core/facts/unfenced-facts.ts';
+import { fenceUnfencedFacts, planFence, planUnfencedFacts, type UnfencedFactRow } from '../src/core/facts/unfenced-facts.ts';
 import { runExtractFacts } from '../src/core/cycle/extract-facts.ts';
 import { serializePageToMarkdown } from '../src/core/markdown.ts';
 import { FACT_FENCE_PLANNER, maintenancePreflight, submitFactFenceAdoption } from '../src/core/persistence/prepared-maintenance.ts';
@@ -32,6 +32,8 @@ import { LEGACY_FILE_SLUG, seedLegacyManagedContent, type LegacySeed } from './h
 import { requirePostgresTestDatabase, testBackends } from './helpers/test-backends.ts';
 import { resetPgliteState } from './helpers/reset-pglite.ts';
 import { withEnv } from './helpers/with-env.ts';
+import { withCoordinatedWrite } from '../src/core/persistence/context.ts';
+import { TEST_WRITE_ATTRIBUTION } from './helpers/write-attribution.ts';
 
 const SLUG = 'people/alice-example';
 const noOccupiedRows = { executeRaw: async () => [] } as unknown as BrainEngine;
@@ -124,6 +126,28 @@ for (const backend of testBackends()) {
       expect(await engine.executeRaw(`SELECT 1 FROM persistence_requests WHERE slug=$1 AND (intent->>'planner')::int=$2`, [LEGACY_FILE_SLUG, FACT_FENCE_PLANNER])).toHaveLength(2);
     }, { databaseUrl, setup: async ({ engine, root }) => { seed = await seedLegacyManagedContent(engine, root); } });
   }, 120_000);
+
+  test(`${backend}: a legacy fact that changes after planning is not overwritten by the older plan`, async () => {
+    let seed!: LegacySeed;
+    await managedBrain(async ({ engine }) => {
+      const plan = await planUnfencedFacts(engine, { sourceId: 'default' });
+      const changed = seed.legacyFactIds[0];
+      await engine.transaction(tx => withCoordinatedWrite(tx, ['default'], async () => {
+        await tx.executeRaw(`UPDATE facts SET kind='belief', confidence=0.25 WHERE id=$1`, [changed]);
+      }, TEST_WRITE_ATTRIBUTION));
+      const outcome = await fenceUnfencedFacts(engine, plan);
+      expect(outcome.failed_pages.some(p => p.startsWith(`${LEGACY_FILE_SLUG} (a legacy fact changed after its fence row was planned`))).toBe(true);
+      const [row] = await engine.executeRaw<{ kind: string; confidence: number; row_num: number | null }>('SELECT kind, confidence, row_num FROM facts WHERE id=$1', [changed]);
+      expect(row).toMatchObject({ kind: 'belief', row_num: null });
+      expect(Number(row.confidence)).toBeCloseTo(0.25);
+      // The next run replans from the current row and adopts it with its current metadata.
+      const again = await fenceUnfencedFacts(engine, await planUnfencedFacts(engine, { sourceId: 'default' }));
+      expect(again.fenced_slugs).toContain(LEGACY_FILE_SLUG);
+      const [adopted] = await engine.executeRaw<{ kind: string; row_num: number | null }>('SELECT kind, row_num FROM facts WHERE id=$1', [changed]);
+      expect(adopted.kind).toBe('belief');
+      expect(adopted.row_num).not.toBeNull();
+    }, { databaseUrl, setup: async ({ engine, root }) => { seed = await seedLegacyManagedContent(engine, root); } });
+  }, 120_000);
 }
 
 describe('extract_facts: an unadoptable row holds only its own phantom (#6650)', () => {
@@ -174,6 +198,32 @@ describe('extract_facts: an unadoptable row holds only its own phantom (#6650)',
       expect(result.legacyRowsPending).toBe(1);
       expect(result.phantomsRedirected).toBe(1);
       expect(await alive(engine, 'alice')).toBe(false);
+    });
+  });
+
+  test('held phantoms do not use up the pass cap: a later phantom still redirects', async () => {
+    await withBrain(async ({ engine, brainDir }) => {
+      await withEnv({ GBRAIN_PHANTOM_REDIRECT_LIMIT: '1' }, async () => {
+        await engine.putPage('aaron', { type: 'person', title: 'aaron', compiled_truth: '# aaron\n', frontmatter: {}, timeline: '' });
+        await engine.executeRaw(`INSERT INTO facts (source_id, entity_slug, fact, kind, visibility, notability, valid_from, source, confidence)
+          VALUES ('default', 'aaron', '   ', 'fact', 'world', 'medium', '2026-03-01', 'mcp:remember', 0.8)`);
+        const result = await runExtractFacts(engine, { sourceId: 'default', brainDir });
+        expect(result.phantomsHeldLegacyRows).toBe(1);
+        expect(result.phantomsRedirected).toBe(1);
+        expect(await alive(engine, 'alice')).toBe(false);
+        expect(await alive(engine, 'aaron')).toBe(true);
+      });
+    });
+  });
+
+  test('a phantom that is the provenance page of an ontology observation is held, so the move never rewrites its subject', async () => {
+    await withBrain(async ({ engine, brainDir }) => {
+      await engine.mergeOntologyFact({ entitySlug: 'people/bob-example', dimension: 'role', value: 'advisor', source: 'alice' });
+      const result = await runExtractFacts(engine, { sourceId: 'default', brainDir });
+      expect(result.phantomsRedirected).toBe(0);
+      expect(await alive(engine, 'alice')).toBe(true);
+      expect(await engine.executeRaw("SELECT entity_slug, source_markdown_slug FROM facts WHERE dimension='role'"))
+        .toEqual([{ entity_slug: 'people/bob-example', source_markdown_slug: 'alice' }]);
     });
   });
 

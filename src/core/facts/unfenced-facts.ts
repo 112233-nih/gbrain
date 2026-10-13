@@ -350,6 +350,22 @@ export async function planFence(engine: BrainEngine, sourceId: string, entitySlu
   return { body: rendered, assignments, rejected };
 }
 
+/**
+ * #6650: whether a fact the adoption pins (read just now) no longer renders
+ * as the fence row planned from the earlier read. The pins are the request's
+ * hashes, so publishing such a plan would write the older metadata back over
+ * the newer row; the page is skipped and replanned next run instead.
+ */
+function factsChangedSincePlanning(body: string, assignments: Array<{ id: string; row_num: number }>, pinned: Array<{ id: number; value: Record<string, unknown> }>): boolean {
+  const cells = new Map(parseFactsFence(body).facts.map(f => [f.rowNum, f]));
+  return assignments.some(a => {
+    const cell = cells.get(a.row_num);
+    const now = pinned.find(f => f.id === Number(a.id))?.value as unknown as UnfencedFactRow | undefined;
+    if (!cell || !now || normalizeClaimWhitespace(String(now.fact)) !== normalizeClaimWhitespace(cell.claim)) return true;
+    return renderFactsTable([fenceRowOf(now, cell.rowNum, cell.claim)]) !== renderFactsTable([cell]);
+  });
+}
+
 /** Keep the typed records and name the page once in `failed_pages` with the stable token; the rows stay as they are. */
 function recordUnadoptable(outcome: UnfencedFactsOutcome, slug: string, records: UnadoptableFactRecord[]): void {
   if (records.length === 0) return;
@@ -395,6 +411,10 @@ async function fenceManaged(engine: BrainEngine, plan: UnfencedFactsPlan): Promi
       if (request.kind === 'suppressed') {
         recordUnadoptable(outcome, entitySlug, [...fence.rejected, ...fence.assignments.map(a => ({ source_id: sourceId, slug: entitySlug,
           fact_id: Number(a.id), reason: 'fence_unrenderable' as const, class: 'prior_refusal' as const, request_id: request.prior.request_id }))]);
+        continue;
+      }
+      if (factsChangedSincePlanning(fence.body, fence.assignments, request.facts)) {
+        outcome.failed_pages.push(`${entitySlug} (a legacy fact changed after its fence row was planned; nothing was submitted and the next run replans it)`);
         continue;
       }
       recordUnadoptable(outcome, entitySlug, fence.rejected);
