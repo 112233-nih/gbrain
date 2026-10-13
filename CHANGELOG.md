@@ -10,7 +10,7 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
-## [Unreleased]
+## [0.60.205.0] - 2026-10-13
 
 **Every `search` and `query` response now says where its time went.**
 
@@ -19,6 +19,16 @@ identifiers and attribution are available in the pre-removal Git revision
 - `_meta.retrieval.timings` on every `search` and `query` response, including empty, degraded and keyword-only ones: `total_ms` (the whole operation, on its own clock, after the response is assembled), `stages_ms` (setup, lexical, relational, expansion, embed, vector, fuse, post_fusion, rerank, alias_fanout, anchoring, facts_arm, response), `other_ms` (time no stage claimed) and `overlapped_ms` (the keyword and title arms, which run in parallel, and `search`'s total-match count). Integer milliseconds; stages plus `other_ms` add up to `total_ms`. The alias fan-out's keyword searches count under `alias_fanout`; a retry or a CRAG re-run adds to the same stages. The timings never appear in result text.
 - `gbrain search --explain` and `gbrain query --explain` print the timings as a `timings:` header line, also on an empty result.
 - The refactor-wave-1 bench has a `timings` phase: every bench query through both operations, failing unless the unclaimed time stays within 10% of each response's total. On the 400-page bench the unclaimed time stayed at or below 1.6% of every response's total on PGLite and Postgres, and every result set matched the tree before this change (rechecked after merging master v0.60.202.0: all 40 result digests identical to master, unclaimed time 0%).
+
+## [0.60.204.0] - 2026-10-13
+
+**`recall` takes `since: "6 weeks ago"` or `"last month"`, and ranks expired facts for a `question` when you pass `include_expired: true`. Both used to be refused.**
+
+### Itemized changes
+
+- `since` on `recall` (MCP and `gbrain recall --since`) falls back to relative phrases after its existing grammar: `"N weeks|months|years ago"`, `"a week ago"`, `"an hour ago"`, compact `"3w"`, `"2mo"`, `"1y"`, and `"last month"`, `"past 2 weeks"`, `"the last 6 weeks"`. Months and years step the UTC calendar and clamp the day. Every value that parsed before gives the same instant (`src/core/facts/since-parse.ts`). In the dev-only A12 agent smoke, an agent's `since: "6 weeks ago"` was refused and it fell back to a less precise call.
+- `question` with `include_expired: true` ranks expired, superseded and lapsed facts alongside active ones, under the same read policy and filters, instead of returning `invalid_params`. Each row keeps its `expired_at` and `valid_until`. Without `include_expired`, ranking covers active facts only, as before. `question` with `supersessions` is still refused.
+- `include_expired`'s description now reads "Also expired; question ranks them." To stay inside recall's schema budget, three other strings on recall got shorter, with the same meaning. No parameter was added, renamed, retyped or made required.
 
 ## [0.60.203.0] - 2026-10-13
 
