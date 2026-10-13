@@ -36,7 +36,7 @@ import { WRITE_REQUEST_STATES, WRITE_HEALTH_REASONS, WRITE_HEALTH_ASSESSMENTS, W
  */
 export const WRITE_REQUEST_PARAM: ParamDef = {
   type: 'string',
-  description: 'Optional; reuse only to retry.',
+  description: 'Reuse only to retry.',
 };
 
 /** #6007: transport-only long-poll; never stored with the write or compared on replay. */
