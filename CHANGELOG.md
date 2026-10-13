@@ -18,6 +18,15 @@ identifiers and attribution are available in the pre-removal Git revision
 - **Flake fix: `test/e2e/worker-configuration-release.test.ts` cleanup accepts `ESRCH` from `/proc/<pid>/stat`.** The "completion-recording failure never releases an isolated handler with a live descendant" case passed every assertion and then threw in its `finally` wait loop: right after the SIGKILL, Linux reaps the descendant between the loop's `open()` and `read()` of its stat file and returns `ESRCH` instead of `ENOENT` (#6575, job 115084475795). The catch now treats both as "gone"; the `running` must-end-false assertion is unchanged. Forced probe (a `bun test --preload` that makes the test's first stat read throw `ESRCH`): 3/3 fail before, 3/3 pass after; unforced 4/4.
 - The `[0.60.189.0]` entry names migrations v241 and v242, the numbers it merged with (the merge-slot renumber from v240/v241 updated the stamps, not the entry text).
 
+## [0.60.193.0] - 2026-10-13
+
+**A Postgres read that follows a failed statement on the same pooled connection now gets back only its own rows.** A statement that streamed rows and then failed (a runtime error after its first rows, or a cancel or timeout while it was still producing them) left its row count behind in the driver. The next statement on that connection then returned its rows after that many empty slots. So `persistence_brain`'s one-row read came back as two rows, and a managed connector sync refused with `storage_error` ("requires exactly one known boolean persistence state") before its sweep started. Before the strict readers, the same read came back as `enabled = false` and the run took the unmanaged path (#6482). A cancel at consumer stop is enough to leave the count behind.
+
+### Itemized changes
+
+- **Driver row count.** The vendored driver resets a statement's row count at every ReadyForQuery, not only at CommandComplete. The fix went in through `patches/postgres@3.4.9.patch`. Three tests fail on the base driver: an error after the first rows, a cancel mid-stream, and a statement pipelined behind a mid-stream failure.
+- **Connector retry flake.** In the one-off `persistence-connector-retry` failure, the `--retry-failed` run threw `storage_error` with no sweep and left one failed receipt instead of two. That signature now reproduces deterministically: every pooled connection's last statement streams a row and then fails before the retry run. The new case fails before this fix and passes after it.
+
 ## [0.60.192.0] - 2026-10-13
 
 **CI test shards are packed from fresh timings after wave 16.** CI splits each test lane across several machines using the recorded run time of every test file. Wave 16 moved the #6210 durability probes out of the 5530 coalescing tests into their own files and added several new test files, so the recorded times no longer matched the tests. This release re-measures every lane from green master runs at wave 16's merge. No product behaviour changes.

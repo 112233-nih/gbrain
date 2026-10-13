@@ -782,8 +782,13 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
       errored(errorResponse)
     }
 
+    // GBrain: a statement that streamed rows and then failed (a cancel, a timeout or an error after its first rows) never
+    // reached CommandComplete, which is where the row count resets. Left in place, the next statement on this connection
+    // stored its rows after that many empty slots: a one-row read came back as [empty, row], so a reader that requires
+    // exactly one row refused and `const [row] = rows` read nothing.
     query = results = errorResponse = null
     result = new Result()
+    rows = 0
     connectTimer.cancel()
     inflightTimer.cancel()
     ageTimer.cancel()
