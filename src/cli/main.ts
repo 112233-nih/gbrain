@@ -1666,10 +1666,10 @@ export function formatResult(
       // T15/FOV-1: an empty result names its cause when the pipeline told us
       // (degradation stages from _meta.retrieval / the local meta capture) —
       // a bare "No results." was indistinguishable from a degraded pipeline.
-      if (results.length === 0) return `No results.${describeEmptyRetrieval()}\n`;
-      // v0.40.4 — --explain switches to per-stage attribution formatter.
-      // Reads CliOptions.explain via the module-level singleton.
       const cliOpts = getCliOptions();
+      const timingsLine = cliOpts.explain && meta?.timings ? require('../core/search/stage-timings.ts').formatTimingsSummary(meta.timings) + '\n' : '';
+      if (results.length === 0) return `No results.${describeEmptyRetrieval()}\n` + timingsLine;
+      // v0.40.4 — --explain switches to per-stage attribution formatter.
       if (cliOpts.explain) {
         // Lazy import keeps formatResult's startup hot path narrow for
         // the common non-explain case.

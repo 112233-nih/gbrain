@@ -7359,6 +7359,7 @@
           "_queryPrefix?: string | undefined",
           "_searchModeInput?: ResolveSearchModeInput | undefined",
           "_telemetryCacheStatus?: \"miss\" | \"disabled\" | undefined",
+          "_timings?: StageTimer | undefined",
           "adaptiveReturn?: AdaptiveReturnInput",
           "afterDate?: string | undefined",
           "afterDateInclusive?: boolean | undefined",
