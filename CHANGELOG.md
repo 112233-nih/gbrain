@@ -20,6 +20,18 @@ identifiers and attribution are available in the pre-removal Git revision
 - `question` with `include_expired: true` ranks expired, superseded and lapsed facts alongside active ones, under the same read policy and filters, instead of returning `invalid_params`. Each row keeps its `expired_at` and `valid_until`. Without `include_expired`, ranking covers active facts only, as before. `question` with `supersessions` is still refused.
 - The `include_expired` and `since` parameter descriptions say how they now behave; no parameter was added, renamed or made required.
 
+## [0.60.203.0] - 2026-10-13
+
+**`gbrain setup claude-code` and `gbrain setup codex` no longer end the install on a question: the first-run settings are relayed as settings in effect in the reply that reports the install.** The wave 2 Cat 41 setup run (gbrain-evals v0.10.80) missed its 60 s wired-recall target at 83.8 s because each install session wired gbrain and then asked about search mode or automatic saving; the reply session cost 13 to 33 s while the agent applied a setting the fresh session did not need. Setup had passed `gbrain init`'s standalone output through unchanged: the search-mode "ask which mode they want" banner, a stale `harness_wiring` decision, "Reply 'defaults' to keep the recommended settings" and a `claude mcp add` quickstart for a step setup had just done. The user still sees the search-mode cost matrix and still chooses; only when and how it is asked changed. No setting, default, CLI flag or MCP schema changed.
+
+### Itemized changes
+
+- **Setup's init call** (`src/commands/setup.ts`): runs `gbrain init --json` in both output modes and prints `Brain ready at <path>`, never init's banner, quickstart or `[AGENT]` block.
+- **`setupFirstRunNotices`** (`src/core/init-first-run.ts`): setup's form of the first-run bundle drops `harness_wiring` (setup just did it), keeps `search_mode` with the cost matrix, `writeback` and `skills_scaffold` with their option commands, and frames them as settings in effect that the agent relays in the install reply without holding the install open. Human output renders the block after `Next:`; `--json` puts it under `notices`. Disclosed in BEHAVIOR_CHANGES.
+- **Docs:** AGENTS.md step 3, INSTALL_FOR_AGENTS.md and `docs/guides/setup.md` ("First-run settings") say the same for the setup path; the plain-`init` rule to stop and confirm is unchanged.
+- **Tests:** two fail-first setup tests (on the old `setup.ts` the human output carried `Do this next`, `claude mcp add` and `Reply 'defaults'`, and `--json` carried `harness_wiring`), four unit cases in `test/init-first-run.test.ts`, and a Cat 41 install-text smoke ($0.55) whose install session ended with "Settings in effect (no answer needed)" and whose fresh session recalled the fact.
+- **Flake fix:** `test/chronicle-auto-decision.test.ts` no longer fails when a run crosses midnight UTC between computing the expected date and writing the receipt; a forced clock probe across midnight fails the old test and passes the new one.
+
 ## [0.60.202.0] - 2026-10-13
 
 **A page-unit call with its own budget now gets whole pages that fill that budget instead of many partial ones, and search can grade its candidates before the cross-encoder to report how often the reranker was paying for an answer retrieval already found. The page cut is on by default (`gbrain config set search.page_rank_cut off` restores the old path); the grade is off by default and never changes results.**
