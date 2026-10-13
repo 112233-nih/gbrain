@@ -102,11 +102,19 @@ async function backupFailure(): Promise<{ code: string; message: string }> {
   throw new Error('backup unexpectedly succeeded');
 }
 
+// sockaddr_un.sun_path is 108 bytes on Linux and Windows (afunix.sys) and 104 on Darwin. On Windows the socket is
+// bound at the data-dir path itself (no shortened fallback), and the runner's TEMP (`C:\Users\RUNNER~1\AppData\Local\Temp`)
+// plus the old 19-character prefix put `<dataDir>\.gbrain-persistence.sock` at 114 bytes, so every listen failed
+// before the sweep ran. The prefix is short and the fixture refuses up front when the path would not fit.
+const SUN_PATH_LIMIT = process.platform === 'darwin' ? 104 : 108;
+
 beforeAll(async () => {
-  temporary = realpathSync(mkdtempSync(join(tmpdir(), 'gbrain-5312-socket-')));
+  temporary = realpathSync(mkdtempSync(join(tmpdir(), 'g5312-')));
   root = join(temporary, 'brain');
   mkdirSync(join(root, '.gbrain'), { recursive: true, mode: 0o700 });
   dataDir = join(root, '.gbrain', 'brain.pglite');
+  const longest = join(dataDir, '.gbrain-persistence.sock');
+  if (Buffer.byteLength(longest) >= SUN_PATH_LIMIT) throw new Error(`fixture socket path is ${Buffer.byteLength(longest)} bytes, at or over the ${SUN_PATH_LIMIT}-byte AF_UNIX limit: ${longest}`);
   privateWrite(join(root, '.gbrain', 'config.json'), JSON.stringify({ engine: 'pglite', database_path: dataDir, embedding_disabled: true }));
   const engine = new PGLiteEngine();
   await engine.connect({ engine: 'pglite', database_path: dataDir });
