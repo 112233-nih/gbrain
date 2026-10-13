@@ -111,6 +111,21 @@ describe('gbrain setup claude-code: install lifecycle', () => {
     expect(r.stdout.trimEnd().endsWith('[/AGENT]')).toBe(true);
   });
 
+  test('#6606: after Next, setup names remember as the way to save a fact and what reaches new sessions', async () => {
+    const b = box();
+    const r = await setup(b, ['claude-code']);
+    expect(r.exitCode).toBe(0);
+    const next = r.stdout.indexOf('Next: open a new Claude Code session');
+    const memory = r.stdout.indexOf('Memory: save what the user asks you to remember as a fact: gbrain remember "<fact>" --entity <slug>');
+    expect(next).toBeGreaterThan(-1);
+    expect(memory).toBeGreaterThan(next);
+    expect(r.stdout.indexOf('[AGENT]')).toBeGreaterThan(memory);
+    const line = r.stdout.slice(memory).split('\n')[0];
+    expect(line).toContain('pushed into new sessions');
+    expect(line).toContain('--visibility private keeps a fact out of them');
+    expect(line).toContain('capture writes a page, not a fact');
+  });
+
   test('--remove deletes exactly the owned entries; foreign hooks, other MCP servers and the brain stay', async () => {
     const b = box();
     mkdirSync(join(b.home, '.claude'), { recursive: true });

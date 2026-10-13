@@ -90,7 +90,7 @@ export const OPERATION_MANIFEST: OperationMeta[] = [
           "world",
           "private"
         ],
-        "description": "world (default) or private (local CLI)."
+        "description": "world (default; pushed into new sessions) or private (local CLI recall only)."
       },
       "replaces": {
         "type": "string",

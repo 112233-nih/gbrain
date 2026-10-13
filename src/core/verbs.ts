@@ -99,7 +99,7 @@ const remember: Operation = {
     visibility: {
       type: 'string',
       enum: ['world', 'private'],
-      description: 'world (default) or private (local CLI).',
+      description: 'world (default; pushed into new sessions) or private (local CLI recall only).',
     },
     replaces: { type: 'string', description: 'fact_id this fact replaces (same entity, or none).', fullSurfaceOnly: true },
   },
@@ -198,6 +198,10 @@ const remember: Operation = {
     if ((result as { degraded_dedup?: boolean } | null)?.degraded_dedup) {
       const { degradedDedupNotice } = await import('./interop-notices.ts');
       ctx.emitNotice?.(degradedDedupNotice(ctx.config));
+    }
+    if (visibility === 'private' && ctx.remote === false && (result as { status?: string } | null)?.status !== 'duplicate') {
+      const { privateFactNotice } = await import('./interop-notices.ts');
+      ctx.emitNotice?.(privateFactNotice((result as { id?: string | number } | null)?.id));
     }
     return result;
   },
