@@ -273,6 +273,7 @@ export const OPS_CHECK_NAMES: ReadonlySet<string> = new Set([
   'host_identity_mismatch',
   'stale_embedding_effects',
   'vector_plan',
+  'keyword_plan',
   'writer_version',
   'pgbouncer_prepare',
   'pglite_data_dir',
