@@ -96,7 +96,7 @@ describe('timings ride every search and query response', () => {
     for (const stage of ['setup', 'lexical', 'relational', 'embed', 'vector', 'fuse', 'post_fusion', 'rerank', 'alias_fanout', 'anchoring', 'response']) {
       expect(t.stages_ms).toHaveProperty(stage);
     }
-    expect(Object.keys(t.overlapped_ms ?? {}).sort()).toEqual(['keyword_arm', 'title_arm']);
+    expect(Object.keys(t.overlapped_ms ?? {}).sort()).toEqual(['keyword_arm', 'keyword_count', 'title_arm']);
   });
 
   test('query adds the facts arm and expansion stages', async () => {
@@ -151,15 +151,16 @@ describe('critical-path accounting', () => {
     expect(wall).toBeLessThan(2 * DELAY + t.total_ms - t.stages_ms.lexical!);
   });
 
-  test('a declared-name fan-out runs a second hybrid call whose lexical time is booked once, under lexical', async () => {
+  test("an alias fan-out's keyword search is booked under alias_fanout, outside lexical and the arms", async () => {
     withEmbeddings();
     const DELAY = 150;
     const { meta, timings } = await withSlowLexicalArms(DELAY, () => run('search', { query: 'Acme Example bundle renewal' }));
-    expect(meta.other_names?.map((n: { alias: string }) => n.alias)).toContain('ACMEX');
+    expect(meta.fanout?.aliases_searched?.map((n: { alias: string }) => n.alias)).toContain('ACMEX');
     const t = expectTimings(timings);
-    expect(t.stages_ms.lexical).toBeGreaterThanOrEqual(2 * DELAY - 10);
-    expect(t.stages_ms.alias_fanout).toBeLessThan(DELAY);
-    expect(t.overlapped_ms!.keyword_arm).toBeGreaterThanOrEqual(2 * DELAY - 10);
+    expect(t.stages_ms.alias_fanout).toBeGreaterThanOrEqual(DELAY - 5);
+    expect(t.stages_ms.lexical).toBeGreaterThanOrEqual(DELAY - 5);
+    expect(t.stages_ms.lexical).toBeLessThan(2 * DELAY - 20);
+    expect(t.overlapped_ms!.keyword_arm).toBeLessThan(2 * DELAY - 20);
   });
 
   test('timings stay out of MCP content blocks and ride _meta.retrieval', async () => {

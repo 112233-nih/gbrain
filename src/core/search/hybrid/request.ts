@@ -3,6 +3,7 @@
  * Each stage reads the resolved request (HybridRequest, request.ts) and
  * writes its per-request accumulators only as `req.<field>`.
  */
+import { applyGeneratedDemotion } from '../provenance-demotion.ts';
 import { normalizeChainSlots } from '../relational-chain.ts';
 import type { BrainEngine } from '../../engine.ts';
 import { perArmPoolLimit } from '../eval-pool-depth.ts';
@@ -172,7 +173,7 @@ export async function resolveHybridRequest(
 
   const limit = opts?.limit || resolvedMode.searchLimit;
   const offset = opts?.offset || 0;
-  const innerLimit = perArmPoolLimit(limit, offset, PRE_FUSION_POOL_FLOOR);
+  const innerLimit = perArmPoolLimit(limit, offset, Math.max(PRE_FUSION_POOL_FLOOR, resolvedMode.diverse_pool_depth));
 
   // v0.32.x search-lite: classify intent once up front. Drives BOTH the
   // legacy auto-detail / salience / recency suggestions AND the new
@@ -322,6 +323,7 @@ export async function resolveHybridRequest(
   // shared by the fused path and both keyword-only paths. Caller re-sorts.
 export async function applyIdentityBoosts(req: HybridRequest, list: SearchResult[]): Promise<void> {
   const { engine, query, opts, suggestions, intentWeightingOn, intentWeights, resolvedMode } = req;
+  await applyGeneratedDemotion(engine, list, query, { sourceId: opts?.sourceId, sourceIds: opts?.sourceIds, excludePrivate: opts?.excludePrivate });
   if (intentWeights.exactMatchBoost === 1.0) {
     // #4694: general and temporal questions still honor a multi-token
     // title that is the query's subject. Not concept intent (Cat 13: a

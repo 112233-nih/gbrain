@@ -236,6 +236,13 @@ export const WAVE_CHECKS: readonly WaveCheckSpec[] = [
     run: async engine => (await import('./checks/vector-plan.ts')).vectorPlanCheck(engine),
   },
   {
+    id: 'keyword_plan', resolution: 'operator', registration: 'wave',
+    count: d => (d.outcome === 'canary_timed_out' || d.outcome === 'canary_slow' ? 1 : 0),
+    impact: 'The commonest keyword term on this brain cannot be counted inside the keyword statement bound, so broad keyword queries time out and hybrid search answers from the vector arm alone',
+    instruction: 'Read the canary doctor reports (one term is not workload coverage); raise `search.keyword_statement_timeout_ms` on the brain host only to buy time (1000-60000 ms, then restart the serving process), narrow broad queries to one source (`gbrain search --source-id <id>`, MCP `source_id`), and follow #6495 for the bounded candidate set (docs/guides/troubleshooting.md#keyword-search-times-out-on-a-large-postgres-brain).',
+    run: async engine => (await import('./checks/keyword-plan.ts')).keywordPlanCheck(engine),
+  },
+  {
     id: 'stale_embedding_effects', resolution: 'repair', registration: 'wave',
     count: d => Number(d.stale_effects ?? 0),
     impact: 'A committed write still has a stale queued or failed embedding effect that blocks compaction and activation',
@@ -297,6 +304,13 @@ export const WAVE_CHECKS: readonly WaveCheckSpec[] = [
     count: d => Number(d.fenced ?? 0) + Number(d.retired ?? 0),
     impact: 'Some ontology observations were moved onto an entity page\'s Facts table, and ontology_get no longer returns the ones a later page write retired',
     run: async (engine, scope) => (await import('./checks/ontology-facts.ts')).ontologyFactsCheck(engine, scope.sourceIds),
+  },
+  {
+    id: 'stale_frontmatter_keys', resolution: 'repair', registration: 'wave',
+    hostOnly: 'Sweeping stored frontmatter keys is a host-side, explicit-only repair.',
+    count: d => Number(d.count ?? 0),
+    impact: 'Some pages store a parser-reserved frontmatter key (type, title, tags, slug) left by an older import; writes compare around it, the sweep is hygiene',
+    run: async (engine, scope) => (await import('./checks/frontmatter-keys.ts')).staleFrontmatterKeysCheck(engine, scope.sourceIds),
   },
 ];
 

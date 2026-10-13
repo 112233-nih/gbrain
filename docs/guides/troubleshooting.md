@@ -16,7 +16,7 @@
 | Conversation facts are dated 1970-01-01 | same preview: `gbrain repair conversation-labels` (an undated page's pre-fix facts carry a `segment 1970-01-01` context); add a `date:` to the page frontmatter before re-extracting it | agent, after the user agrees | `destructive` | `gbrain doctor --only conversation_label_facts --json` is ok |
 | `remember` or `put_page` refused `source_changed` "The canonical file contains an uncoordinated local edit" on many pages nobody edited, or doctor `lost_caller_writes` warns | upgrade to v0.60.157.0 or later (a database-only v0.13.1 `validate: false` stamp was read as a file edit, #6429); then `gbrain repair failed-writes --source <id>` previews the refused writes and prints the apply command ([failed writes](repair.md#failed-writes)) | agent; the apply after the user agrees | none to preview | `gbrain doctor --only lost_caller_writes --json` is ok |
 | A write (`add_timeline_entry`, `put_page`, `remember`, any `mutating` tool) refused `invalid_params` "unknown parameter … write operations always reject unknown parameters; nothing was written" | the call named a parameter the tool does not declare (for example `content` instead of `detail`); the `suggestion` names the submitted key and the declared one; resend with the declared name. Reads keep the `mcp.strict_params` warn grace period | agent | none | the resent call returns no `invalid_params` and no `unknown_param` warning |
-| Facts extraction or embedding reports `(cause=AIConfigError model_not_found)` or `gbrain models doctor` says `model_not_found` while the key is valid | the provider refused the model, not the key (a 404, or a 403 "project does not have access to model"): check the model id with `gbrain models`, enable the model for the project in the provider console or set another model (`gbrain config set models.facts <provider:model>`) | user (provider console); agent for the config change, after the user agrees | none | `gbrain models doctor` reports the model `ok` |
+| Facts extraction or embedding reports `(cause=AIConfigError model_not_found)` or `gbrain models doctor` says `model_not_found` while the key is valid | the provider refused the model, not the key (a 404, or a 403 "project does not have access to model"): the fix text names the config key that selected the model when the gateway knows it ("Selected via models.tier.reasoning. Fix: gbrain config set …"; an env var or config.json pin says what to clear); otherwise check the model id with `gbrain models`, enable the model for the project in the provider console or set another model (`gbrain config set models.facts <provider:model>`) | user (provider console); agent for the config change, after the user agrees | none | `gbrain models doctor` reports the model `ok` |
 | A gbrain call failed with a code you don't recognize | follow `fix.next` ([protocol](../protocol/AGENT_OPERATOR_v1.md)); `gbrain errors <code>` | agent | as the fix's `consent` | the fix's `verify` |
 | A graph read omits a relationship you know existed, or says someone still works somewhere they left | the default read returns relationships true today: repeat with `status: "all"` or `as_of`; to record an end, add a dated timeline line (`Ended works_at [[companies/x]]`) or `add_link ... valid_until` ([temporal edges](temporal-edges.md)) | agent | none | `gbrain doctor --only edge_validity --json` |
 | A command exited 3 (`confirmation_required`) | relay `user_message`; run `fix.command` only after the user agrees | agent, after the user agrees | the payload's `effects` | the fix's `verify` |
@@ -30,7 +30,8 @@
 | [Sync held a file for its facts or takes fence (`Held <path>: invalid_fence …`)](#held-fence-files) | nothing for most holds: the next maintenance run repairs and commits the fence. To see or do it now, preview `gbrain repair fences --source <id>` and run its printed `--apply --expect <hash>`; to pause automatic repair, `gbrain config set fences.repair.enabled false` (ask the user first). A `manual` reason needs the edit the hold names | agent; the apply needs no extra consent | none (model repair spends within the `fences.repair.*` caps; raising them is `paid`, the user's call) | `gbrain doctor --only fence_integrity --json` |
 | A managed catch-up on a live checkout keeps dying (`revision_conflict`, `pinned_git_worktree_conflict`, `page_identity_changed`, `write ECONNABORTED`), or you want an agent to drive the recovery | `gbrain sync status --source <id> --json` (cursor, `committed_last_10m`, each hold and the last error with `class` / `safe_actions` / `needs_human`); when nothing moved and `needs_human` is false, `gbrain sync unblock --source <id> --apply`, then the sync it prints ([runbook](sync-unblock-runbook.md)) | agent; a person only when `needs_human` names a slug | none | `gbrain sync status --source <id> --json` |
 | [Sync held a file with `worktree_dirty`](#worktree-dirty-hold) | commit (or restore) the file, then `gbrain sync unblock --source <id> --apply` and the sync it prints | agent; whoever edits the file commits it | none | `gbrain sources status <id> --json` |
-| A managed sync of a source far behind HEAD prints `staged catch-up: synced to <commit>, short of HEAD`, or refuses `request_too_large` with `One commit exceeds the bounded cursor size` | Staging is automatic: `gbrain sync --source <id> --no-pull` takes stage after stage (each the furthest first-parent commit whose delta fits 100,000 entries and 16 MiB) until it reaches HEAD, and a stop resumes at the stored cursor; a scheduled sync takes one stage per run. When one commit alone is above the bound, exclude part of it (`--exclude`, or `gbrain config set sync.exclude`) and rerun; `--full` above the bound still refuses | agent | none | `gbrain sync status --source <id> --json` (cursor target reaches HEAD) |
+| A managed sync of a source far behind HEAD prints `staged catch-up: synced to <commit>, short of HEAD`, or `sliced catch-up: committed the <phase> slice of <commit> through <path>` | Staging is automatic: `gbrain sync --source <id> --no-pull` takes stage after stage (each the furthest first-parent commit whose delta fits 100,000 entries and 16 MiB) until it reaches HEAD, and a stop resumes at the stored cursor; a scheduled sync takes one stage per run. A first sync, a `--full` sync or one commit that alone exceeds the bound is cut into path slices instead (#6349): every import slice, then bounded deletion slices, pinned at one target; `last_commit` moves only when the last slice settles, and the same command resumes an unfinished target at its stored slice. Only one file whose manifest entry alone exceeds the byte bound still refuses `request_too_large`, naming it; exclude it (`--exclude`, or `gbrain config set sync.exclude`) and rerun | agent | none | `gbrain sync status --source <id> --json` (cursor target reaches HEAD) |
+| A write, sync, connector run or activation refuses `storage_error` with `requires exactly one known boolean persistence state` (`detail: persistence_mode_unknown`) | The `persistence_brain` singleton is missing, duplicated or malformed, so gbrain cannot tell whether the brain is managed and refuses instead of writing around the owner (#6482). Run `gbrain sources writer status --probe --json` on the brain host (it reports `mode: unknown` and the problem instead of refusing), restore the one row (`gbrain doctor --json` names the repair), then rerun the command | host operator | none | `gbrain doctor --json` |
 | The drain stopped `connection_lost` | check the database and pooler (`gbrain doctor --json`), then rerun the same sync; it resumes at the stored cursor | agent | none | `gbrain sync status --source <id> --json` |
 | [Managed catch-up stuck, or `Held <path>: preparation_stalled`, or the drain stopped `preparation_abandoned` / `preparation_systemic` / `write_capacity`](#catch-up-stuck) | `gbrain sources writer status --source <id> --json` (what the stuck write was doing: step, `waiting_on`, owner, version), fix what it names or upgrade the owner, then `gbrain sources retry-held <id>` and the same sync with its options | agent; a restart or upgrade of the owner after the user agrees | none to inspect; `persistent_install` when the fix restarts a service | `gbrain sources status <id> --json`, then `gbrain doctor --only git_held_files,persistence_write_stall --json` |
 | [The catch-up is parked: `data_moving: false`, doctor `managed_sync_not_moving`, or `gbrain sources writer movement` exited 1](#managed-sync-not-moving) | `gbrain sources status <id> --json` prints the exact writer-status command; run it: `gbrain sources writer status --source <id> --json` ends each running claim in a `claim.next` (`claim_running`: rerun after `retry_after_ms`; `claim_overdue`: `tell_user_to_run`, restart the named owner pid) | agent; the restart after the user agrees | none to inspect; `persistent_install` when the fix restarts a service | `gbrain sources writer movement <id>` (exit 0 when the data moves again), then `gbrain doctor --only managed_sync_not_moving --json` |
@@ -52,7 +53,9 @@
 | [`queue_capacity`, `persistence_capacity` or `persistence_request_growth`](#write-capacity) | run the printed `gbrain config set persistence.limits.<limit> <value>` | brain host | none | `gbrain doctor --only persistence_capacity,persistence_request_growth --json` |
 | [`dream_paid_loop`, or dream keeps skipping one transcript](#dream-paid-loop) | fix the cause, then `gbrain dream reset-key --list` and `gbrain dream reset-key '<key>'` | agent, after the user agrees | `paid` (the key is retried) | `gbrain doctor --only dream_paid_loop --json` |
 | [Search answers look keyword-only on a large Postgres brain](#hybrid-search-returns-only-keyword-hits) | read doctor's `vector_plan`; run the index command it prints | brain host | none | `gbrain doctor --only vector_plan --json` |
+| [Broad keyword queries take about 8 s and come back vector-only (`keyword_arm_failed`) on a large Postgres brain](#keyword-search-times-out-on-a-large-postgres-brain) | read doctor's `keyword_plan`; narrow with `--source-id`, or raise `search.keyword_statement_timeout_ms` on the brain host and restart the serving process | brain host | none | `gbrain doctor --only keyword_plan --json` |
 | A second `gbrain serve` cannot open the brain | the readiness `harness_wiring` fix: every session shares one `gbrain serve --http` | user | `persistent_install`, `credentials` | `gbrain doctor --only harness_wiring --json` |
+| `harness_wiring` reports `http_serve_unreachable` or `http_serve_unhealthy` for an HTTP registration | nothing automatic: doctor probed the registered `/health` without credentials and the endpoint did not answer as a healthy gbrain server; check the URL in the harness config and the server it points at (a hosted brain is its operator's). A `wired_running` verdict with `mcp_access: unverified` proves a listener only: confirm tools in a new session | user | none | `gbrain doctor --only harness_wiring --json` |
 | A tool the fix names is missing after a serve recovered | restart the gbrain MCP server in the harness, or start a new session ([why](../protocol/AGENT_OPERATOR_v1.md#tool-catalog-changes-toolslist_changed)) | user | none | list the tools again |
 | A command waits on stdin with no terminal | close stdin (`</dev/null`) or set `GBRAIN_NON_INTERACTIVE=1`; prompts then decline | agent | none | re-run the read-only part of the command |
 | [An outdated build (brainstorm `judge_failed`, lost tags, Windows `ENOTFOUND`)](#outdated-build) | `gbrain upgrade`, then the steps in [recover after upgrading](repair.md#recover-after-upgrading-to-this-release) | agent, after the user agrees | `persistent_install` when it rewrites services | `gbrain --version`, then `gbrain doctor --json` |
@@ -109,7 +112,7 @@ Turning the `preparation_deadlines` switch off (`gbrain config set persistence.p
 
 `bootstrap_push_health` and `gbrain bootstrap status` report only the push record of the workspace named by this machine's bootstrap receipt; another workspace's stale or failed push is listed as such (a warn naming that workspace), never as this workspace's state. `reranker_health` auth warnings are audit-log history (`details.live_probe_performed: false`), not a live check of the key. These warns can appear while every other check reads green; each one names a check that did not run.
 
-<a id="git-convergence"></a>**`gbrain doctor` warns or fails `git_convergence`, or `bootstrap_push_health` warns that a workspace is ahead?** A Git checkout the brain syncs from (a source's `local_path` or `sync.repo_path`) has commits its upstream does not have, or uncommitted changes, so the system of record on the remote is behind the brain (#5063). Commits not on the upstream warn after 6 hours and fail after 24; uncommitted changes older than 6 hours warn. Doctor compares with the local `@{u}` ref and never fetches, so it is only as fresh as the last fetch; checkouts without an upstream and connector sources are skipped. Commit and push the checkout (`gbrain sources push --path <root>` for a bootstrap workspace, `git push` otherwise). `bootstrap_push_health` no longer reports `ok` on a recent successful push while the workspace still has commits not on origin.
+<a id="git-convergence"></a>**`gbrain doctor` warns or fails `git_convergence`, or `bootstrap_push_health` warns that a workspace is ahead?** A Git checkout the brain syncs from (a source's `local_path` or `sync.repo_path`) has commits its upstream does not have, or uncommitted changes, so the system of record on the remote is behind the brain (#5063). Commits not on the upstream warn after 6 hours and fail after 24; uncommitted changes older than 6 hours warn. Doctor compares with the local `@{u}` ref and never fetches, so it is only as fresh as the last fetch; checkouts without an upstream and connector sources are skipped. Commit and push the checkout (`gbrain sources push --path <root>` for a bootstrap workspace; otherwise commit your files with `gbrain git commit-push -m "<msg>" -- <paths>` and publish waiting commits with `gbrain git commit-push --push-only`, see [shared-checkout git](shared-checkout-git.md#outcomes)). `bootstrap_push_health` no longer reports `ok` on a recent successful push while the workspace still has commits not on origin.
 
 <a id="tracked-ownership-marker"></a>**`gbrain doctor` warns `tracked_ownership_marker`, or `gbrain sources push` / `bootstrap verify` refuses a `.gbrain-owner*.json` or `.gbrain-bootstrap.lock/` path?** An ownership marker (`.gbrain-owner.json`, the `.gbrain-owner-<hash>.json` reservation beside a root, a `.gbrain-owner.json.<uuid>.tmp` staging file) or the bootstrap lock directory was committed to a source checkout (#5186). These files are this machine's claim on the checkout, never brain content, and must not reach a remote. Since this fix gbrain appends their patterns to the checkout's `.git/info/exclude` whenever it stamps or adopts a root, the bootstrap `.gitignore` template lists them, and the push deny list refuses a tracked one while an untracked one is excluded from the commit (`excludedUntracked`). None of that un-tracks a file already in the index: run the `git -C <root> rm --cached <paths>` the check prints (the files stay on disk, gbrain keeps reading them), commit, push, then `gbrain doctor --only tracked_ownership_marker --json`. A root stamped before this fix gains the exclude rule on its next stamp or transfer; until then the deny list is the backstop, and `bootstrap verify`'s `deny_globs` treats a merely-on-disk marker as fine. If a marker already reached a remote, rotate it the same way you would any published credential: the token alone is not remote authority (the reservation that proves ownership lives outside the root), but treat the history as exposed.
 
@@ -366,6 +369,56 @@ report the regression:
 
 The guard is temporary. The release that retires it prints a one-time notice
 when the inert setting is still present.
+
+## Keyword search times out on a large Postgres brain
+
+**Symptom.** On a large Postgres brain (hundreds of thousands of pages), a
+broad `gbrain search` or `gbrain query` with common words takes about 8
+seconds and comes back with only vector hits; search metadata carries
+`keyword_arm_failed`, and the server log says `canceling statement due to
+statement timeout` (SQLSTATE 57014). The strict keyword statement ranks every
+matching chunk before its `LIMIT`, so its cost grows with how common the terms
+are, and the commonest terms cannot finish inside the keyword statement bound.
+An arm that timed out is not evidence of absence: the pages exist, the arm
+could not rank them in time.
+
+**Say to your agent:** *"Check whether keyword search is hitting its time
+limit"* — the agent runs `gbrain doctor` and reads the `keyword_plan` check.
+
+`gbrain doctor` reports `keyword_plan` (Postgres only):
+
+- `ok`: the brain's commonest keyword term (from the planner's statistics for
+  `content_chunks.search_vector`) is counted inside half of the bound; the
+  message shows the plan the planner chose for it.
+- skipped: PGLite (no statement timeout), fewer than 10,000 chunks, or no
+  planner statistics yet (run `ANALYZE content_chunks` on the brain host, or
+  let the next sync refresh them).
+- warn, `canary_timed_out` or `canary_slow`: the commonest term's bounded count
+  did not finish in 2 s, or took more than half of the bound. Broad queries on
+  this brain will hit the bound. One canary term is not workload coverage, and
+  a timed-out count is never "no matches".
+
+**The bound is an operator knob.** `search.keyword_statement_timeout_ms`
+(integer milliseconds, default 8000, range 1000 to 60000) is the
+transaction-local `statement_timeout` the Postgres engine sets around every
+keyword, keyword-count, keyword-page, title and CJK search statement. A remote
+caller cannot change it, and `gbrain config set` refuses a value outside the
+range (exit 2, nothing written). It is read once per connection, so:
+
+1. Set it on the brain host: `gbrain config set search.keyword_statement_timeout_ms 20000`
+   (or `search.keyword_statement_timeout_ms` under `search` in the config file,
+   which wins over the database value).
+2. Restart the process that runs searches (`gbrain serve`, autopilot, job
+   workers); the next CLI command picks it up by itself.
+3. Confirm with `gbrain doctor --only keyword_plan --json`: `details.timeout_ms`
+   shows the value in effect.
+
+A longer bound buys time, not a cheaper statement: a query whose terms match
+most of the corpus still reads and ranks every match, so prefer narrowing with
+`--source-id` (MCP `source_id`) or `match: "keyword"` paging, and follow
+[#6495](https://github.com/garrytan/gbrain/issues/6495) for the bounded
+candidate set that will answer broad terms from a capped set instead of
+failing open.
 
 ## Global maintenance timeouts
 

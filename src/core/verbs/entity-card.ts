@@ -34,15 +34,18 @@ import { safeSynopsis } from '../context/retrieval-reflex.ts';
 import { stampEvidence, markKeywordHits } from '../search/evidence.ts';
 import type { Link, SearchResult } from '../types.ts';
 import type { NewerMentions } from '../mentions/newer-mentions.ts';
-import { loadLinkableTypes } from '../mentions/policy.ts';
+import { linkableTypesFor, loadLinkableTypes, loadSourcePack, readMentionPolicy, type MentionPolicy, type PackTypes } from '../mentions/policy.ts';
 import { readMentionCoverage, type MentionCoverage } from '../mentions/coverage.ts';
 import { encodeCursor, readReferrerGroups, PAGE_DEFAULT_LIMIT, type ReferenceRow } from '../mentions/referrers.ts';
+import { readCardIdentity, type CardIdentity } from './entity-card-identity.ts';
+import { factEntitySlugs } from '../mentions/siblings.ts';
 
 const EDGE_CAP = 10;
 const OPEN_THREADS_CAP = 3;
 const OPEN_THREAD_TIMELINE_WINDOW_DAYS = 90;
 const SUGGESTION_CAP = 3;
 const FACT_FETCH_CAP = 100;
+const RECENT_FACTS_CAP = 5;
 
 export interface EntityCardEdge {
   type: string;
@@ -93,6 +96,8 @@ export interface EntityCard {
   backlink_count: number;
   /** Exact active-fact count (indexed COUNT, not payload length); visibility-filtered for remote. */
   active_fact_count: number;
+  /** The newest active saved facts about this entity (also those saved under an identity sibling or its bare name, with that `entity_slug`). */
+  recent_facts?: Array<{ id: string; fact: string; kind: string; valid_from: string | null; entity_slug?: string }>;
   /**
    * Current and ended state relationships of this entity, rendered for agents
    * ("now: works_at widget-co (since 2025-03-01); ended: works_at acme-example
@@ -108,6 +113,16 @@ export interface EntityCard {
   referenced_by?: ReferenceGroupView[];
   /** Whether every page in this source has been scanned for this entity's names. `entity` verb only. */
   coverage?: MentionCoverage;
+  /** Parallel to `aka`: each entry's origin (frontmatter, declared, subject) and the page that declares it. `entity` verb only. */
+  aka_sources?: CardIdentity['aka_sources'];
+  /** Pages naming the same subject under another title prefix, with their own aliases; never merged into this card. `entity` verb only. */
+  identity_siblings?: CardIdentity['identity_siblings'];
+  /** Verbatim lines of this page and its siblings that may carry other names (label lines, codes, declarations), with the page slug. `entity` verb only. */
+  identity_excerpt?: CardIdentity['identity_excerpt'];
+  /** Pages whose qualifying lines did not fit the excerpt budget. */
+  identity_excerpt_omitted?: string[];
+  /** What `aka` covers and which names to search before a history or as-of answer. `entity` verb only. */
+  alias_guidance?: CardIdentity['alias_guidance'];
   /** #5575 A6 (additive): the entity page's trust tier and short write origin. */
   trust_tier?: TrustTier;
   origin?: string;
@@ -164,7 +179,7 @@ export interface EntityCardOpts {
   omitQuarantined?: boolean;
 }
 
-interface CardPageRow {
+export interface CardPageRow {
   slug: string;
   // v0.43 merge: retrieval-reflex's exported PageRow (safeSynopsis's param)
   // now requires source_id (federated push-context wave #2095). The card row
@@ -183,24 +198,52 @@ const ARM_ALIAS = 0;
 const ARM_EXACT = 1;
 const ARM_SUFFIX = 2;
 
-export async function buildEntityCard(
+/**
+ * The per-call invariants of a name lookup: whether this caller is kept from
+ * private pages (#4352: untrusted callers never resolve a `visibility:
+ * private` page into a card or a near-miss suggestion; local callers are
+ * unchanged), the mention policy and source pack (undefined policy: it could
+ * not be read), and the pack's linkable entity types (the exact-title
+ * tie-break; empty without a policy). A batch reads them once.
+ */
+export interface EntityLookupScope {
+  excludePrivate: boolean;
+  entityTypes: ReadonlySet<string>;
+  policy: MentionPolicy | undefined;
+  pack: PackTypes | null;
+}
+
+export async function entityLookupScope(engine: BrainEngine, sourceId: string, remote: boolean): Promise<EntityLookupScope> {
+  const { resolveExcludePrivatePages } = await import('../search/private-visibility.ts');
+  const excludePrivate = await resolveExcludePrivatePages(engine, remote ? undefined : false);
+  const policy = await readMentionPolicy(engine).catch(() => undefined);
+  const pack = await loadSourcePack(engine, sourceId);
+  return { excludePrivate, entityTypes: new Set(policy ? linkableTypesFor(pack, policy) : []), policy, pack };
+}
+
+/**
+ * Candidate selection for one name: `hit` with the best page row (its
+ * `compiled_truth` included) and up to SUGGESTION_CAP runners-up; `miss` with
+ * keyword near-miss suggestions; `withheld` when every match is a quarantined
+ * page `omitQuarantined` leaves out (no suggestion names it).
+ */
+export type EntityCandidates =
+  | { kind: 'hit'; row: CardPageRow; runnersUp: EntitySuggestion[] }
+  | { kind: 'miss'; suggestions: EntitySuggestion[] }
+  | { kind: 'withheld' };
+
+/** Resolve a trimmed, non-empty name to its candidates. Every arm is fail-soft. */
+export async function selectEntityCandidates(
   engine: BrainEngine,
   sourceId: string,
-  name: string,
-  opts: EntityCardOpts,
-): Promise<EntityCardResult> {
-  const trimmed = (name ?? '').trim();
-  if (!trimmed) return { found: false, suggestions: [] };
-
-  // #4352 — untrusted callers never resolve a `visibility: private` page into
-  // a card (or a near-miss suggestion). Trust + config gate resolve through
-  // the shared helper; local (remote:false) callers are unchanged. Covers
-  // entity, context_pack, and delta (all route through buildEntityCard).
-  const { resolveExcludePrivatePages, privatePagesFilterFragment } = await import('../search/private-visibility.ts');
-  const excludePrivate = await resolveExcludePrivatePages(engine, opts.remote ? undefined : false);
+  trimmed: string,
+  scope: EntityLookupScope,
+  opts: { omitQuarantined?: boolean } = {},
+): Promise<EntityCandidates> {
+  const { privatePagesFilterFragment } = await import('../search/private-visibility.ts');
   // Predicate text lives ONCE (private-visibility.ts) — both card queries
   // below select `FROM pages` unaliased, so qualify with the table name.
-  const privatePredicate = excludePrivate ? ` AND ${privatePagesFilterFragment('pages')}` : '';
+  const privatePredicate = scope.excludePrivate ? ` AND ${privatePagesFilterFragment('pages')}` : '';
 
   const norm = normalizeAlias(trimmed);
   const titleLc = trimmed.toLowerCase();
@@ -275,8 +318,7 @@ export async function buildEntityCard(
   // prefer a linkable entity page (the source pack's entity types) over
   // transcript/note containers. Recency remains the final tie-break within
   // the same match shape.
-  const { types: linkable } = await loadLinkableTypes(engine, sourceId).catch(() => ({ types: [] as string[], pack: null }));
-  const entityTypes = new Set(linkable);
+  const entityTypes = scope.entityTypes;
   const candidates = [...rankBySlug.entries()]
     .map(([s, rank]) => ({ slug: s, rank, row: rowBySlug.get(s) }))
     .filter((c): c is { slug: string; rank: number; row: CardPageRow } => c.row !== undefined)
@@ -289,26 +331,49 @@ export async function buildEntityCard(
 
   if (opts.omitQuarantined && candidates.some(c => isQuarantined(c.row.frontmatter))) {
     const live = candidates.filter(c => !isQuarantined(c.row.frontmatter));
-    if (live.length === 0) return { found: false, suggestions: [] };
+    if (live.length === 0) return { kind: 'withheld' };
     candidates.splice(0, candidates.length, ...live);
   }
-  if (candidates.length === 0) {
+  if (candidates.length === 0) return { kind: 'miss', suggestions: await nearMissSuggestions(engine, sourceId, trimmed, scope.excludePrivate) };
+
+  return {
+    kind: 'hit',
+    row: candidates[0].row,
+    runnersUp: candidates.slice(1, 1 + SUGGESTION_CAP).map(c => ({
+      slug: c.slug,
+      title: c.row.title ?? c.slug,
+      // A page that resolved through the precision arms exists by definition.
+      create_safety: 'exists',
+    })),
+  };
+}
+
+export async function buildEntityCard(
+  engine: BrainEngine,
+  sourceId: string,
+  name: string,
+  opts: EntityCardOpts,
+): Promise<EntityCardResult> {
+  const trimmed = (name ?? '').trim();
+  if (!trimmed) return { found: false, suggestions: [] };
+
+  // Covers entity, context_pack, and delta (all route through buildEntityCard).
+  const scope = await entityLookupScope(engine, sourceId, opts.remote);
+  const selected = await selectEntityCandidates(engine, sourceId, trimmed, scope, { omitQuarantined: opts.omitQuarantined });
+  if (selected.kind === 'withheld') return { found: false, suggestions: [] };
+  if (selected.kind === 'miss') {
     return {
-      found: false, suggestions: await nearMissSuggestions(engine, sourceId, trimmed, excludePrivate),
+      found: false, suggestions: selected.suggestions,
       ...(opts.includeReferences ? { coverage: await readMentionCoverage(engine, [sourceId]).catch(() => undefined) } : {}),
     };
   }
 
-  const best = candidates[0];
-  const runnersUp: EntitySuggestion[] = candidates.slice(1, 1 + SUGGESTION_CAP).map(c => ({
-    slug: c.slug,
-    title: c.row.title ?? c.slug,
-    // A page that resolved through the precision arms exists by definition.
-    create_safety: 'exists',
-  }));
-
-  const card = await assembleCard(engine, sourceId, best.row, opts.remote, excludePrivate, opts.eligibility ?? {});
-  if (opts.includeReferences) Object.assign(card, await cardReferences(engine, sourceId, best.row, opts, excludePrivate, entityTypes));
+  const { row, runnersUp } = selected;
+  const card = await assembleCard(engine, sourceId, row, opts.remote, scope.excludePrivate, opts.eligibility ?? {});
+  if (opts.includeReferences) {
+    Object.assign(card, await cardReferences(engine, sourceId, row, opts, scope.excludePrivate, scope.entityTypes),
+      await readCardIdentity(engine, sourceId, row, { excludePrivate: scope.excludePrivate, excludeQuarantined: opts.omitQuarantined === true, surfaceCeiling: opts.surfaceCeiling, aka: card.aka }));
+  }
   return {
     found: true,
     card,
@@ -359,6 +424,8 @@ async function assembleCard(
 ): Promise<EntityCard> {
   const pageSlug = row.slug;
   const visibility = remote ? (['world'] as ('private' | 'world')[]) : undefined;
+  // Facts saved about this entity may sit under a sibling page or the bare subject slug (siblings.ts).
+  const factSlugs = await factEntitySlugs(engine, sourceId, pageSlug, { excludePrivate }).catch(() => [pageSlug]);
   const { privatePagesFilterFragment, privateLinkOriginFilterFragment, privateProvenanceFilterFragment } = await import('../search/private-visibility.ts');
   const inboundPrivacy = excludePrivate
     ? ` AND ${privatePagesFilterFragment('f')} AND ${privateLinkOriginFilterFragment('l')}`
@@ -382,13 +449,7 @@ async function assembleCard(
   // applies, so a private or derived page never surfaces its slug, its
   // links.context sentence, or a count.
   const [aka, outLinks, inEdges, backlinkCount, timeline, facts, activeFactCount] = await Promise.all([
-    engine
-      .executeRaw<{ alias_norm: string }>(
-        `SELECT alias_norm FROM page_aliases WHERE source_id = $1 AND slug = $2 ORDER BY alias_norm`,
-        [sourceId, pageSlug],
-      )
-      .then(rs => rs.map(r => r.alias_norm))
-      .catch(() => [] as string[]),
+    readAka(engine, sourceId, pageSlug),
     engine.getLinks(pageSlug, { ...(remote ? { sourceIds: [sourceId] } : { sourceId }), excludePrivate, temporal: { status: 'all' } }).catch(() => []),
     engine
       .executeRaw<{ from_slug: string; link_type: string; context: string | null }>(
@@ -416,14 +477,14 @@ async function assembleCard(
       .then(rs => Number(rs[0]?.n ?? 0))
       .catch(() => 0),
     engine.getTimeline(pageSlug, { limit: 5, sourceId, excludePrivate, eligibility }).catch(() => []),
-    engine
-      .listFactsByEntity(sourceId, pageSlug, {
-        activeOnly: true,
-        limit: FACT_FETCH_CAP,
-        ...(visibility ? { visibility } : {}),
-        excludePrivate,
-        eligibility,
-      })
+    Promise.all(factSlugs.map(slug => engine.listFactsByEntity(sourceId, slug, {
+      activeOnly: true,
+      limit: FACT_FETCH_CAP,
+      ...(visibility ? { visibility } : {}),
+      excludePrivate,
+      eligibility,
+    })))
+      .then(lists => lists.flat().sort((a, b) => factTime(b) - factTime(a)).slice(0, FACT_FETCH_CAP))
       .catch(() => [] as FactRow[]),
     // Exact active-fact count: the payload fetch above is capped at
     // FACT_FETCH_CAP, so facts.length silently reports the cap for bigger
@@ -434,9 +495,9 @@ async function assembleCard(
       .executeRaw<{ n: string | number }>(
         `SELECT COUNT(*) AS n
            FROM facts
-          WHERE source_id = $1 AND entity_slug = $2
+          WHERE source_id = $1 AND entity_slug = ANY($2::text[])
             AND expired_at IS NULL${remote ? ` AND visibility = 'world'` : ''}${excludePrivate ? ` AND ${privateProvenanceFilterFragment('facts')}` : ''}`,
-        [sourceId, pageSlug],
+        [sourceId, factSlugs],
       )
       .then(rs => Number(rs[0]?.n ?? 0))
       .catch(() => null),
@@ -556,7 +617,26 @@ async function assembleCard(
     backlink_count: backlinkCount,
     active_fact_count: activeFactCount ?? facts.length,
     ...(relationshipNote ? { relationship_note: relationshipNote } : {}),
+    ...(facts.length ? { recent_facts: facts.slice(0, RECENT_FACTS_CAP).map(f => ({
+      id: String(f.id), fact: f.fact, kind: f.kind, valid_from: f.valid_from ? toIso(f.valid_from as Date | string) : null,
+      ...(f.entity_slug && f.entity_slug !== pageSlug ? { entity_slug: f.entity_slug } : {}),
+    })) } : {}),
   };
+}
+
+/** The card's `aka`: the page's normalized aliases (page_aliases reverse lookup); empty on a pre-migration brain. */
+export async function readAka(engine: BrainEngine, sourceId: string, slug: string): Promise<string[]> {
+  return engine
+    .executeRaw<{ alias_norm: string }>(
+      `SELECT alias_norm FROM page_aliases WHERE source_id = $1 AND slug = $2 ORDER BY alias_norm`,
+      [sourceId, slug],
+    )
+    .then(rs => rs.map(r => r.alias_norm))
+    .catch(() => [] as string[]);
+}
+
+function factTime(f: FactRow): number {
+  return toMs((f.valid_from ?? f.created_at ?? null) as Date | string | null);
 }
 
 /**

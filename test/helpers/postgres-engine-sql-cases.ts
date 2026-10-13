@@ -78,6 +78,7 @@ export const DOMAIN_OF: Record<string, string> = {
   '_searchKeywordCJK': OOS.helper,
   'runVectorAttempt': OOS.helper,
   'vectorIterativeScanSupported': OOS.helper,
+  'keywordStatementTimeoutSetting': OOS.helper,
 
   // pages
   'getPage': 'pages', 'readPageSnapshot': 'pages', 'readPageSnapshotsBatch': 'pages', 'lockPageKeys': 'pages', 'findDuplicatePage': 'pages', 'findDuplicatePages': 'pages',
@@ -90,6 +91,7 @@ export const DOMAIN_OF: Record<string, string> = {
   'resolveSlugWithAlias': 'pages', 'resolveSlugWithAliasDetailed': 'pages', 'setPageAliases': 'pages',
   'countStalePagesForExtraction': 'pages', 'listStalePagesForExtraction': 'pages', 'markPagesExtractedBatch': 'pages',
   'markPagesAttendanceBlocked': 'pages',
+  'countStaleFrontmatterKeyPages': 'pages', 'listStaleFrontmatterKeyPages': 'pages', 'stripStaleFrontmatterKeys': 'pages',
   // links
   'addLink': 'links', 'addLinksBatch': 'links', 'replaceDerivedLinks': 'links', 'replaceDerivedLinksBatch': 'links', 'removeLinksByPagesAndSource': 'links',
   'removeLink': 'links', 'getLinks': 'links', 'getBacklinks': 'links', 'listLinkSources': 'links',
@@ -134,7 +136,7 @@ export const DOMAIN_OF: Record<string, string> = {
   'searchKeyword': 'cjk-search', 'searchKeywordChunks': 'cjk-search',
 
   // out of scope
-  'searchTitles': OOS.search, 'searchVector': OOS.search, 'explainVectorSearch': OOS.search,
+  'searchTitles': OOS.search, 'countKeywordPages': OOS.search, 'searchKeywordPages': OOS.search, 'searchVector': OOS.search, 'explainVectorSearch': OOS.search,
   'relationalFanout': OOS.enrichment, 'relationalChainHop': OOS.enrichment, 'getBacklinkCounts': OOS.enrichment, 'getAdjacencyBoosts': OOS.enrichment,
   'getContentFlagsByPageIds': OOS.enrichment, 'getUnverifiedExtractionPageIds': OOS.enrichment,
   'getEffectiveDates': OOS.enrichment, 'getSalienceScores': OOS.enrichment, 'resolveAliases': OOS.enrichment,
@@ -392,6 +394,9 @@ export const SQL_CASES: SqlCase[] = [
   ]),
   ...variants('markPagesExtractedBatch', [['default', (e) => e.markPagesExtractedBatch([{ slug: SLUG, source_id: SRC }], '2026-01-01T00:00:00Z')]]),
   ...variants('markPagesAttendanceBlocked', [['default', (e) => e.markPagesAttendanceBlocked([{ slug: SLUG, source_id: SRC, revision: '00000000-0000-4000-8000-000000000001' }])]]),
+  ...variants('countStaleFrontmatterKeyPages', [['default', (e) => e.countStaleFrontmatterKeyPages({ sourceIds: [SRC] })]]),
+  ...variants('listStaleFrontmatterKeyPages', [['default', (e) => e.listStaleFrontmatterKeyPages({ sourceId: SRC, afterId: 0, limit: 10 })]]),
+  ...variants('stripStaleFrontmatterKeys', [['default', (e) => e.stripStaleFrontmatterKeys({ sourceId: SRC, ids: [1] })]]),
 
   // ── links ──
   ...variants('addLink', [
@@ -734,11 +739,13 @@ export const SQL_CASES: SqlCase[] = [
   ...variants('getCallersOf', [
     ['default', (e) => e.getCallersOf('B.g')],
     ['sourceId', (e) => e.getCallersOf('B.g', { sourceId: SRC })],
+    ['chunkId', (e) => e.getCallersOf('B.g', { sourceId: SRC, chunkId: 2 })],
   ]),
   ...variants('getCalleesOf', [
     ['default', (e) => e.getCalleesOf('A.f')],
     ['sourceId', (e) => e.getCalleesOf('A.f', { sourceId: SRC })],
     ['bareFallback', (e) => e.getCalleesOf('f', { bareFallback: true })],
+    ['chunkId', (e) => e.getCalleesOf('A.f', { sourceId: SRC, chunkId: 1 })],
   ]),
   ...variants('getEdgesByChunk', [
     ['default', (e) => e.getEdgesByChunk(1)],

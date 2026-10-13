@@ -25,12 +25,12 @@ import { submissionAuthority, authorizeStoredRequest } from './authority.ts';
 import { currentVerifiedLocalWriter, localHostId, readLocalWriter, registerLocalWriter, withVerifiedLocalRegistration } from './identity.ts';
 import type { BrainEngine } from '../engine.ts';
 import { claimWorktree, getWorktreeBinding, managedPersistenceEnabled } from './ownership.ts';
-import { parseMutationPrecondition } from './preconditions.ts';
+import { clientRequestIdOf, parseMutationPrecondition } from './preconditions.ts';
 import { assertPurgeParams } from './purge-params.ts';
 import type { Principal, WriteRequest } from './model.ts';
 import { normalizeSubagentPageInput, undeclaredPageTypeWarning, type PageTypeWarning } from './page-input.ts';
 import { assertKnowledgePublicationAllowed } from '../shared-skills/knowledge-guard.ts';
-import { isUnboundSourcePage, readUnboundWritePolicy, unboundSourceError } from './unbound-source.ts';
+import { isUnboundSourcePage, readDatabaseOnlyActivatedSources, readUnboundWritePolicy, unboundSourceError } from './unbound-source.ts';
 import { colonSlugWindowsRefusal, isWindowsColonTarget } from './native-file-target.ts';
 import { publishesDatabaseOnly } from './page-prepare.ts';
 import { cachedPreadmitBrain, dropPreadmitCache, preadmitReads, preadmitRecheckFailed } from './preadmit-cache.ts';
@@ -363,7 +363,10 @@ export async function preparePageAdmission(ctx: OperationContext,
   // (connector_database): a page write never claims it or refuses as unbound.
   if (writeThrough && root && !binding && isConnectorSourceKind(source.kind)) authority.databaseOnlyReason = 'connector_database';
   else if (writeThrough && root && !binding) {
-    if (ctx.engine.kind === 'pglite') binding = await claimWorktree(ctx.engine, sourceId, root, undefined, undefined, { automatic: true });
+    // #6449: a source activation listed database-only (sync.write_through was off) is never claimed by a flip of that
+    // setting: the write refuses with the claim named (or stays database-only under persistence.unbound_write), as on Postgres.
+    const databaseOnlyActivated = ctx.engine.kind === 'pglite' && (await readDatabaseOnlyActivatedSources(ctx.engine)).includes(sourceId);
+    if (ctx.engine.kind === 'pglite' && !databaseOnlyActivated) binding = await claimWorktree(ctx.engine, sourceId, root, undefined, undefined, { automatic: true });
     else {
       // #5393: the opt-in covers every page mutation whose target has no
       // recorded canonical file; a revert is also judged on the version it writes.
@@ -387,7 +390,7 @@ export async function preparePageAdmission(ctx: OperationContext,
     throw colonSlugWindowsRefusal(slug, sourceId);
   }
   return { typeWarning, slugAdvisory, admission: { principal, operation: input.operation, sourceId, sourceIncarnation: source.incarnation,
-    slug, pageId: snapshot?.page.id ?? null, requestId, callerIntent, intent, authority,
+    slug, pageId: snapshot?.page.id ?? null, requestId, clientRequestId: input.batch ? undefined : clientRequestIdOf(params.request_id), callerIntent, intent, authority,
     ...(input.operation === 'edit_page' ? { terminalReservation: Math.max(16_384, Buffer.byteLength(JSON.stringify(authority)) + 8192)
       + (await import('./page-edit.ts')).EDIT_PAGE_RECEIPT_RESERVE } : {}),
     worktreeId: writeThrough ? binding?.worktree_id : null, topologyGeneration: writeThrough ? binding?.topology_generation : null } };

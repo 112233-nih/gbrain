@@ -93,6 +93,7 @@ describe('SEARCH_MODES + MODE_BUNDLES canonical shape', () => {
       relational_planner: false,
       relational_orient_onehop: false,
       relational_chain_slots: 10,
+      diverse_pool_depth: 0,
       // ranker wave (Phase E2) — keyword-arm confidence floor OFF in every bundle until the Cat 13 receipt.
       keyword_arm_confidence_floor: null,
       // ranker wave (Phase E3) — metadata boost gate `lexical` in every bundle since the Cat 13 held-out receipt (`always` = pre-wave pipeline).
@@ -141,6 +142,7 @@ describe('SEARCH_MODES + MODE_BUNDLES canonical shape', () => {
       relational_planner: true,
       relational_orient_onehop: false,
       relational_chain_slots: 10,
+      diverse_pool_depth: 0,
       // ranker wave (Phase E2) — keyword-arm confidence floor OFF in every bundle until the Cat 13 receipt.
       keyword_arm_confidence_floor: null,
       // ranker wave (Phase E3) — metadata boost gate `lexical` in every bundle since the Cat 13 held-out receipt (`always` = pre-wave pipeline).
@@ -187,6 +189,7 @@ describe('SEARCH_MODES + MODE_BUNDLES canonical shape', () => {
       relational_planner: true,
       relational_orient_onehop: false,
       relational_chain_slots: 10,
+      diverse_pool_depth: 0,
       // ranker wave (Phase E2) — keyword-arm confidence floor OFF in every bundle until the Cat 13 receipt.
       keyword_arm_confidence_floor: null,
       // ranker wave (Phase E3) — metadata boost gate `lexical` in every bundle since the Cat 13 held-out receipt (`always` = pre-wave pipeline).

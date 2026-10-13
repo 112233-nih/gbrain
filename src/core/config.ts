@@ -265,6 +265,8 @@ export interface GBrainConfig {
     hnsw_iterative_scan?: string;
     /** #5989 CJK keyword arm deadline in ms (search/cjk-keyword-deadline.ts); file > DB. */
     cjk_keyword_deadline_ms?: number;
+    /** #6495 Postgres keyword/title statement_timeout in ms (postgres-engine/keyword-statement-timeout.ts); file > DB, resolved per connection. */
+    keyword_statement_timeout_ms?: number;
   };
 
   /**
@@ -839,6 +841,8 @@ async function mergeSearchScanKnobs(
   if (mergedSearch.hnsw_iterative_scan === undefined && dbHnswIterativeScan !== undefined) mergedSearch.hnsw_iterative_scan = dbHnswIterativeScan;
   const dbCjkDeadline = Number(await dbStr('search.cjk_keyword_deadline_ms'));
   if (mergedSearch.cjk_keyword_deadline_ms === undefined && Number.isFinite(dbCjkDeadline) && dbCjkDeadline > 0) mergedSearch.cjk_keyword_deadline_ms = dbCjkDeadline;
+  const dbKeywordTimeout = Number(await dbStr('search.keyword_statement_timeout_ms'));
+  if (mergedSearch.keyword_statement_timeout_ms === undefined && Number.isFinite(dbKeywordTimeout) && dbKeywordTimeout > 0) mergedSearch.keyword_statement_timeout_ms = dbKeywordTimeout;
 }
 /**
  * v0.27.1 — async config loader that overlays DB-plane config on top of the
@@ -1344,6 +1348,7 @@ export const KNOWN_CONFIG_KEYS: readonly string[] = [
   // (commands/upgrade.ts, ops/image.ts, ops/search.ts, private-visibility.ts,
   // last-retrieved.ts).
   'search.mode_upgrade_notice_shown',
+  'search.mode_source',
   'search.image_query.max_bytes',
   'search.image_query.daily_budget_usd_per_client',
   'search.image_query.remote_max_bytes',
@@ -1378,6 +1383,7 @@ export const KNOWN_CONFIG_KEYS: readonly string[] = [
   'search.vector_legacy_guard',
   'search.hnsw_iterative_scan',
   'search.cjk_keyword_deadline_ms',
+  'search.keyword_statement_timeout_ms',
   'search.adaptive_return',
   'search.adaptive_return_entity_max',
   'search.adaptive_return_other_max',
@@ -1395,6 +1401,7 @@ export const KNOWN_CONFIG_KEYS: readonly string[] = [
   'search.relational_orient_onehop',
   // Multi-hop chain slots: chain rows leading page 1 when a chain fired (mode.ts reads; 0..10).
   'search.relational_chain_slots',
+  'search.diverse_pool_depth', // session-diverse pool before the reranker (mode.ts reads; `off` | 0..100; 0 = off)
   // Ranker wave (Phase E2): keyword-arm confidence floor — weak keyword arm fuses at half weight (mode.ts reads; `off` | (0, 1]).
   'search.keyword_arm_confidence_floor',
   // Ranker wave (Phase E3): metadata boost gate — `lexical` skips post-fusion metadata boosts when the vector arm was the only voter (mode.ts reads; `always` | `lexical`).
@@ -1413,9 +1420,11 @@ export const KNOWN_CONFIG_KEYS: readonly string[] = [
   'search.entity_anchoring', // entity-anchored retrieval for entity-scoped current-state query/search (default off; search/entity-anchor.ts)
   'search.query_facts_arm', // query adds matching active facts as rows in spare capacity (default on; search/facts-arm.ts)
   'search.temporal_fact_reserve', // temporal-cue queries reserve up to 15% of the token budget for question-ranked dated facts (default off; search/facts-arm.ts)
-  'search.page_rank_cut', // W5: off | whole_pages — page unit + caller token_budget stops adding pages once their whole pages fill the budget (default off; search/page-rank-cut.ts)
-  'search.page_rank_cut_factor', // W5: whole_pages target = factor x the budget (default 1.0)
+  'search.page_rank_cut', // W5: whole_pages (default) | off — page unit + caller token_budget stops adding pages once their whole pages fill factor x the budget (search/page-rank-cut.ts)
+  'search.page_rank_cut_factor', // W5: whole_pages target = factor x the budget (default 1.5)
   'think.return_unit',
+  'think.pages_budget_chars', // #5461: total chars for the synthesize pages block (4000-200000, default 12000; soft: the 600-char floor wins); think/pages-budget.ts
+  'think.excerpt_ceiling_chars', // #5461: per-page excerpt cap for the synthesize pages block (600-200000, default 2400); think/pages-budget.ts
   // Models tier system (v0.31.12)
   'models.default',
   'models.tier.utility',
@@ -1588,6 +1597,9 @@ export const KNOWN_CONFIG_KEYS: readonly string[] = [
   // #4102: off switch for the propose_takes LLM phase (default ON; the
   // phase ships in the default list). Read by src/core/cycle/propose-takes.ts.
   'cycle.propose_takes.enabled',
+  'cycle.propose_takes.types', // #5213: JSON array of page types propose_takes scans (unset = every type); read in cycle/propose-takes.ts
+  'cycle.lint.enabled', // #6369: default on; an explicit falsy value skips the cycle's lint phase (cycle/lint-fix-setting.ts; `dream --phase lint --once` bypasses)
+  'autopilot.git_pull', // #6451: default on; an explicit falsy value stops automatic sync from pulling remote sources (persistence/automatic-sync-policy.ts)
   // Content sanity (v0.41)
   'content_sanity.bytes_warn',
   'content_sanity.bytes_block',
@@ -1649,8 +1661,10 @@ export const KNOWN_CONFIG_KEYS: readonly string[] = [
   // reconcile-links, and sweep. The documented off-switch is `gbrain config
   // set auto_link false` — same unregistered-key class as auto_chronicle.
   'auto_link',
-  // Entity mention index (core/mentions/policy.ts): off switch, +type/-type linkable types, names never linked, pages never linked (#5829).
-  'mentions.auto_link', 'mentions.entity_types', 'mentions.ignore', 'mentions.exclude_slugs',
+  // Entity mention index (core/mentions/policy.ts): off switch, +type/-type linkable types, names never linked, pages never linked (#5829),
+  // aliases never derived, multi-word declared aliases, identity siblings; search's alias fan-out cap and generated-page demotion.
+  'mentions.auto_link', 'mentions.entity_types', 'mentions.ignore', 'mentions.exclude_slugs', 'mentions.alias_deny', 'mentions.multiword_aliases',
+  'mentions.sibling_merge', 'search.alias_fanout_max', 'search.demote_generated',
   // #4987: the write-path timeline extractor's off switch (read by
   // isAutoTimelineEnabled); registered so `gbrain config set auto_timeline off`
   // works without --force, as the compiled-truth guide documents.
@@ -1757,7 +1771,7 @@ export const KNOWN_CONFIG_KEYS: readonly string[] = [
   'persistence.publication_ceiling_ms', // #6405: persistence/sync-drain.ts (in-pass publication ceiling)
   'persistence.single_consumer', // #6317: persistence/switches.ts, consumer-election.ts (one full consumer per host; off by default)
   // shared-skills migration inventory bounds (src/core/shared-skills/inventory-limits.ts)
-  'shared_skills.inventory.max_files', 'shared_skills.inventory.max_total_bytes', 'shared_skills.inventory.max_file_bytes', 'shared_skills.inventory.max_entries',
+  'shared_skills.inventory.max_files', 'shared_skills.inventory.max_total_bytes', 'shared_skills.inventory.max_file_bytes', 'shared_skills.inventory.max_entries', 'shared_skills.migration.enabled', // #6466: false declines the 0.53.0 migration (commands/migrations/opt-out.ts)
   'persistence.write_wait_ms', // #5232: file plane, persistence/write-wait.ts
   'migrate.graduation', // file plane, src/commands/migrate-graduation.ts (engine graduation opt-out)
   'consent.preapprove.paid.max_usd_per_run', 'consent.preapprove.persistent_install', // A4: file plane, core/consent.ts
@@ -1891,6 +1905,7 @@ export function toEngineConfig(config: GBrainConfig): EngineConfig {
     engine: config.engine,
     database_url: config.database_url,
     database_path: config.database_path,
+    keyword_statement_timeout_ms: config.search?.keyword_statement_timeout_ms,
   };
 }
 

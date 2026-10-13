@@ -397,6 +397,7 @@ async function setConfigWithDecideHooks(engine: BrainEngine, key: string, value:
     if (err) { console.error(`[config] ${err}`); process.exit(1); }
   }
   if (key.startsWith('loops.')) (await import('./config/loops-values.ts')).refuseInvalidLoopsConfigValue(key, value);
+  if (key.startsWith('search.')) (await import('./config/keyword-timeout-value.ts')).refuseInvalidKeywordTimeoutValue(key, value);
   if (key === 'persistence.max_claim_ms') {
     const { validateMaxClaimConfigValue } = await import('../core/persistence/claim-phase.ts');
     const err = validateMaxClaimConfigValue(key, value);
@@ -1264,6 +1265,13 @@ export async function runConfig(engine: BrainEngine, args: string[]) {
       catch (error) { console.error(`[config] ${(error as Error).message}`); process.exit(1); }
     }
 
+    // #5461: think falls back to the default budget on a malformed value (and warns); refuse it here.
+    if (key === 'think.pages_budget_chars' || key === 'think.excerpt_ceiling_chars') {
+      const { pagesBudgetConfigError } = await import('../core/think/pages-budget.ts');
+      const error = pagesBudgetConfigError(key, value);
+      if (error) { console.error(`[config] ${error}`); process.exit(1); }
+    }
+
     // Validate sources.default at set time. This key is read by
     // source-resolver.ts tier 5 on EVERY unqualified call, and tier 5 calls
     // assertSourceExists — so a syntactically valid but non-existent id set
@@ -1438,8 +1446,8 @@ export async function runConfig(engine: BrainEngine, args: string[]) {
     // set that already persisted.
     if (key === 'search.mode') {
       try {
-        const { runModeSwitchUx } = await import('../core/search/mode-switch-ux.ts');
-        const { isSearchMode } = await import('../core/search/mode.ts');
+        const [{ runModeSwitchUx }, { isSearchMode }] = await Promise.all([import('../core/search/mode-switch-ux.ts'), import('../core/search/mode.ts')]);
+        if (isSearchMode(value)) await engine.setConfig('search.mode_source', 'operator');
         await runModeSwitchUx({
           oldMode: oldSearchMode && isSearchMode(oldSearchMode) ? oldSearchMode : null,
           newMode: value,

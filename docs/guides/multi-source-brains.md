@@ -302,7 +302,7 @@ Fix it with:
 
 ```bash
 git -C <path> init
-git -C <path> add -A
+git -C <path> add -A   # gbrain-allow-shared-tree-git: first commit of a brand-new repo nobody else writes yet
 git -C <path> commit -m "initial import"
 gbrain sources add <id> --path <path>
 ```
@@ -426,7 +426,12 @@ without writing anything"* — your agent runs `gbrain sync --dry-run`.
 This hardening path applies to unmanaged worktrees. After activating managed
 writers, Git effects belong to the persistence outbox; generated legacy push
 helpers refuse to run rather than bypass that ownership boundary. See the
-[concurrent-write guide](concurrent-writes.md).
+[concurrent-write guide](concurrent-writes.md). On a managed root the owner
+commits and pushes page writes (`gbrain sources writer git-durability <source>
+--enable`), files that are not pages are committed with plain git and ride the
+owner's next push, the checkout is never pulled or rebased, and the durability
+block below is regenerated in its managed form by that verb; see
+[files that are not pages](../architecture/topologies.md#files-that-are-not-pages).
 
 A long-lived agent that writes to a knowledge-wiki git repo needs three
 things to never lose work: pull before it edits, push every write, and not
@@ -454,17 +459,34 @@ gbrain sources unharden wiki
 
 What hardening guarantees:
 
-- **Pull-first, conflict-safe.** Every pull is a divergence-safe rebase. A
-  dirty working tree is skipped (your in-progress edits are never touched); a
-  rebase conflict is aborted cleanly and flagged for attention, never left
-  half-applied.
+- **Pull-first, safe in a shared checkout.** Nothing rebases or stashes the
+  working tree. A pull fetches, then, under the checkout's writer lock,
+  fast-forwards, or for a diverged branch merges the remote commits in memory
+  into a merge commit (`gbrain: merge origin/<branch> into <branch>`) and
+  fast-forwards to it. A real conflict changes nothing and is flagged for
+  attention ([conflicts](shared-checkout-git.md#conflicts)). `gbrain sources
+  pull`, which the unattended 30-minute cron runs, keeps its conservative
+  rule: a checkout with any local edit is skipped (`skipped_dirty`), so it
+  never moves files under a writer, and a checkout whose writer lock is busy
+  is skipped until the next run. An explicit `scripts/brain-commit-push.sh --pull`
+  (or `gbrain git commit-push --pull`) advances a dirty checkout unless a
+  dirty file is one the pull must change; then it changes nothing and its
+  notice names the files. `gbrain sources set-pull-strategy <id> <rebase|merge>`
+  is still accepted and recorded, but both strategies now integrate by merge,
+  because the shared tree is never rebased.
 - **Push is never deferred.** `scripts/brain-commit-push.sh "<msg>" <path>`
-  commits and pushes, and refuses to report success without a successful push
-  or confirmation that the exact destination branch at every effective origin
-  push URL contains the attempted commit. A rejected push can still succeed when another process
-  already pushed that commit; a stale local tracking ref is not confirmation.
-  The post-commit hook is a best-effort background fallback; the helper is
-  the guarantee.
+  delegates to `gbrain git commit-push`: it takes the checkout's writer lock,
+  commits only the named paths, merges a rejected push in memory, and refuses
+  to report success without a push the remote accepted. Other agents'
+  uncommitted files are never staged, stashed or touched. The post-commit
+  hook is a best-effort background fallback (it only publishes, never pulls);
+  the helper is the guarantee. Outcomes and what to do on each:
+  [shared-checkout git](shared-checkout-git.md#outcomes).
+- **One writer at a time per checkout.** Harden also sets
+  `rebase.autoStash=false`, `merge.autoStash=false` and `pull.ff=only` in the
+  checkout's local git config, so a stray `git pull` refuses instead of
+  autostashing. Host daemons that commit the same checkout join through the
+  [lock contract](shared-checkout-git.md#lock-contract).
 - **No silent staleness.** A 30-minute background pull keeps an idle session
   current. It runs DB-free, so it never contends with a live brain for the
   PGLite single-writer lock.

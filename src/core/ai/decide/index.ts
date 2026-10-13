@@ -48,6 +48,14 @@ export interface DecideContext {
 
 const BACKGROUND_DEFAULT_MS = 60_000;
 
+let testClock: (() => number) | undefined;
+/** Drive runDecide's deadline arithmetic from `clock` when the caller passes no `now`; returns the restore. */
+export function __setDecideClockForTests(clock: (() => number) | undefined): () => void {
+  const prev = testClock;
+  testClock = clock;
+  return () => { testClock = prev; };
+}
+
 export async function loadDecideConfig(engine: BrainEngine | null, opts: { evalSlots?: string } = {}): Promise<DecideConfig> {
   return readDecideConfig(engine ? await loadConfigSnapshot(engine) : null, { ...opts, typesafeKey: hasTypesafeKey() });
 }
@@ -69,7 +77,7 @@ function emptyResult(provider: string, lane: DecideLane, refused: Record<string,
 }
 
 export async function runDecide(req: DecideRequest, ctx: DecideContext): Promise<DecideResult> {
-  const now = ctx.now ?? Date.now;
+  const now = ctx.now ?? testClock ?? Date.now;
   const started = now();
   const cfg = ctx.config ?? await loadDecideConfig(ctx.engine);
   const provider = req.provider ?? cfg.slots[req.slot].provider;
@@ -148,7 +156,13 @@ async function runTypesafe(req: DecideRequest, ctx: DecideContext, cfg: DecideCo
   }
   const budgetKind = req.budgetKind ?? 'decide';
   const estimatedTokens = plan.reduce((n, b) => n + b.estimatedInputTokens, 0);
-  const priced = (tokens: number) => usageCostUsd(a.provider, tokens, 0, budgetKind) ?? 0;
+  // [R18] (#5980): an id with no shipped tariff and no operator price is
+  // refused before transport. `?? 0` here would admit it as free against the
+  // daily and remote-share budgets and write $0 spend rows for a real bill.
+  if (usageCostUsd(a.provider, 1, 0, budgetKind, cfg.pricingOverrides) === null) {
+    throw new DecideError('unpriced_model', `decide: ${a.provider} has no price; register one with gbrain pricing set ${a.provider} --rate <usd-per-1M-input-tokens> --source <url>`);
+  }
+  const priced = (tokens: number) => usageCostUsd(a.provider, tokens, 0, budgetKind, cfg.pricingOverrides)!;
   if (budgetKind === 'decide' && ctx.engine) {
     const spent = await dailySpend(ctx.engine, a.now()).catch(() => ({ total: 0, remote: 0 }));
     const estimate = priced(estimatedTokens);

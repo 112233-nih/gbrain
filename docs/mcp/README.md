@@ -68,15 +68,28 @@ block. Remote callers get **lean rows** by default: the fields an agent acts
 on, without the ranking diagnostics that would make each row several times
 longer than its evidence text.
 
-A lean row keeps `id` (the `fetch` key), `slug`, `title`, `type`,
-`chunk_text`, `score`, `effective_date`, `source_id`, `chunk_id` (with
-`slug` and `source_id`, the `assemble_evidence` hit), `evidence` and
-`create_safety` (the duplicate-page guard). It also keeps every safety or
+A lean row keeps `slug`, `title`, `type`, `chunk_text`, `score` (4
+significant digits), `effective_date`, `source_id`, `chunk_id` (with `slug`
+and `source_id`, the `assemble_evidence` hit), `evidence`, `create_safety`
+(the duplicate-page guard), `trust_tier` and `origin`. It keeps `id` (the
+`fetch` key) only when this connection can call `fetch` at that moment: a
+`full` surface, a stdio session `request_tools` widened, or an HTTP client
+whose surface and scopes include it (`starter` and `verbs` do not list
+`fetch`). After `fetch` becomes callable, re-run `search` for `id` or pass
+the row's `slug` to `fetch` (accepted when unambiguous); `fields: "full"`
+returns every field. It also keeps every safety or
 provenance marker that is present: `injection_suspected`, `injection_p`,
 `unverified`, `content_flag`, `status`, `superseded`, `superseded_by`,
 `message_id`, `thread_id`, `source_subject`, `modality` when not `text`,
-`stale` when true, and `delivered: {"truncated": true}` when evidence
-delivery cut the text.
+`stale` when true, `provenance: "generated"` on a machine-written page,
+and `delivered: {"truncated": true}` when evidence delivery cut the text.
+
+`effective_date` is the page's own date and `effective_date_source` says
+which kind: `date`, `published` or `filename` is a document date,
+`event_date` an event date, and `created` or `fallback` only when the page
+was created or imported. It is never a contract's effective or validity
+date; that date is in the text. Every reply with dated rows adds one line
+after the rows that says so (`[gbrain dates] ...`).
 
 ```json
 {"query": "acme-example renewal terms"}

@@ -101,7 +101,7 @@ const remember: Operation = {
       enum: ['world', 'private'],
       description: 'world (default) or private (local CLI).',
     },
-    replaces: { type: 'string', description: 'fact_id this fact replaces (same entity).', fullSurfaceOnly: true },
+    replaces: { type: 'string', description: 'fact_id this fact replaces (same entity, or none).', fullSurfaceOnly: true },
   },
   mutating: true,
   scope: 'write',
@@ -211,15 +211,27 @@ const entity: Operation = {
   mutating: false,
   idempotent: true,
   outputRedaction: 'retrieval',
-  description: 'MEMORY VERB (v1): person/company/account card, zero LLM. Previews are not evidence: fetch the page before stating status or dates. Miss: found:false with near matches and create_safety. Facts: recall.',
+  description: 'MEMORY VERB (v1): person/company/account card, zero LLM. Previews are not evidence: fetch the page before stating status or dates. Miss: found:false with near matches (create_safety). Facts: recall.',
   params: {
-    name: { type: 'string', required: true, description: 'Name, alias or slug (e.g. "Alice Example").' },
+    name: { type: 'string', description: 'Name, alias or slug.' },
+    names: { type: 'array', items: { type: 'string' }, description: 'Or up to 50 names/codes at once: compact rows.' },
   },
   scope: 'read',
   verb: true,
   annotations: { title: 'entity (card lookup, zero LLM)', readOnlyHint: true },
   handler: async (ctx, p) => {
     const { verbError } = await import('./operations.ts');
+    if (p.names !== undefined) {
+      const { ENTITY_NAMES_MAX, lookupEntityNames } = await import('./verbs/entity-names.ts');
+      const names = Array.isArray(p.names) ? p.names.filter((n): n is string => typeof n === 'string' && n.trim() !== '') : [];
+      if (p.name !== undefined || !names.length || names.length > ENTITY_NAMES_MAX) {
+        throw verbError('invalid_params', `names must be 1 to ${ENTITY_NAMES_MAX} non-empty strings, without name.`,
+          `Pass either name: "Alice Example" for one full card, or names: ["Alice Example", "WGCO"] (up to ${ENTITY_NAMES_MAX}) for compact rows.`);
+      }
+      const t0 = Date.now();
+      const out = await lookupEntityNames(ctx.engine, ctx.sourceId ?? 'default', names, { remote: ctx.remote !== false });
+      return { protocol_version: 1, latency_ms: Date.now() - t0, ...out };
+    }
     const name = typeof p.name === 'string' ? p.name.trim() : '';
     if (!name) {
       throw verbError(
@@ -239,6 +251,10 @@ const entity: Operation = {
       const { mentionCoverageNotice } = await import('./mentions/coverage.ts');
       const notice = mentionCoverageNotice(coverage, result.card?.entity.type);
       if (notice) ctx.emitNotice?.(notice);
+    }
+    if (result.card?.identity_siblings?.capped) {
+      const { siblingsCappedNotice } = await import('./verbs/entity-card-identity.ts');
+      ctx.emitNotice?.(siblingsCappedNotice(result.card.entity.slug));
     }
     return {
       protocol_version: MEMORY_VERBS_VERSION,
@@ -356,11 +372,13 @@ const synthesize: Operation = {
         return {
           answer: result.extractive.answer,
           sources: result.extractive.citations.map(c => c.page_slug),
+          citations: sourceQualifiedCitations(result.extractive.citations),
           gaps: result.gaps,
           cost,
           synthesis_status: 'extractive_fallback',
           pages_gathered: result.pagesGathered,
           takes_gathered: result.takesGathered,
+          evidence_truncated: result.evidence_truncated ?? false,
           warnings: result.warnings,
           ...feedbackMeta,
           protocol_version: MEMORY_VERBS_VERSION,
@@ -378,11 +396,13 @@ const synthesize: Operation = {
       answer: result.answer,
       ...(result.answer_raw !== undefined ? { answer_raw: result.answer_raw, quote_check: result.quote_check, unverified_quotes: result.unverified_quotes } : {}),
       sources: result.citations.map(c => c.page_slug),
+      citations: sourceQualifiedCitations(result.citations),
       gaps: result.gaps,
       cost,
       synthesis_status: 'ok',
       pages_gathered: result.pagesGathered,
       takes_gathered: result.takesGathered,
+      evidence_truncated: result.evidence_truncated ?? false,
       warnings: result.warnings,
       ...feedbackMeta,
       protocol_version: MEMORY_VERBS_VERSION,
@@ -390,6 +410,11 @@ const synthesize: Operation = {
   },
   cliHints: { name: 'synthesize', positional: ['question'] },
 };
+
+/** #5461: `sources[]` stays slugs (frozen); `citations[]` is the same list, source-qualified. */
+function sourceQualifiedCitations(citations: Array<{ page_slug: string; row_num: number | null; source_id?: string | null }>) {
+  return citations.map(c => ({ slug: c.page_slug, source_id: c.source_id ?? null, row_num: c.row_num }));
+}
 
 // ─── forget ──────────────────────────────────────────────────────────────────
 
@@ -714,6 +739,17 @@ export const RESPONSE_SCHEMAS: Record<VerbName, Record<string, unknown>> = {
       pages_gathered: { type: 'integer', description: 'Pages retrieved by the gather phase behind this answer.' },
       takes_gathered: { type: 'integer', description: 'Takes retrieved by the gather phase behind this answer.' },
       warnings: { type: 'array', items: { type: 'string' }, description: 'Machine-stable pipeline warning codes (e.g. LLM_OUTPUT_NOT_JSON, LLM_CALL_FAILED: <class> where <class> is timeout | rate_limited | network | provider_error).' },
+      // #5461 additive: the pages budget is configurable and soft; callers learn when evidence was cut and which source each cited page came from.
+      evidence_truncated: { type: 'boolean', description: 'true when at least one gathered page reached the model as a cut excerpt (think.pages_budget_chars / think.excerpt_ceiling_chars, both soft bounds).' },
+      citations: {
+        type: 'array',
+        description: 'sources[] with provenance, same order and length: the gathered source each cited slug came from (null when the model cited a slug outside the gather).',
+        items: {
+          type: 'object',
+          required: ['slug', 'source_id'],
+          properties: { slug: { type: 'string' }, source_id: { type: ['string', 'null'] }, row_num: { type: ['integer', 'null'] } },
+        },
+      },
     },
   },
   forget: {
@@ -951,5 +987,15 @@ export const ERROR_SCHEMA: Record<string, unknown> = {
     protocol_version: { type: 'integer', const: MEMORY_VERBS_VERSION },
     write_request: WRITE_RECEIPT_SCHEMA,
     write_error: { type: 'string', enum: [...WRITE_ERROR_CODES] },
+    withdrawn: {
+      type: 'object',
+      required: ['at', 'subject', 'visibility'],
+      description: 'Additive, on a fact_withdrawn refusal: when and for which subject (an entity slug, or all_entities) the exact claim was forgotten. Absence carries no meaning.',
+      properties: {
+        at: { type: 'string' },
+        subject: { type: 'string' },
+        visibility: { type: 'string', enum: ['world', 'private'] },
+      },
+    },
   },
 };

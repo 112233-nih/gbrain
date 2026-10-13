@@ -41,14 +41,26 @@
  * `test/e2e/postgres-bootstrap.test.ts`) to catch step 2 oversights.
  */
 
-import { test, expect } from 'bun:test';
+import { test, expect, beforeAll, afterAll } from 'bun:test';
 import { PGLiteEngine } from '../src/core/pglite-engine.ts';
 import { surfaceFileSource } from './helpers/source-surface.ts';
 
 // Tier 3 opt-out: this file tests the bootstrap coverage contract explicitly,
 // running applyForwardReferenceBootstrap against fresh PGlite instances. A
-// snapshot-loaded engine would skip the bootstrap entirely.
-delete process.env.GBRAIN_PGLITE_SNAPSHOT;
+// snapshot-loaded engine would skip the bootstrap entirely. Unset for this
+// file's tests and restore afterwards: a CI shard runs hundreds of files in
+// ONE bun process (scripts/test-shard.sh), so a module-scope delete would
+// cold-boot every later engine in the shard (check:test-env-opt-ins pins
+// this shape).
+let savedSnapshot: string | undefined;
+beforeAll(() => {
+  savedSnapshot = process.env.GBRAIN_PGLITE_SNAPSHOT;
+  delete process.env.GBRAIN_PGLITE_SNAPSHOT;
+});
+afterAll(() => {
+  if (savedSnapshot === undefined) delete process.env.GBRAIN_PGLITE_SNAPSHOT;
+  else process.env.GBRAIN_PGLITE_SNAPSHOT = savedSnapshot;
+});
 
 // Single home for the bootstrap's source path (moved twice: #4477, then E1
 // merged both engines' copies — keep every source-pinning test below on one
@@ -1039,6 +1051,13 @@ const COLUMN_EXEMPTIONS = new Set<string>([
   // statement shape, doctor's extract_health falls back to a 0-column
   // query). Column-only, no bootstrap probe needed.
   'extract_rollup_7d.expected_limit_count',
+  // #5495 (migration v239) — per-reason halt counter (jsonb). Same precedent
+  // as expected_limit_count: extract_rollup_7d is migration-created (v106,
+  // absent from both schema blobs), no index references the column, and both
+  // consumers handle absence explicitly (the rollup writer retries the
+  // pre-v239 UPSERT shape, the doctor read returns no reasons so every halt
+  // is `unknown`). Column-only, no bootstrap probe needed.
+  'extract_rollup_7d.halt_reasons',
   // #4069 (migration v143) — verdict TTL column. The PGLite half of this
   // exemption is correct: dream_verdicts is migration-created on PGLite
   // (v30, absent from PGLITE_SCHEMA_SQL), so no PGLite-blob forward
@@ -1078,6 +1097,10 @@ const COLUMN_EXEMPTIONS = new Set<string>([
   // v178/v198/v217: migration-created on PGLite, no index references the
   // column, and every reader treats a missing value as 0 attempts.
   'persistence_requests.preparation_attempts',
+  // Cat 40 Hard F6 (migration v238) — the client's original request_id. Same
+  // posture as v178/v198: persistence_requests is migration-created on PGLite,
+  // no index references the column, and every reader treats NULL as "sent a UUID or nothing".
+  'persistence_requests.client_request_id',
   // #5455 (migration v183) — managed mode epoch. persistence_brain is
   // migration-created on PGLite; no index in either blob references it, and
   // pre-migration readers go through to_jsonb(persistence_brain)->'mode_epoch'.
