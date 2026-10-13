@@ -12,9 +12,11 @@
  * as they are. Runs on PGLite, and on Postgres when DATABASE_URL is set.
  *
  * #6586: a test that hits its deadline does not keep running behind the next
- * one. `afterEach` aborts the running arm's sync, puts PATH back and prints
- * the arm's Git calls (how long each took, which never finished), so a hang
- * says whether Git was slow or the runtime missed a finished child.
+ * one. `afterEach` aborts the running arm's sync, waits for it to unwind (so
+ * its PATH override is gone) and prints the arm's Git calls (how long each
+ * took, which never finished), so a hang says whether Git was slow or the
+ * runtime missed a finished child. Each counter wraps the Git and PATH this
+ * file loaded with, never another arm's shim.
  */
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -146,19 +148,21 @@ async function dump(e: BrainEngine, root: string): Promise<Record<string, string
   };
 }
 
+const PATH_AT_LOAD = process.env.PATH;
+let REAL_GIT: string | undefined;
 type GitCounter = { path: string; real: string; calls: () => string[]; timings: () => string };
 /** A `git` on PATH that logs each invocation with its start and end, so an arm's Git process count and timing are known. */
 function gitCounter(dir: string): GitCounter {
   const log = join(dir, 'git.log'), bin = join(dir, 'bin');
   mkdirSync(bin, { recursive: true });
-  const real = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8', timeout: 10_000 }).trim();
+  const real = REAL_GIT ??= execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8', timeout: 10_000, env: { ...process.env, PATH: PATH_AT_LOAD } }).trim();
   writeFileSync(join(bin, 'git'), `#!/bin/sh\nprintf 'S %s %s %s\\n' "$$" "$(date +%s%N)" "$*" >> '${log}'\n'${real}' "$@"\ncode=$?\n`
     + `printf 'E %s %s %s\\n' "$$" "$(date +%s%N)" "$code" >> '${log}'\nexit $code\n`);
   chmodSync(join(bin, 'git'), 0o755);
   const lines = () => existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean) : [];
   const ns = (value: string) => Number(value.replace(/N$/, '000000000'));
   return {
-    path: `${bin}${delimiter}${process.env.PATH ?? ''}`, real,
+    path: `${bin}${delimiter}${PATH_AT_LOAD ?? ''}`, real,
     calls: () => lines().filter(line => line.startsWith('S ')).map(line => line.split(' ').slice(3).join(' ')),
     timings: () => {
       const open = new Map<string, { at: number; args: string }>(), done: Array<{ ms: number; args: string; code: string }> = [];
@@ -175,16 +179,15 @@ function gitCounter(dir: string): GitCounter {
 }
 
 /** The arm or test in flight, so `afterEach` can stop it and say where it was when its test hit the deadline. */
-let active: { label: string; stop: AbortController; counter: GitCounter | null } | null = null;
-const PATH_AT_LOAD = process.env.PATH;
-afterEach(() => {
-  if (active) {
-    console.error(`[pinned-reads] ${active.label} was still running at the test deadline; stopping it.\n${active.counter?.timings() ?? 'no Git counter on this platform'}`);
-    active.stop.abort(new Error(`${active.label}: test deadline`));
-    active = null;
-  }
-  process.env.PATH = PATH_AT_LOAD;
-});
+let active: { label: string; stop: AbortController; counter: GitCounter | null; done: Promise<void> } | null = null;
+afterEach(async () => {
+  const run = active;
+  if (!run) return;
+  active = null;
+  console.error(`[pinned-reads] ${run.label} was still running at the test deadline; stopping it.\n${run.counter?.timings() ?? 'no Git counter on this platform'}`);
+  run.stop.abort(new Error(`${run.label}: test deadline`));
+  await Promise.race([run.done, new Promise(resolve => setTimeout(resolve, 20_000))]);
+}, 30_000);
 
 type Arm = { name: string; window: number | null };
 const ARMS: Arm[] = [{ name: 'per-entry', window: 0 }, { name: 'window', window: null }, { name: 'window-3', window: 3 }];
@@ -197,7 +200,8 @@ async function runArm(backend: string, arm: Arm, open: () => Promise<{ engine: B
   const { engine, close } = await open();
   const counter = process.platform === 'win32' ? null : gitCounter(dir);
   const restore = __setPinnedWindowForTests(arm.window);
-  const run = active = { label: `${backend} arm ${arm.name}`, stop: new AbortController(), counter };
+  let settle = () => {};
+  const run = active = { label: `${backend} arm ${arm.name}`, stop: new AbortController(), counter, done: new Promise<void>(resolve => { settle = resolve; }) };
   const signal = run.stop.signal;
   try {
     return await withEnv({ GBRAIN_HOME: join(dir, 'home'), ...(counter ? { PATH: counter.path } : {}) }, async () => {
@@ -223,7 +227,7 @@ async function runArm(backend: string, arm: Arm, open: () => Promise<{ engine: B
     throw error;
   } finally {
     if (active === run) active = null;
-    restore(); await close();
+    restore(); await close(); settle();
   }
 }
 
