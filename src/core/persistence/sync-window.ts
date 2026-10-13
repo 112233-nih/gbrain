@@ -170,18 +170,23 @@ export interface CursorFence { cursorKey: string; expectedRequestId: string; pri
  */
 export async function cancelRowsUnderCursor(engine: BrainEngine, fence: CursorFence, rows: WriteRequest[], knockOn: KnockOnDetail,
   message = WINDOW_CANCEL_MESSAGE): Promise<boolean> {
-  return engine.transaction(async tx => {
-    await lockCounters(tx, ['brain', principalKey(fence.principal), `worktree:${fence.worktreeId}`]);
-    const [held] = await tx.executeRaw<{ request_id: string | null }>(`SELECT completed_keys->0->'pending'->>'requestId' AS request_id FROM op_checkpoints
-      WHERE op='managed-sync' AND fingerprint=$1 FOR SHARE`, [fence.cursorKey]);
-    if (held?.request_id !== fence.expectedRequestId) return false;
-    for (const row of rows) {
+  // One row per transaction, as `cancelRows` does: holding several request rows at once deadlocks against the
+  // consumer's claim renewals, which lock the same rows in another order. The cursor is re-checked for every row.
+  for (const row of rows) {
+    const held = await engine.transaction(async tx => {
+      await lockCounters(tx, ['brain', principalKey(fence.principal), `worktree:${fence.worktreeId}`]);
+      const [cursor] = await tx.executeRaw<{ request_id: string | null }>(`SELECT completed_keys->0->'pending'->>'requestId' AS request_id FROM op_checkpoints
+        WHERE op='managed-sync' AND fingerprint=$1 FOR SHARE`, [fence.cursorKey]);
+      if (cursor?.request_id !== fence.expectedRequestId) return false;
       const [current] = await tx.executeRaw<WriteRequest>('SELECT * FROM persistence_requests WHERE id=$1::uuid FOR UPDATE', [row.id]);
-      if (!current || isTerminal(current) || current.execution_token !== row.execution_token || current.publication_started || current.recovery) continue;
-      await completeWrite(tx, current, 'cancelled', {}, { code: 'cancelled', message, detail: knockOn });
-    }
-    return true;
-  });
+      if (current && !isTerminal(current) && current.execution_token === row.execution_token && !current.publication_started && !current.recovery) {
+        await completeWrite(tx, current, 'cancelled', {}, { code: 'cancelled', message, detail: knockOn });
+      }
+      return true;
+    });
+    if (!held) return false;
+  }
+  return true;
 }
 
 /**
