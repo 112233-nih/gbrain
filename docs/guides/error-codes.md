@@ -1429,6 +1429,18 @@ More: [docs/guides/bootstrap.md#harness_hook_duplicates](../../docs/guides/boots
 
 More: [docs/guides/bootstrap.md#harness_hook_unowned](../../docs/guides/bootstrap.md#harness_hook_unowned)
 
+### head_blocked
+
+<a id="head_blocked"></a>
+
+| Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
+|---|---|---|---|---|---|---|
+| The queued write at the head of a managed source cannot be claimed by any consumer, and its blocker needs an operator; a managed sync drain stops `drain_stalled` with `cause: head_blocked` and `blocked_by` names the predicate. | #6543: the drain used to wait the whole no-progress window and print a constant `claimable here: no`. The head probe evaluates each predicate of the claim query for the head itself. Only intervention-required blockers stop the drain, after one governor tick of confirmation: a refresh fence no refresh process holds, or a running request ahead held by a process that reports restart_required. Live blockers (a foreground publication, a lapsed lease, a refresh or recovery making progress) keep the progress-aware wait. | Run next.fix: for refresh_fence resume the refresh (gbrain sources refresh <source> --resume); for zombie_publication restart the named gbrain process on the brain host. Then rerun the same sync. Run: gbrain sources writer status --source '{source_id}' --json | host_admin | `gbrain doctor --json` | 1 | no |
+
+Reasons: `refresh_fence`, `zombie_publication`.
+
+More: [docs/guides/write-refusals.md#head-blocked](../../docs/guides/write-refusals.md#head-blocked)
+
 ### held_failed
 
 <a id="held_failed"></a>
@@ -2127,13 +2139,23 @@ More: [docs/ENGINES.md#serve-deep-health](../../docs/ENGINES.md#serve-deep-healt
 
 More: [docs/guides/troubleshooting.md#persistence-write-stall](../../docs/guides/troubleshooting.md#persistence-write-stall)
 
+### pg_connection_recovery_failed
+
+<a id="pg_connection_recovery_failed"></a>
+
+| Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
+|---|---|---|---|---|---|---|
+| A Postgres connection the driver retired after an incident (stuck, desynced, or closed under running statements) could not reconnect; statements waiting for it failed with the connect error. | The database or pooler refused or dropped the new connection (unreachable host, exhausted connection slots, rotated credentials). The next statement retries the connect, and the connection stays marked until one succeeds, so a repeating line means the pool is not recovering on its own. | Check the database and pooler from the serve host (gbrain doctor --only pool_reap_health --json); a serve that keeps logging this line needs the database reachable again, then a restart if the pool never recovers. Run: gbrain doctor --only pool_reap_health --json | agent | `repeat the read that failed` | 1 | yes |
+
+More: [docs/ENGINES.md#pg-connection-recovery-failed](../../docs/ENGINES.md#pg-connection-recovery-failed)
+
 ### pg_connection_stuck
 
 <a id="pg_connection_stuck"></a>
 
 | Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
 |---|---|---|---|---|---|---|
-| A pooled Postgres statement waited past the pool's statement_timeout plus grace with nothing coming back from the server, so the driver retired that connection; the statement and everything queued behind it failed with CONNECTION_STUCK. | Nothing arriving for that long usually means the connection is wedged: a pipeline the server and client no longer agree on, a transaction-mode pooler that swallowed a CancelRequest and left the backend in ClientRead, or a dead peer. It is not proof: behind a transaction-mode pooler the startup statement_timeout never applies (SHOW statement_timeout reads 0), so a legitimately slow statement can reach the budget too, and the clock restarts on every byte, so a statement that keeps streaming is never retired. Before #6383 such a connection held its queue forever while /health answered 200. The pool reconnects on its own; the warn line names the pool, the age, the queue depth and the statement by keyword and table. | Retry the failed call. If the line repeats, run gbrain doctor --json and report the warn lines with the operations that preceded them; GBRAIN_PG_STUCK_GRACE_MS raises the grace, and off disables the watchdog. Run: gbrain doctor --json | agent | `repeat the read that failed` | 1 | yes |
+| A pooled Postgres statement ran past its in-flight budget (the pool's statement_timeout plus grace, or the longer statement_timeout its operation declared) with nothing coming back from the server (reason=idle) or while bytes kept arriving (reason=age), so the driver retired that connection; the statement and everything queued behind it failed with CONNECTION_STUCK. | Nothing arriving for that long usually means the connection is wedged: a pipeline the server and client no longer agree on, a transaction-mode pooler that swallowed a CancelRequest and left the backend in ClientRead, or a dead peer. It is not proof: behind a transaction-mode pooler the startup statement_timeout never applies (SHOW statement_timeout reads 0), so a legitimately slow statement can reach the budget too. reason=age is a statement that kept streaming rows or notices past its budget (#6543); an operation that needs longer declares it with SET LOCAL statement_timeout (0 for no limit), which the driver tracks per statement. Before #6383 such a connection held its queue forever while /health answered 200. The pool reconnects on its own; the warn line names the pool, the age, the queue depth and the statement by keyword and table. | Retry the failed call. If the line repeats, run gbrain doctor --json and report the warn lines with the operations that preceded them; GBRAIN_PG_STUCK_GRACE_MS raises the grace, and off disables the watchdog. Run: gbrain doctor --json | agent | `repeat the read that failed` | 1 | yes |
 
 More: [docs/ENGINES.md#pg-connection-stuck](../../docs/ENGINES.md#pg-connection-stuck)
 
@@ -2199,7 +2221,7 @@ More: [docs/ENGINES.md#pglite-vector-index-ceiling](../../docs/ENGINES.md#pglite
 
 | Meaning | Why | Next step | Who acts · consent | Verify | Exit | Retryable |
 |---|---|---|---|---|---|---|
-| A pooled statement of this gbrain serve has waited longer than the read pool's in-flight budget (statement_timeout plus grace); `/health?deep=1` answers 503 with this code. | The in-flight watchdog retires a connection only after nothing arrives for the budget, so a statement that keeps receiving bytes, or one behind a transaction-mode pooler where no server statement_timeout applies, can sit past it while every statement queued behind it waits. Through a transaction-mode pooler a pipelined answer can also be misrouted. The probe reports it and never retires the connection, because the endpoint is unauthenticated. | Restart this gbrain serve. On a transaction-mode pooler check the transport block of /health?deep=1: max_pipeline should read 0 (set PGMAX_PIPELINE=0 in the serve environment to force it) and session_timeouts_not_applied names the ALTER ROLE fix. GBRAIN_SERVE_RESTART_REQUIRED_EXIT_SECONDS does not act on this code: restart serve yourself or from your health check. | host_admin | `gbrain doctor --json` | 1 | no |
+| A pooled statement of this gbrain serve has run longer than its in-flight budget (the read pool's statement_timeout plus grace, or the longer statement_timeout its operation declared); `/health?deep=1` answers 503 with this code. | Since #6543 the in-flight watchdog retires a statement past its budget whether or not bytes keep arriving (reason=age), so this code means the watchdog is off (GBRAIN_PG_STUCK_GRACE_MS=off), the serve runs a driver without per-statement budgets, or the retirement is still in progress; a transaction that declared a longer statement_timeout, or an index build that declared 0, is measured against its own budget and not reported. Through a transaction-mode pooler a pipelined answer can also be misrouted. The probe reports it and never retires the connection, because the endpoint is unauthenticated. | Restart this gbrain serve. On a transaction-mode pooler check the transport block of /health?deep=1: max_pipeline should read 0 (set PGMAX_PIPELINE=0 in the serve environment to force it) and session_timeouts_not_applied names the ALTER ROLE fix. GBRAIN_SERVE_RESTART_REQUIRED_EXIT_SECONDS does not act on this code: restart serve yourself or from your health check. | host_admin | `gbrain doctor --json` | 1 | no |
 
 More: [docs/ENGINES.md#serve-deep-health](../../docs/ENGINES.md#serve-deep-health)
 
