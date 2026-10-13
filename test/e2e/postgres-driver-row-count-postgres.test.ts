@@ -32,7 +32,7 @@ describe.skipIf(!url)('vendored driver row count after a statement that failed m
   test('a runtime error after the first rows leaves the next statement its own rows', async () => {
     const sql = pool();
     expect(await code(sql.unsafe('SELECT g, 1 / (g - 3) AS v FROM generate_series(1, 5) g'))).toBe('22012');
-    expect(Array.from(await sql.unsafe('SELECT true AS enabled'))).toEqual([{ enabled: true }]);
+    expect(Array.from(await sql.unsafe('SELECT true AS enabled') as Iterable<unknown>)).toEqual([{ enabled: true }]);
   });
 
   test('a statement cancelled while it was still producing rows leaves the next statement its own rows', async () => {
@@ -42,7 +42,7 @@ describe.skipIf(!url)('vendored driver row count after a statement that failed m
     await new Promise(resolve => setTimeout(resolve, 500));
     running.cancel();
     expect(await settled).toBe('57014');
-    expect(Array.from(await sql.unsafe('SELECT true AS enabled'))).toEqual([{ enabled: true }]);
+    expect(Array.from(await sql.unsafe('SELECT true AS enabled') as Iterable<unknown>)).toEqual([{ enabled: true }]);
   });
 
   test('a statement pipelined behind one that fails mid-stream gets exactly its own rows', async () => {
@@ -50,6 +50,6 @@ describe.skipIf(!url)('vendored driver row count after a statement that failed m
     const failing = code(sql.unsafe('SELECT g, 1 / (g - 3) AS v FROM generate_series(1, 5) g'));
     const follower = sql.unsafe('SELECT 1 AS n UNION ALL SELECT 2');
     expect(await failing).toBe('22012');
-    expect(Array.from(await follower)).toEqual([{ n: 1 }, { n: 2 }]);
+    expect(Array.from(await follower as Iterable<unknown>)).toEqual([{ n: 1 }, { n: 2 }]);
   });
 });
