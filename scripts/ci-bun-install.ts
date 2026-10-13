@@ -20,6 +20,8 @@
  *   GBRAIN_CI_INSTALL_RETRY_SLEEP_S  pause before the retry in seconds, default 10
  *   GBRAIN_CI_INSTALL_BUN            the Bun executable to run, default this one
  */
+export {};
+
 const ATTEMPTS = 2;
 const flags = process.argv.slice(2);
 const attemptSeconds = Number(process.env.GBRAIN_CI_INSTALL_ATTEMPT_S ?? 180);
