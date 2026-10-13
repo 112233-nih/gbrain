@@ -10,6 +10,30 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [0.60.210.0] - 2026-10-13
+
+**The Ubicloud gate's `verify` typecheck runs warm, so it no longer crosses the 120 s per-check cap on a loaded VM.** It crossed the cap at 121 s on two gates on 2026-10-13 (#6618, #6612), and both passed on rerun. The cause wasn't contention with test items: the VM that runs `verify` runs nothing else until verify is done. The cause was that every gate VM typechecked from scratch. `bun run typecheck` is `tsc --incremental` against `node_modules/.cache/gbrain-typecheck.tsbuildinfo`, and the checkout tarball never carries that file. A cold `tsc` takes 81 s on a 16-vCPU gate VM with nothing else running, so verify had 1.4x headroom before any host load. The cap is unchanged.
+
+### Itemized changes
+
+- **`scripts/ci-ubicloud.ts` + `scripts/ubicloud/typecheck-state.ts`:**
+  - When the verify lane runs, the orchestrator starts `bun run typecheck` on the local checkout (the same files it uploads) while the VMs boot, then uploads the resulting buildinfo to the control VM before `verify`.
+  - The local build takes 68-69 s cold on a 4-core runner and about 17 s warm. It overlaps VM setup (59-83 s), so it added 2 s to a cold start.
+  - tsc rereads every file and compares content hashes, so a buildinfo from another path, machine or tree changes only the time, never the result. A buildinfo that records type errors reports them again on the VM.
+  - The run log says whether verify's typecheck ran warm or cold, and why. The local build's output is in `logs/local-typecheck.log`.
+- **Docs:** `scripts/ubicloud/README.md` describes the upload. `docs/TESTING.md` no longer says CI never restores typecheck results; GitHub CI's verify job has restored them since #6056.
+- **Proof, on a 16-vCPU gate VM (`ci:ubicloud --lanes verify --vms 1`, then the gate's `bun run verify` with the cap lifted to measure):**
+
+  | Load | Cold typecheck | Warm typecheck |
+  | --- | --- | --- |
+  | typecheck alone | 81 s | 16 s |
+  | inside verify's 16-way pool (the gate's load) | 84 s | 18-19 s |
+  | + 8 busy loops | 87 s | 22 s |
+  | + 16 busy loops (a loaded host) | 126 s, 123 s, over the cap | 32 s, 31 s |
+
+  With the new code, the gate's own verify step logged `local incremental typecheck (exit 0, 69s) uploaded …; verify's typecheck runs warm`, and its typecheck took 19 s. `check:test-isolation` (61-78 s) is now verify's longest check.
+- **`test/scripts/ubicloud-typecheck-state.test.ts`** pins that the uploaded file is the one the repo's typecheck script writes, and that building it reports the script's exit code even when the typecheck fails.
+
 ## [0.60.209.0] - 2026-10-13
 
 **A large page publishes in a few dozen statements instead of thousands, so a slow database link no longer blocks its source forever (#6574).** Publishing a page re-sent every canonical timeline bullet, fact row and take as its own statement on every write, even a one-word edit. Behind Supabase's transaction pooler with pipelining off (the #6543 setting), each one waited a full round trip. A reported 1.1 MB company page with about 4,100 timeline rows and 1,012 facts needed about 6,000 statements at 56 ms each, ran past the 300 s publication ceiling on every attempt, restarted from zero, and held 99 writes behind it for 16 hours. The same projection on a 2,000-row test page went from 6,036 statements to 21.
