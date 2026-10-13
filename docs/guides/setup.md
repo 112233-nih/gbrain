@@ -53,12 +53,27 @@ Provider keys in the environment do not change these defaults.
 
 A declined provider decision holds even when provider keys sit in the
 environment: gbrain sends no request to a model provider it was not asked to
-use. OpenAI model discovery (`GET /v1/models` on engine connect) is skipped,
+use. OpenAI model discovery (`GET /v1/models`, which otherwise runs only before
+the first OpenAI-routed call) is skipped,
 and `gbrain doctor --probe` does not probe the embedding provider. `gbrain
 doctor` reports the decision as `provider_consent` ("skipped by consent").
 Only the user changes it: `gbrain setup claude-code --providers` records
 provider use as accepted for this install. A decline in any of this install's
 setup receipts wins.
+
+## First-run settings
+
+When setup creates the brain, it prints init's first-run settings once, after
+the wiring and its check (an `[AGENT]` block at the end of the output, or
+`notices` in `--json`): the search mode init applied, with the cost matrix,
+and automatic saving (`memory.auto_writeback`, off until the user turns it
+on). Setup leaves out init's wiring question and its copy-paste quickstart,
+because it has just done both. Memory works without an answer, so the agent
+relays these settings in the reply that reports the install, as the settings
+in effect and how to change them, and applies a choice whenever the user makes
+one. Automatic saving is separate from the capture decision above; while
+unanswered it comes back in a later session until the user answers or mutes
+it.
 
 ## States
 
