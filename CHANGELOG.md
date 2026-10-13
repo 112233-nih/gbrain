@@ -10,29 +10,25 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
-## [0.60.207.0] - 2026-10-13
+## [0.60.208.0] - 2026-10-13
 
-**The Ubicloud gate's `verify` typecheck runs warm, so it no longer crosses the 120 s per-check cap on a loaded VM.** It crossed the cap at 121 s on two gates on 2026-10-13 (#6618, #6612), and both passed on rerun. The cause wasn't contention with test items: the VM that runs `verify` runs nothing else until verify is done. The cause was that every gate VM typechecked from scratch. `bun run typecheck` is `tsc --incremental` against `node_modules/.cache/gbrain-typecheck.tsbuildinfo`, and the checkout tarball never carries that file. A cold `tsc` takes 81 s on a 16-vCPU gate VM with nothing else running, so verify had 1.4x headroom before any host load. The cap is unchanged.
+**Agents can now find `remember`, a private fact says it won't be pushed, and a keyless brain no longer sends OpenAI model discovery.** Cat 41's re-measure (gbrain-evals#142, v0.60.203.0) found three misses. In two first-push runs the agent searched `gbrain --help` for a way to save the user's item, didn't find `remember`, and used `gbrain capture`, which writes a page; session push only carries world-visible facts, so the next session got nothing. In the third run the fact was saved with visibility private, which push skips by design, and nothing told the agent. In the consent-negative cell, `gbrain doctor` on an existing keyless brain that never ran setup sent `GET /v1/models` with the user's `OPENAI_API_KEY`, because discovery ran on every engine connect. Fixes #6606 and #6607.
 
 ### Itemized changes
 
-- **`scripts/ci-ubicloud.ts` + `scripts/ubicloud/typecheck-state.ts`:**
-  - When the verify lane runs, the orchestrator starts `bun run typecheck` on the local checkout (the same files it uploads) while the VMs boot, then uploads the resulting buildinfo to the control VM before `verify`.
-  - The local build takes 68-69 s cold on a 4-core runner and about 17 s warm. It overlaps VM setup (59-83 s), so it added 2 s to a cold start.
-  - tsc rereads every file and compares content hashes, so a buildinfo from another path, machine or tree changes only the time, never the result. A buildinfo that records type errors reports them again on the VM.
-  - The run log says whether verify's typecheck ran warm or cold, and why. The local build's output is in `logs/local-typecheck.log`.
-- **Docs:** `scripts/ubicloud/README.md` describes the upload. `docs/TESTING.md` no longer says CI never restores typecheck results; GitHub CI's verify job has restored them since #6056.
-- **Proof, on a 16-vCPU gate VM (`ci:ubicloud --lanes verify --vms 1`, then the gate's `bun run verify` with the cap lifted to measure):**
+- **`gbrain --help`** gains a MEMORY section (`remember`, `recall`, `forget`). The remember line says world-visible facts are pushed into new agent sessions and private ones are recall-only; the `capture` line now says it writes a page and points at `remember` for facts.
+- **`gbrain setup <harness>`** prints a `Memory:` line after `Next:` naming `gbrain remember "<fact>"` (MCP tool: remember), what reaches new sessions, and that capture writes a page.
+- **A local `gbrain remember` with visibility private** prints `note: private — local CLI recall only; not pushed into new agent sessions` and emits the `private_fact_not_pushed` info notice, which tells the agent to ask the user before saving the fact again with visibility world and then forgetting the private copy (replaces cannot change visibility). World saves, duplicates and remote callers get neither. What is saved and what is pushed are unchanged.
+- **OpenAI model discovery** (`GET /v1/models`) now runs right before the first OpenAI-routed call (chat, expansion or embedding), once per gateway reconfigure, instead of on engine connect. A brain that never calls OpenAI sends nothing, even with `OPENAI_API_KEY` set. Cache, 24-hour TTL, failure backoff, the recorded-decline gate, `GBRAIN_MODEL_DISCOVERY` and the env-plane-only endpoint are unchanged. When the refresh changes the discovered tiers, the gateway re-resolves its models before the triggering call reads them. On existing OpenAI installs, callers that pick a model before calling OpenAI read the saved list: fact extraction, content repair and the eval judges, plus `gbrain models` and the doctor display. So on the first run after the 24-hour cache expires, or with no cache yet, they can use the previously discovered model or the static fallback; the next run picks up the new one. Approved by Garry, 2026-10-13.
+- **Tests:** `test/openai-discovery-lazy.serial.test.ts` (new) counts requests at a local `OPENAI_BASE_URL`: an existing keyless brain's `doctor` and `search` send 0; connect sends nothing and the first OpenAI chat sends exactly one `GET /v1/models` and runs on the discovered tier; an Anthropic-routed chat sends none. Both main cases fail on the previous gateway. `test/doctor-provider-consent.serial.test.ts` controls now measure discovery on the OpenAI-routed embedding probe; the decline tests are unchanged. New help, setup and private-notice tests fail on the previous code and pass now.
 
-  | Load | Cold typecheck | Warm typecheck |
-  | --- | --- | --- |
-  | typecheck alone | 81 s | 16 s |
-  | inside verify's 16-way pool (the gate's load) | 84 s | 18-19 s |
-  | + 8 busy loops | 87 s | 22 s |
-  | + 16 busy loops (a loaded host) | 126 s, 123 s, over the cap | 32 s, 31 s |
+## [0.60.207.0] - 2026-10-13
 
-  With the new code, the gate's own verify step logged `local incremental typecheck (exit 0, 69s) uploaded …; verify's typecheck runs warm`, and its typecheck took 19 s. `check:test-isolation` (61-78 s) is now verify's longest check.
-- **`test/scripts/ubicloud-typecheck-state.test.ts`** pins that the uploaded file is the one the repo's typecheck script writes, and that building it reports the script's exit code even when the typecheck fails.
+**The claim root probe's buffer test no longer depends on how random worktree ids happen to sort.** `test/e2e/claim-earlier-equivalence.test.ts` checks that the indexed root probe reads fewer than 0.85× the buffers of the former COALESCE key. Its fixture queued each worktree's rows as one contiguous block. The former key's scan of the pending index `(worktree_id, sequence)` can only use `sequence` as an index condition, so it skipped every root whose rows all came after the candidate. When the random ids sorted in reverse insert order, the former key read 1388 buffers against the current probe's 1309 (ratio 0.943) and the test failed. It failed in #6613's CI at 1308 against `< 1205.3`.
+
+### Itemized changes
+
+- `explainEarlierProbe` (`test/helpers/claim-earlier-fixture.ts`) now queues rows round-robin across the worktrees, the way worktrees syncing at the same time queue them. Every root ahead of the candidate in id order then holds earlier rows, which is the "walks every root's pending rows" case the 6.1 → 1.4 ms claim describes. The threshold and the assertions are unchanged. Forced probe on pg16 and pg17: before, the ratio was 0.576 with ids in insert order, 0.943 reversed and 0.55–0.76 random; after, it is 0.241, 0.248 and 0.243–0.246 over 20 random runs. No product code changed.
 
 ## [0.60.206.0] - 2026-10-13
 
