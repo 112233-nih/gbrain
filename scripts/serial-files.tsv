@@ -274,7 +274,7 @@ test/native-base-url-fold.serial.test.ts	R1	R1: mutates process.env (GBRAIN_HOME
 test/nightly-probe-compiled-binary.serial.test.ts	global-state	global-state: compiles a probe harness with bun build --compile and runs it plus a source-mode copy as subprocesses
 test/oauth-client-setup.serial.test.ts	global-state	global-state: R3: constructs PGLiteEngine outside beforeAll; R4: PGLiteEngine without an afterAll disconnect
 test/observational-startup.serial.test.ts	R2	R2: mock.module(../src/cli/commands/repair.ts) replaces modules for every file in the process
-test/openai-discovery-lazy.serial.test.ts	R1	R1: mutates process.env (GBRAIN_HOME, OPENAI_API_KEY, GBRAIN_MODEL_DISCOVERY); binds a local server
+test/openai-discovery-lazy.serial.test.ts	global-state	global-state: withEnv holds GBRAIN_HOME and OPENAI_API_KEY across awaited gateway calls, resets gateway and discovery module state, binds a local server
 test/openai-latest.serial.test.ts	R1	R1: mutates process.env (GBRAIN_HOME, GBRAIN_MODEL_DISCOVERY)
 test/openclaw-compact-transcript-runtime.serial.test.ts	global-state	global-state: swaps the context engine's module-level transcript-runtime loader and SDK load state
 test/openclaw-context-engine-native.serial.test.ts	global-state	global-state: binds local servers/ports
