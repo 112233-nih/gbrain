@@ -10,6 +10,18 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [0.60.198.0] - 2026-10-13
+
+**The lock-order race test retries a topology change that ran out of lock wait, as the product tells callers to, so a single lock timeout on a loaded runner no longer fails it (#6586).** `test/e2e/persistence-publish-lock-order-postgres.test.ts` checks that ordinary writes racing claims and topology changes never form a lock-wait cycle and never deadlock. Each topology change runs with the production 1 s `lock_timeout`. When that wait runs out, the change ends `write_pending` with "Retry the same lifecycle request_id after the current writer finishes". The race recorded that as a failure. On #6591's gate-ahead run it did, once: one topology step hit 55P03 on a loaded gate VM with `cycles: []` and `deadlocks: 0`. The rerun on the same head passed, and 60 local runs with four CPU burners passed.
+
+### Itemized changes
+
+- **The race retries a lone timeout and keeps everything else strict.** Each topology step now has a fixed `request_id`. A step that ends `write_pending` right after its own 55P03 is retried with that same `request_id`, up to three attempts. That's what the error tells a caller to do, and it matches how the file already treats writer lock timeouts. The test still requires no lock-wait cycle in its `pg_blocking_pids` sampling, no deadlock in `pg_stat_database`, no write error, and every topology change committed. The retry count appears in the `[lock-order race]` line as `topologyRetries`.
+- **Forced probes (scratch copies, not committed):**
+  - A lone lock timeout with no inversion: a separate session holds the `persistence_brain` row for 1.5 s just before one topology step. The old test fails on `write_pending`, plus two `not_found` steps that followed it. The new test passes with `topologyRetries: 1`.
+  - A real inversion: two sessions take `persistence_brain` and `sources` in opposite orders during the race. Both the old and the new test fail on it, through the sampled cycle on the old file and `deadlocks: 2` on the new one.
+  - With four CPU burners on a 4-CPU machine, the whole file passed 10 of 10 runs on Bun 1.4.3.
+
 ## [0.60.197.0] - 2026-10-13
 
 **A fresh Claude Code session wired by `gbrain setup claude-code` now gets its first push, and a declined provider decision stops every provider request, `gbrain doctor`'s included.** The wave 2 Cat 41 setup run (gbrain-evals v0.10.80) found both: the SessionStart hook printed nothing in 3 of 3 fresh sessions because Claude Code starts gbrain's stdio server in parallel with the hook and the server binds its socket about 2 seconds later, and every run's `gbrain doctor` sent an unbilled `GET /v1/models` with the user's key after providers were declined.
