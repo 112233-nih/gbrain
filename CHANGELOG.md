@@ -10,6 +10,18 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [0.60.196.0] - 2026-10-13
+
+**The lock-order race test retries a topology change that ran out of lock wait, as the product tells callers to, so a single lock timeout on a loaded runner no longer fails it (#6586).** `test/e2e/persistence-publish-lock-order-postgres.test.ts` checks that ordinary writes racing claims and topology changes never form a lock-wait cycle and never deadlock. Each topology change runs with the production 1 s `lock_timeout`. When that wait runs out, the change ends `write_pending` with "Retry the same lifecycle request_id after the current writer finishes". The race recorded that as a failure. On #6591's gate-ahead run it did, once: one topology step hit 55P03 on a loaded gate VM with `cycles: []` and `deadlocks: 0`. The rerun on the same head passed, and 60 local runs with four CPU burners passed.
+
+### Itemized changes
+
+- **The race retries a lone timeout and keeps everything else strict.** Each topology step now has a fixed `request_id`. A step that ends `write_pending` right after its own 55P03 is retried with that same `request_id`, up to three attempts. That's what the error tells a caller to do, and it matches how the file already treats writer lock timeouts. The test still requires no lock-wait cycle in its `pg_blocking_pids` sampling, no deadlock in `pg_stat_database`, no write error, and every topology change committed. The retry count appears in the `[lock-order race]` line as `topologyRetries`.
+- **Forced probes (scratch copies, not committed):**
+  - A lone lock timeout with no inversion: a separate session holds the `persistence_brain` row for 1.5 s just before one topology step. The old test fails on `write_pending`, plus two `not_found` steps that followed it. The new test passes with `topologyRetries: 1`.
+  - A real inversion: two sessions take `persistence_brain` and `sources` in opposite orders during the race. Both the old and the new test fail on it, through the sampled cycle on the old file and `deadlocks: 2` on the new one.
+  - With four CPU burners on a 4-CPU machine, the whole file passed 10 of 10 runs on Bun 1.4.3.
+
 ## [0.60.195.0] - 2026-10-13
 
 **CI and the release build move to Bun 1.4.3, which carries the fix for the spawnSync hang that poisoned whole test shards (#6586).** On Bun 1.4.0 to 1.4.2, a garbage-collection finalizer that runs while `Bun.spawnSync` waits can leave the runtime's private spawnSync loop miscounted for the rest of the process (oven-sh/bun#34069). After that, a synchronous child spawn may never notice its child exit. A spawn with a timeout comes back `ETIMEDOUT` even though the child finished, and one without a timeout spins until the test deadline kills it. Run 38335527492 hit this twice: `test (2)` hung in `test/managed-sync-pinned-reads.test.ts` and was cancelled, while the identical code on the identical file order passed on master and on #6576. Bun 1.4.3 (released 2026-10-10) contains upstream commit 13a98b0. `compare/bun-v1.4.3...13a98b0` reports `behind`, which means the release already has the commit. The supported install floor stays at Bun 1.4.0.
