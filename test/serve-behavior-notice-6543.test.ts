@@ -65,6 +65,7 @@ test('serve logging leaves the CLI notice, the stdio marker and the baseline unt
 }), 30_000);
 
 test('runServe logs the notice at startup', () => {
+  // test-reads-source-ok[structural]: runServe needs a live engine, transports and signal handlers; this pins only that startup calls the notice logger tested above
   const source = readFileSync(join(import.meta.dir, '../src/commands/serve.ts'), 'utf8');
   expect(source).toMatch(/logServeBehaviorNotice\(engine, /);
 });
