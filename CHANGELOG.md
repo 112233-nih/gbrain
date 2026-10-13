@@ -10,6 +10,13 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [Unreleased]
+
+### Itemized changes
+
+- **Flake fix: `test/doctor-pglite-datadir.test.ts` case (c) stages its stale `postmaster.pid` with a provably dead PID.** The case wrote the fixed PID 99999; on a busy gate VM (`pid_max` 4194304) that number can belong to a live process, and the live-postmaster guard in `validatePgliteLayout` then refuses the directory, so the verdict read `unsupported-layout` instead of `wal-corruption-likely` (GBRA-89's finding). The PID now comes from a child that was spawned and reaped (`test/helpers/dead-pid.ts`, the helper four other tests already carried inline). Forced probe (the case writes a live PID, which is what CI saw): 3/3 fail before with exactly that verdict, 16/16 after. The assertion is unchanged.
+- **Diagnostic: `test/cli-exit-drain.test.ts` failure messages carry each stream's end state and event order.** One run (38352625321) read 0 of 100 stdout bytes while the exit code and the sibling cases were fine, and the message could not tell a stream closed under its reader from one that ended cleanly empty; it now records `readableEnded`/`destroyed`/`errored` for both streams and the order of `end`, `close` and `exit` events. No assertion changed; the three cases still assert the same bytes.
+
 ## [0.60.211.0] - 2026-10-13
 
 **gstack lanes now run gbrain's own mechanical gates before they report done, and a push of sealed eval output to this public repo is refused.** gbrain commits its gstack config (`.gstack/pregate.json`, `.gstack/ship-policy.json`, read by gstack 1.91.98.0 and later). A lane that adds a serial test without a manifest row, changes a CLI surface without regenerating its goldens, leaves a generated file stale or lands a migration out of order now fails `gstack-pregate` with the fix line, instead of failing the full gate on the integrated tree. Nothing changes for gbrain users or for anyone not running gstack.
@@ -209,13 +216,6 @@ identifiers and attribution are available in the pre-removal Git revision
 - **A recorded provider decline holds everywhere** (`src/core/setup/local-receipts.ts`, `src/core/ai/openai-latest.ts`): OpenAI model discovery, which ran on every engine connect whenever `OPENAI_API_KEY` was set, returns before any request when this install's setup receipts record providers as declined (an unreadable record fails closed). `gbrain doctor --probe` skips the embedding probe under a decline.
 - **New doctor check `provider_consent`** (filesystem lane, also in `--fast`): reports a decline as "skipped by consent", names the provider variables present (names only) and gives `gbrain setup <harness> --providers` as the user's choice; `not_applicable` without a setup receipt.
 - **Tests:** `test/hook-session-start-serve-wait.serial.test.ts` (an IPC server bound 800 ms after SessionStart over in-memory PGLite; PGLite, Postgres keying, resume, a project receipt, a server that never comes, and no-wait controls) and `test/doctor-provider-consent.serial.test.ts` (a request counter behind `OPENAI_BASE_URL`: zero requests under a decline for `doctor --json` and `doctor --probe --yes`, 4 of 5 cases fail on master), plus a unit case in `test/openai-latest.serial.test.ts` and the doctor goldens.
-
-## [Unreleased]
-
-### Itemized changes
-
-- **Flake fix: `test/doctor-pglite-datadir.test.ts` case (c) stages its stale `postmaster.pid` with a provably dead PID.** The case wrote the fixed PID 99999; on a busy gate VM (`pid_max` 4194304) that number can belong to a live process, and the live-postmaster guard in `validatePgliteLayout` then refuses the directory, so the verdict read `unsupported-layout` instead of `wal-corruption-likely` (GBRA-89's finding). The PID now comes from a child that was spawned and reaped (`test/helpers/dead-pid.ts`, the helper four other tests already carried inline). Forced probe (the case writes a live PID, which is what CI saw): 3/3 fail before with exactly that verdict, 16/16 after. The assertion is unchanged.
-- **Diagnostic: `test/cli-exit-drain.test.ts` failure messages carry each stream's end state and event order.** One run (38352625321) read 0 of 100 stdout bytes while the exit code and the sibling cases were fine, and the message could not tell a stream closed under its reader from one that ended cleanly empty; it now records `readableEnded`/`destroyed`/`errored` for both streams and the order of `end`, `close` and `exit` events. No assertion changed; the three cases still assert the same bytes.
 
 ## [0.60.196.0] - 2026-10-13
 
