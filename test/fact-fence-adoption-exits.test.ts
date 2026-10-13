@@ -183,6 +183,7 @@ describe('extract_facts: an unadoptable row holds only its own phantom (#6650)',
         VALUES ('default', 'alice', '   ', 'fact', 'world', 'medium', '2026-03-01', 'mcp:remember', 0.8)`);
       const result = await runExtractFacts(engine, { sourceId: 'default', brainDir });
       expect(result.phantomsRedirected).toBe(0);
+      expect(result.phantomsHeldLegacyRows).toBe(1);
       expect(await alive(engine, 'alice')).toBe(true);
       expect(await engine.executeRaw("SELECT 1 FROM facts WHERE entity_slug='alice' AND row_num IS NULL AND expired_at IS NULL")).toHaveLength(1);
     });

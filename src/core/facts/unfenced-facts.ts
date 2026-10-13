@@ -117,8 +117,9 @@ export interface UnfencedFactsOutcome {
  * `validity` / `source` (another column reads back different), `parse` (the
  * single-row fence does not parse at all), `whole_fence` (the row passes alone
  * but does not read back from the page's whole rendered fence; the page
- * submits nothing), `prior_refusal` (a managed adoption of the same inputs was
- * already refused by this gbrain build; a later build retries it once).
+ * submits nothing), `prior_refusal` (a managed adoption of the same intent was
+ * refused in the last day; it is retried a day after the refusal, or at once
+ * when `FACT_FENCE_PLANNER` changes).
  */
 export type UnrenderableClass = 'empty' | 'struck' | 'line_break_markup' | 'claim' | 'kind' | 'visibility' | 'validity' | 'source' | 'parse'
   | 'whole_fence' | 'prior_refusal';
@@ -130,6 +131,8 @@ export interface UnadoptableFactRecord {
   fact_id: number;
   reason: 'fence_unrenderable' | 'duplicate_claim';
   class: UnrenderableClass | 'duplicate_claim';
+  /** `prior_refusal`: the refused request, readable with `gbrain write-request -- <id>`. */
+  request_id?: string;
 }
 
 function fenceRowOf(row: UnfencedFactRow, rowNum: number, claim: string): ParsedFact {
@@ -391,7 +394,7 @@ async function fenceManaged(engine: BrainEngine, plan: UnfencedFactsPlan): Promi
       });
       if (request.kind === 'suppressed') {
         recordUnadoptable(outcome, entitySlug, [...fence.rejected, ...fence.assignments.map(a => ({ source_id: sourceId, slug: entitySlug,
-          fact_id: Number(a.id), reason: 'fence_unrenderable' as const, class: 'prior_refusal' as const }))]);
+          fact_id: Number(a.id), reason: 'fence_unrenderable' as const, class: 'prior_refusal' as const, request_id: request.prior.request_id }))]);
         continue;
       }
       recordUnadoptable(outcome, entitySlug, fence.rejected);

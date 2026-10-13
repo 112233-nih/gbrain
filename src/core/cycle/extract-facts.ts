@@ -664,6 +664,8 @@ export interface ExtractFactsResult {
   phantomsRedirected: number;
   phantomsAmbiguous: number;
   phantomsSkippedDrift: number;
+  /** #6650: phantoms held because they own legacy (unfenced) fact rows. */
+  phantomsHeldLegacyRows: number;
   phantomsLockBusy: boolean;
   phantomsMorePending: boolean;
 }
@@ -809,6 +811,7 @@ export async function runExtractFacts(
     phantomsRedirected: 0,
     phantomsAmbiguous: 0,
     phantomsSkippedDrift: 0,
+    phantomsHeldLegacyRows: 0,
     phantomsLockBusy: false,
     phantomsMorePending: false,
   };
@@ -901,6 +904,7 @@ export async function runExtractFacts(
   result.phantomsRedirected = phantomResult.redirected;
   result.phantomsAmbiguous = phantomResult.ambiguous;
   result.phantomsSkippedDrift = phantomResult.skipped_drift;
+  result.phantomsHeldLegacyRows = phantomResult.held_legacy_rows;
   result.phantomsLockBusy = phantomResult.lock_busy;
   result.phantomsMorePending = phantomResult.more_pending;
 
