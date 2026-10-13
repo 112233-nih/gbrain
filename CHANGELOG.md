@@ -10,7 +10,7 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
-## [0.60.199.0] - 2026-10-13
+## [0.60.198.0] - 2026-10-13
 
 **CI's `bun install` is bounded and retried once, so a stalled install gets named instead of quietly using up the job budget.** On .195's master Test run (38350709199), `native-locks / darwin-x64 / Bun 1.4.3` spent 805 s in `bun install` on one macos-26-intel runner. That install normally takes 4 to 14 s. The rest of the job then ran normally until the 15-minute job timeout cancelled it, about a minute short of finishing. The only sign of the cause was an install time buried in the log. Every darwin-x64 install before and since took seconds, so this was a registry or network stall, not Bun 1.4.3.
 
