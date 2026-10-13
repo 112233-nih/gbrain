@@ -18,6 +18,17 @@ identifiers and attribution are available in the pre-removal Git revision
 
 - **`ANALYZE` and `VACUUM` clear the PGLite statement cache** (`src/core/pglite-statements.ts`), like DDL already did, so the next call re-prepares and plans with the new statistics. This covers planner-stats' refreshes, `gbrain repair planner-stats`, projection statistics and the persistence journal's `VACUUM (ANALYZE)`. Postgres is unchanged. `test/pglite-statements.test.ts` checks that a statement prepared before `ANALYZE` is re-prepared after it; the check fails without the fix.
 
+## [0.60.197.0] - 2026-10-13
+
+**A fresh Claude Code session wired by `gbrain setup claude-code` now gets its first push, and a declined provider decision stops every provider request, `gbrain doctor`'s included.** The wave 2 Cat 41 setup run (gbrain-evals v0.10.80) found both: the SessionStart hook printed nothing in 3 of 3 fresh sessions because Claude Code starts gbrain's stdio server in parallel with the hook and the server binds its socket about 2 seconds later, and every run's `gbrain doctor` sent an unbilled `GET /v1/models` with the user's key after providers were declined.
+
+### Itemized changes
+
+- **SessionStart waits for the server it needs** (`src/core/context/session-start-pack.ts`, `src/commands/hook.ts`): on a `startup` or `resume` session of Claude Code in a directory covered by this install's `gbrain setup claude-code` receipt, the hook's deadline widens from 1.5 s to 4 s (under the 5 s harness timeout) and the context-pack request retries every 100 ms, re-resolving the socket and secret each round. The hook still never opens the brain, so there is no second PGLite owner and Postgres works the same way; a wait that runs out fails open with `serve_not_ready`. Without a setup receipt nothing changes. With real Claude Code 2.1.285 the fixed hook printed the remembered fact after a 786 ms wait; master printed nothing.
+- **A recorded provider decline holds everywhere** (`src/core/setup/local-receipts.ts`, `src/core/ai/openai-latest.ts`): OpenAI model discovery, which ran on every engine connect whenever `OPENAI_API_KEY` was set, returns before any request when this install's setup receipts record providers as declined (an unreadable record fails closed). `gbrain doctor --probe` skips the embedding probe under a decline.
+- **New doctor check `provider_consent`** (filesystem lane, also in `--fast`): reports a decline as "skipped by consent", names the provider variables present (names only) and gives `gbrain setup <harness> --providers` as the user's choice; `not_applicable` without a setup receipt.
+- **Tests:** `test/hook-session-start-serve-wait.serial.test.ts` (an IPC server bound 800 ms after SessionStart over in-memory PGLite; PGLite, Postgres keying, resume, a project receipt, a server that never comes, and no-wait controls) and `test/doctor-provider-consent.serial.test.ts` (a request counter behind `OPENAI_BASE_URL`: zero requests under a decline for `doctor --json` and `doctor --probe --yes`, 4 of 5 cases fail on master), plus a unit case in `test/openai-latest.serial.test.ts` and the doctor goldens.
+
 ## [0.60.196.0] - 2026-10-13
 
 ### Itemized changes
