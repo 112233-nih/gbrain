@@ -2007,9 +2007,8 @@ codes when that target is not safe to wire. A refusal writes nothing. Guide:
 
 ### Setup harness unsupported
 
-`setup_harness_unsupported`: setup wires Claude Code only in this release. The
-message names the guide for the harness you asked for (Codex:
-[docs/mcp/CODEX.md](../mcp/CODEX.md), OpenClaw:
+`setup_harness_unsupported`: setup wires Claude Code and Codex in this release.
+The message names the guide for the harness you asked for (OpenClaw:
 [docs/mcp/OPENCLAW.md](../mcp/OPENCLAW.md), Hermes:
 [docs/mcp/HERMES.md](../mcp/HERMES.md)); follow its manual steps.
 `gbrain setup --help` lists the supported harnesses.
@@ -2024,7 +2023,7 @@ message names the guide for the harness you asked for (Codex:
   registration would start a second server that fails on the lock. Stop that
   server (quit the agent session that started it), or keep it and connect
   through it: a shared `gbrain serve --http` is wired with
-  `gbrain bootstrap harness --harness claude-code`.
+  `gbrain bootstrap harness --harness <claude-code|codex>`.
 - `unowned_entry`: the harness configuration already has an entry under the
   same MCP server name, and its hash is not one this setup recorded (you or
   another tool wrote it, or you edited it). Setup never overwrites it. Pick
@@ -2035,7 +2034,10 @@ message names the guide for the harness you asked for (Codex:
   each install owns its own entries.
 - `harness_lane`: `gbrain bootstrap harness` (or a workspace bootstrap
   install) already wires gbrain hooks or MCP in this configuration. Keep that
-  wiring, or remove it with `gbrain bootstrap harness --remove` first.
+  wiring, or remove it with `gbrain bootstrap harness --remove` first. On
+  Codex this also fires when the bootstrap Codex lane's `SessionEnd` hook is in
+  `hooks.json` and you passed `--capture`: keep that lane and run setup without
+  `--capture`.
 
 `gbrain setup claude-code --dry-run --json` shows the resolved target and the
 blocking owner without writing anything.
@@ -2048,7 +2050,7 @@ the harness configuration, or a `gbrain connect --install` receipt), and no
 `gbrain setup` receipt owns it. Setup never falls back to a new local brain,
 because sessions would then read an empty brain while useful memory stays on
 the hosted one. Manage that connection with `gbrain connect <mcp-url>
---harness claude-code --install`; `gbrain doctor --only harness_wiring` shows
+--harness <claude-code|codex> --install`; `gbrain doctor --only harness_wiring` shows
 which brain the registration reaches.
 
 ## Connection notices
