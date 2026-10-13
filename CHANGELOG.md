@@ -10,6 +10,20 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [0.60.192.0] - 2026-10-12
+
+**CI test shards are packed from fresh timings after wave 16.** CI splits each test lane across several machines using the recorded run time of every test file. Wave 16 moved the #6210 durability probes out of the 5530 coalescing tests into their own files and added several new test files, so the recorded times no longer matched the tests. This release re-measures every lane from green master runs at wave 16's merge. No product behaviour changes.
+
+### Itemized changes
+
+| Lane | Files with no recorded time, before | After | Bound | Source run |
+|---|---|---|---|---|
+| Unit | 47 of 3290 (1.4%) | 17 of 3290 (0.5%) | 5% | Test 38327955481 |
+| Serial | 6 of 398 (1.5%) | 1 of 398 (0.3%) | 10% | Test 38327955481 |
+| E2E | 22 of 573 (3.8%) | 5 of 573 (0.9%) | 10% | E2E 38328059186 (full profile) |
+
+- `scripts/test-weights.json`, `scripts/serial-weights.json` and `scripts/e2e-weights.json`, plus their `.metadata.json` provenance files, are re-mined with `bun run weights:mine` from master runs whose test jobs all passed. The 5530 coalescing files drop to their new run times, and the new 6210 and 6517 files are measured for the first time. `GITHUB_EVENT_NAME=schedule bun scripts/check-weight-coverage.ts` reports OK with no dead entries.
+
 ## [0.60.190.0] - 2026-10-13
 
 **No Postgres statement outlives its budget now, a stalled managed sync says what is blocking it, and doctor stops misleading on managed and image-heavy brains (#6543, part 2).** v0.60.187.0 stopped the Supavisor wedge itself. This release closes the gaps the reporter hit around it. A statement that kept receiving bytes was never retired, so `/health?deep=1` stayed red forever. A sync stalled 300-600 s with "claimable here: no" no matter the cause. `repair failed-writes --apply` stopped at every pending write. Doctor recommended a `--retry-failed` that did nothing on a managed brain, and reported existing images as missing when only their letter case differed.
