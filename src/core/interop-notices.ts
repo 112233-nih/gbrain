@@ -277,7 +277,7 @@ export function privateFactNotice(factId?: string | number): Notice {
   return {
     code: 'private_fact_not_pushed',
     kind: 'info',
-    why: `This fact is private: only local CLI recall reads it. Session hooks push world-visible facts only, so it will not reach a new agent session, and MCP agents cannot recall it. If the user wants their agents to know it without looking it up, ask them before saving it again with \`--visibility world\`${forget}.`,
+    why: `This fact is private: only local CLI recall reads it. Session hooks push world-visible facts only, so it will not reach a new agent session, and MCP agents cannot recall it. If the user wants their agents to know it without looking it up, ask them before saving it again with visibility world${forget}.`,
   };
 }
 

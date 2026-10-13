@@ -51,7 +51,7 @@ describe('remember --visibility private says the fact is not pushed (#6606)', ()
     const notice = notices.find(n => n.code === 'private_fact_not_pushed');
     expect(notice).toBeDefined();
     expect(notice!.why).toContain('will not reach a new agent session');
-    expect(notice!.why).toContain('saving it again with `--visibility world`');
+    expect(notice!.why).toContain('saving it again with visibility world');
     expect(notice!.why).toContain(`\`gbrain forget ${result.id}\` drops the private copy`);
     expect(formatRememberResult(result, { visibility: 'private' })).toContain('note: private — local CLI recall only; not pushed into new agent sessions');
   });
