@@ -18,6 +18,15 @@ identifiers and attribution are available in the pre-removal Git revision
 
 - **`ANALYZE` and `VACUUM` clear the PGLite statement cache** (`src/core/pglite-statements.ts`), like DDL already did, so the next call re-prepares and plans with the new statistics. This covers planner-stats' refreshes, `gbrain repair planner-stats`, projection statistics and the persistence journal's `VACUUM (ANALYZE)`. Postgres is unchanged. `test/pglite-statements.test.ts` checks that a statement prepared before `ANALYZE` is re-prepared after it; the check fails without the fix.
 
+## [0.60.193.0] - 2026-10-13
+
+**`gbrain backup check` no longer reports a repository with a failed push as "unknown" when a local git call is slow.** On a busy machine, a 2-second local git probe (`git status`, `rev-parse`) that timed out threw away verdicts the check had already established. A recorded failed push (`last_push_failed`) and a completed probe's unpushed or dirty finding both came back as `unknown` / `probe_failed`, so the failing count dropped to zero.
+
+### Itemized changes
+
+- `assessBackupRepository` (`src/core/backup/repository.ts`) keeps an established bad verdict when a later local probe fails. A recorded failed push stays `failing` / `last_push_failed`, and an `unpushed` or `dirty` state stays as found, both with verification `unavailable`. A failed probe still never certifies `ok`. The 2-second timeout is unchanged. Test: a forced `ETIMEDOUT` on `git status` in `test/backup-verification.serial.test.ts` (before: `failing` 0; after: 1).
+- Test infrastructure: a PGLite brain restored from the test snapshot (`GBRAIN_PGLITE_SNAPSHOT`) now stamps the seeded sources' `created_at` with the restore time, beside the existing TimeZone re-pin. Before, it kept the snapshot's build time. A CI-cached snapshot more than an hour old therefore made every fresh test brain show the `behavior_changes` disclosure, and `test/search-c5-identical.test.ts` failed on any PR that left `src/core/*.ts` alone. Pin: `test/pglite-snapshot-timezone.serial.test.ts`.
+
 ## [0.60.192.0] - 2026-10-13
 
 **CI test shards are packed from fresh timings after wave 16.** CI splits each test lane across several machines using the recorded run time of every test file. Wave 16 moved the #6210 durability probes out of the 5530 coalescing tests into their own files and added several new test files, so the recorded times no longer matched the tests. This release re-measures every lane from green master runs at wave 16's merge. No product behaviour changes.
