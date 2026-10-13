@@ -292,7 +292,7 @@ jobs:
         run: bun scripts/ci-bun-install.ts --frozen-lockfile --ignore-scripts
       - name: Install dependencies (bounded, retried once)
         timeout-minutes: 8
-        run: bun scripts/ci-bun-install.ts --frozen-lockfile --ignore-scripts
+        run: bun ../scripts/ci-bun-install.ts --frozen-lockfile --ignore-scripts
         working-directory: admin
       - name: bun audit (root + admin)
         env:
@@ -922,7 +922,7 @@ jobs:
         run: bun scripts/ci-bun-install.ts --frozen-lockfile --ignore-scripts
       - name: Install dependencies (bounded, retried once)
         timeout-minutes: 8
-        run: bun scripts/ci-bun-install.ts --frozen-lockfile --ignore-scripts
+        run: bun ../scripts/ci-bun-install.ts --frozen-lockfile --ignore-scripts
         working-directory: admin
       - name: Install the pinned Chromium browser and OS dependencies
         run: bunx playwright install --with-deps chromium
