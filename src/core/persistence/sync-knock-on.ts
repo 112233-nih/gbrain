@@ -53,8 +53,18 @@ export const LEGACY_KNOCK_ON_CANCEL_PATTERNS: readonly string[] = [
   'Its predecessor request % was never admitted; this page was not published and is re-frozen on the next sync pass.',
   'The first page of its group (request %) was cancelled because its predecessor request % was never admitted; this page was not published and is re-frozen on the next sync pass.',
 ];
-const LEGACY_PATTERN_RES = LEGACY_KNOCK_ON_CANCEL_PATTERNS.map(pattern =>
-  new RegExp(`^${pattern.split('%').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.+')}$`));
+/** Whether `message` matches a LIKE pattern whose only wildcard is `%` (at least one character, as the producers wrote ids there). */
+function matchesLegacyPattern(message: string, pattern: string): boolean {
+  const parts = pattern.split('%');
+  if (!message.startsWith(parts[0]!) || !message.endsWith(parts.at(-1)!)) return false;
+  let at = parts[0]!.length;
+  for (const part of parts.slice(1, -1)) {
+    const found = message.indexOf(part, at + 1);
+    if (found < 0) return false;
+    at = found + part.length;
+  }
+  return message.length - parts.at(-1)!.length > at;
+}
 
 const SYNC_PAGE_KINDS = new Set(['managed_sync_import', 'managed_sync_delete']);
 
@@ -68,7 +78,7 @@ export function knockOnOf(detail: unknown): KnockOnDetail | null {
 /** Whether a terminal message is one a pre-#6643 knock-on producer wrote. */
 export function legacyKnockOnMessage(state: string, code: string | null | undefined, message: string | null | undefined): boolean {
   if (!message) return false;
-  if (state === 'cancelled') return code === 'cancelled' && (LEGACY_KNOCK_ON_CANCEL_MESSAGES.includes(message) || LEGACY_PATTERN_RES.some(re => re.test(message)));
+  if (state === 'cancelled') return code === 'cancelled' && (LEGACY_KNOCK_ON_CANCEL_MESSAGES.includes(message) || LEGACY_KNOCK_ON_CANCEL_PATTERNS.some(pattern => matchesLegacyPattern(message, pattern)));
   return (state === 'conflict' || state === 'failed') && code === 'revision_conflict' && message === EARLIER_PAGE_REFUSAL_MESSAGE;
 }
 

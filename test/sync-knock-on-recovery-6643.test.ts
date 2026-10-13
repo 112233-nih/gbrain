@@ -279,3 +279,12 @@ test('with two cursors, sync status shows the one its recorded failure belongs t
     expect(status.cursors.find(cursor => !cursor.shown)!.resume_argv).toContain('--exclude');
   } finally { await clearConfig(); }
 }), 120_000);
+
+test('the never-admitted legacy patterns match only with text where their ids stood', () => {
+  const id = randomUUID(), other = randomUUID();
+  expect(legacyKnockOnMessage('cancelled', 'cancelled', `Its predecessor request ${id} was never admitted; this page was not published and is re-frozen on the next sync pass.`)).toBe(true);
+  expect(legacyKnockOnMessage('cancelled', 'cancelled', 'Its predecessor request  was never admitted; this page was not published and is re-frozen on the next sync pass.'.replace('  ', ' '))).toBe(false);
+  expect(legacyKnockOnMessage('cancelled', 'cancelled', `The first page of its group (request ${id}) was cancelled because its predecessor request ${other} was never admitted; this page was not published and is re-frozen on the next sync pass.`)).toBe(true);
+  expect(legacyKnockOnMessage('cancelled', 'cancelled', `The first page of its group (request ${id}) was cancelled because its predecessor request ${other} was never admitted; and more.`)).toBe(false);
+  expect(legacyKnockOnMessage('cancelled', 'storage_error', `Its predecessor request ${id} was never admitted; this page was not published and is re-frozen on the next sync pass.`)).toBe(false);
+});
