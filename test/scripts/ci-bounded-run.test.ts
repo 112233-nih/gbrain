@@ -1,8 +1,10 @@
 /**
  * scripts/ci-bounded-run.ts: a CI setup command runs in its own process group,
- * an attempt still running at its bound is ended (SIGTERM to the group, then
- * SIGKILL after the grace period), retried once, and a second failure stops
- * with a named `::error::`. Each case runs a real command that really stalls.
+ * an attempt that stalls (still running at its bound, or silent for the idle
+ * bound) is ended (SIGTERM to the group, then SIGKILL after the grace period),
+ * retried once, and a second failure stops with a named `::error::`. A slow
+ * attempt that keeps printing runs to the total budget instead of being
+ * restarted. Each case runs a real command that really stalls or crawls.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
@@ -77,20 +79,58 @@ esac
     for (const pid of readFileSync(join(dir, 'pids'), 'utf8').trim().split('\n').map(Number)) expect(alive(pid)).toBe(false);
   }, 30_000);
 
+  test('a silent attempt is a stall at the idle bound; a slow one that keeps printing is not', async () => {
+    const silent = scratch();
+    const r = await cli(['--idle-s', '1', '--total-s', '20', '--retry-s', '0', '--', stub(silent, ['stall', 'ok'])]);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('done');
+    expect(r.annotations).toEqual([`::warning::${join(silent, 'setup')} attempt 1 stalled: no output for 1s; retrying in 0s`]);
+    const crawl = join(scratch(), 'crawl');
+    writeFileSync(crawl, `#!/bin/sh\nfor p in 10 20 30 40; do sleep 0.5; echo "$p% of 186.8 MiB"; done\necho installed\n`);
+    chmodSync(crawl, 0o755);
+    const c = await cli(['--idle-s', '1', '--total-s', '20', '--retry-s', '0', '--', crawl]);
+    expect(c.exitCode).toBe(0);
+    expect(c.stdout).toBe('10% of 186.8 MiB\n20% of 186.8 MiB\n30% of 186.8 MiB\n40% of 186.8 MiB\ninstalled\n');
+    expect(c.annotations).toEqual([]);
+  }, 30_000);
+
+  test('an attempt still printing when the total budget runs out is ended and named, with no retry', async () => {
+    const dir = scratch();
+    const path = join(dir, 'endless');
+    writeFileSync(path, `#!/bin/sh\necho start >> '${dir}/starts'\nwhile :; do echo progress; sleep 0.3; done\n`);
+    chmodSync(path, 0o755);
+    const started = Date.now();
+    const r = await cli(['--idle-s', '2', '--total-s', '2', '--retry-s', '0', '--hint', 'a slow CDN', '--', path]);
+    expect(r.exitCode).toBe(1);
+    expect(r.annotations).toEqual([`::error::${path} was still running when its 2s budget ran out (a slow CDN) on attempt 1 of 2; giving up`]);
+    expect(readFileSync(join(dir, 'starts'), 'utf8')).toBe('start\n');
+    expect((Date.now() - started) / 1000).toBeLessThan(10);
+  }, 30_000);
+
   test('usage errors exit 2 without running anything', async () => {
     expect((await cli(['--', 'true'])).exitCode).toBe(2);
     expect((await cli(['--attempt-s', '5'])).exitCode).toBe(2);
+    expect((await cli(['--idle-s', '5', '--', 'true'])).exitCode).toBe(2);
+    expect((await cli(['--total-s', '0', '--', 'true'])).exitCode).toBe(2);
   });
 });
 
-test('the Playwright install is bounded, and its step cap covers both attempts', () => {
-  const doc = load(readFileSync(join(ROOT, '.github/workflows/test.yml'), 'utf8')) as { jobs: Record<string, { 'timeout-minutes': number; steps: Array<{ run?: string; 'timeout-minutes'?: number }> }> };
+test('the Playwright install is bounded by silence and a total budget that fits its step cap, and its browser is cached', () => {
+  type Step = { id?: string; uses?: string; if?: string; run?: string; with?: Record<string, string>; 'timeout-minutes'?: number };
+  const doc = load(readFileSync(join(ROOT, '.github/workflows/test.yml'), 'utf8')) as { jobs: Record<string, { 'timeout-minutes': number; steps: Step[] }> };
   const job = doc.jobs['admin-browser']!;
-  const step = job.steps.find(entry => entry.run?.includes('playwright install'))!;
-  const match = /^bun scripts\/ci-bounded-run\.ts --attempt-s (\d+) --retry-s (\d+) .*-- bunx playwright install --with-deps chromium$/.exec(step.run!);
+  const at = job.steps.findIndex(entry => entry.run?.includes('playwright install'));
+  const step = job.steps[at]!;
+  const match = /^bun scripts\/ci-bounded-run\.ts --idle-s (\d+) --total-s (\d+) --retry-s \d+ .*-- bunx playwright install --with-deps chromium$/.exec(step.run!);
   expect(match).not.toBeNull();
-  const worst = 2 * Number(match![1]) + Number(match![2]) + 2 * 10;
-  expect(step['timeout-minutes']! * 60).toBeGreaterThan(worst);
+  expect(Number(match![1])).toBeLessThan(Number(match![2]));
+  expect(step['timeout-minutes']! * 60).toBeGreaterThan(Number(match![2]) + 10);
   expect(job['timeout-minutes']).toBe(12);
-  expect(existsSync(join(ROOT, 'scripts/ci-bounded-run.ts'))).toBe(true);
+  const restore = job.steps[at - 1]!, save = job.steps[at + 1]!;
+  expect(restore.uses).toMatch(/^actions\/cache\/restore@/);
+  expect(restore.with!.path).toBe('~/.cache/ms-playwright');
+  expect(restore.with!.key).toContain("hashFiles('node_modules/playwright-core/browsers.json')");
+  expect(save.uses).toMatch(/^actions\/cache\/save@/);
+  expect(save.if).toBe(`steps.${restore.id}.outputs.cache-hit != 'true'`);
+  expect(save.with).toEqual({ path: restore.with!.path!, key: `\${{ steps.${restore.id}.outputs.cache-primary-key }}` });
 });

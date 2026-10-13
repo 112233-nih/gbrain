@@ -12,23 +12,35 @@ identifiers and attribution are available in the pre-removal Git revision
 
 ## [0.60.206.0] - 2026-10-13
 
-**CI's Playwright browser install is bounded and retried once, like `bun install` (#6594).** On master .204's Test run, the `admin-browser` job (115229768224) was cancelled at its 12-minute job timeout. `bunx playwright install --with-deps chromium` spent about 4 minutes fetching Ubuntu packages, then crawled through the Chrome download until the timeout hit. That step usually takes 15 to 50 s; across the last dozen runs it ranged from 15 s to 740 s. The bounded-run logic from #6594 is now one shared script, and it ends a stalled attempt together with every process the attempt started.
+**CI's Playwright browser install stops on a real stall, finishes a slow download instead of restarting it, and usually skips the CDN.** On master .204 and .205, the `admin-browser` job was cancelled at its 12-minute job timeout. `bunx playwright install --with-deps chromium` crawled through the Chrome download, which Playwright's CDN was serving at about 250 KB/s. A plain per-attempt cap doesn't fix that. The first version of this PR used a 240 s cap and failed on its own CI: the download was still moving (10%, then 30%), and Playwright doesn't resume downloads, so each retry started over from 0%. So a stall now means silence, the whole step has one time budget, and the downloaded browsers are cached. The bounded-run logic from #6594 is now one shared script, and it ends a stalled attempt together with every process the attempt started.
 
 ### Itemized changes
 
-- **`scripts/ci-bounded-run.ts`** (new): `--attempt-s <n> [--retry-s <n>] [--hint <text>] -- <command…>`. It runs the command in its own process group. When an attempt is still running at its bound, it sends SIGTERM to the whole group and SIGKILL after a 10 s grace period. SIGTERM goes first so that `sudo apt-get`, which sudo can't forward a SIGKILL to, still gets the signal. The command is retried once, and a second failure stops the step with `::error::<command> stalled: no result after <n>s (<hint>) on attempt 2 of 2; giving up`. A failure that isn't a stall keeps its own output, is retried once, and is reported with its exit code.
+- **`scripts/ci-bounded-run.ts`** (new): `(--attempt-s <n> | --total-s <n>) [--idle-s <n>] [--retry-s <n>] [--hint <text>] -- <command…>`.
+  - It runs the command in its own process group. An attempt is stalled when it is still running at `--attempt-s`, or when it has printed nothing on stdout or stderr for `--idle-s`.
+  - A stalled attempt gets SIGTERM to the whole group, then SIGKILL after a 10 s grace period. SIGTERM goes first so that `sudo apt-get`, which sudo can't forward a SIGKILL to, still gets the signal.
+  - It retries once, and a second stall stops the step with `::error::<command> stalled: no output for <n>s (<hint>) on attempt 2 of 2; giving up` (or `no result after <n>s` for the attempt cap).
+  - `--total-s` caps every attempt and pause together. An attempt still printing progress runs until the budget ends instead of being restarted, then stops with `::error::<command> was still running when its <n>s budget ran out`. No retry starts without time left for it.
+  - A failure that isn't a stall keeps its own output, is retried once, and is reported with its exit code.
 - **`scripts/ci-bun-install.ts`** now delegates to it, with the same environment knobs and the same annotation text. One behavior change: a stalled install's child processes now end with it. Before, only the direct child got SIGKILL, so a backgrounded grandchild outlived the attempt.
-- **`admin-browser` (`test.yml`):** `bun scripts/ci-bounded-run.ts --attempt-s 240 --retry-s 10 … -- bunx playwright install --with-deps chromium`, with a `timeout-minutes: 9` step cap, which covers two attempts, the pause and both grace periods. The job timeout stays at 12 minutes. A retry starts with whatever attempt 1 already finished: apt packages that got installed and a browser that got downloaded stay in place.
+- **`admin-browser` (`test.yml`):**
+  - `bun scripts/ci-bounded-run.ts --idle-s 120 --total-s 480 --retry-s 10 … -- bunx playwright install --with-deps chromium`, with a `timeout-minutes: 9` step cap. Playwright prints a progress line every 10% of a download, so 120 s of silence is a stall. The job timeout stays at 12 minutes.
+  - `~/.cache/ms-playwright` is restored before the install and saved after a miss. The cache key is `node_modules/playwright-core/browsers.json`, the browser revisions the installed Playwright pins. On a hit, Playwright finds the browsers and skips the download; the apt dependencies still install.
 - **`test/progress.test.ts` cpu_ms diagnostics (no assertion change):** the `< 100` ms check on the idle tick failed once at 101 ms on Bun 1.4.3 CI. Side-by-side probes on 1.4.2 and 1.4.3 ruled out the two version suspects: `process.threadCpuUsage` is still per-thread, and `Atomics.wait` still parks rather than spins. The cause is still unknown, so the assertion and its bound are unchanged. A failure now reports where the CPU went: the thread CPU inside the 200 ms `Atomics.wait` against the tick calls around it, plus the process's minor and major page faults, involuntary context switches and all-thread CPU during the wait. Forcing 110 ms of allocation inside the window shows the split as `112.5 ms inside the 200 ms Atomics.wait, 0.5 ms in the tick calls around it; … 1580 minor and 0 major page faults, 14 involuntary context switches`.
 - **Proof:**
-  - Forced stall: a real `bunx playwright install chromium`, with `PLAYWRIGHT_DOWNLOAD_HOST` pointed at a loopback server that accepts connections and never answers, and an 8 s bound. It was ended twice and stopped with the named error after 17 s, exit 1, with no Playwright process left behind.
-  - `test/scripts/ci-bounded-run.test.ts` uses real stalling commands:
-    - A stall leaves a backgrounded grandchild; the grandchild is gone after the attempt is ended, and the retry succeeds.
+  - Slow but progressing CDN: a loopback proxy relays the real `cdn.playwright.dev` files at a throttled rate, and `bunx playwright install chromium` runs against it.
+    - Old bound (`--attempt-s 30`): both attempts were killed at 0%, and the step failed after 61 s.
+    - New flags (`--idle-s 20 --total-s 300`): the download finished in 86 s, with Chrome, FFmpeg and the headless shell all installed.
+  - Silent host: `PLAYWRIGHT_DOWNLOAD_HOST` pointed at a loopback server that accepts connections and never answers, with `--idle-s 8`. It warned, retried, and stopped with the named `no output for 8s` error after 18 s, exit 1, with no Playwright process left behind.
+  - `test/scripts/ci-bounded-run.test.ts` uses real commands that stall or crawl:
+    - A stalled attempt's backgrounded grandchild is killed with its group, and the retry succeeds.
     - Two stalls give the named error.
     - A non-stall failure keeps exit code 100 and its stderr.
     - A child that ignores SIGTERM is killed after the grace period.
+    - A silent attempt is a stall at the idle bound; one that prints every 0.5 s against a 1 s idle bound finishes with no annotation.
+    - An attempt still printing when the budget runs out is ended and named, with no retry.
     - Usage errors exit 2.
-    - A workflow check requires the Playwright step to be bounded, with a step cap that covers both attempts.
+    - A workflow check requires the Playwright step to use the idle bound and a budget that fits its step cap, between a cache restore and a save keyed on Playwright's pinned browser revisions.
   - The old `ci-bun-install.ts` left a stalled attempt's backgrounded grandchild running; the new one does not.
 
 ## [0.60.205.0] - 2026-10-13
