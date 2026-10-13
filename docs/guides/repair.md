@@ -411,11 +411,24 @@ Classes in the preview:
 | `no_cursor` | a `managed-sync-failure` row with no `managed-sync` cursor under its key | cleared only by a success under the same key |
 | `principal_unadoptable` | an unfinished cursor recorded by a principal that is not an active local writer | the live writer never reads that key, and the pending request is invisible to it |
 | `superseded` | an unfinished cursor from before sync options were recorded, with a later completed run for the same source and incarnation | its exact options are unknown, so no command resumes it |
+| `incarnation_retired` | an unfinished cursor, or a failure row, recorded under a source incarnation the source no longer has (it was re-pointed at a new checkout, or removed and added again) | the cursor key digests the incarnation, so no current sync selects it, and every incarnation-joined reader (doctor's durable read, `--retry-failed`, `--acknowledge-managed`) drops it; only the local ledger mirror still shows it. `gbrain sync status` reports it as `cursor: null` with `last_error.code: cursor_incarnation_retired` |
+| `mirror_only` | a row of the local ledger (`~/.gbrain/sync-failures.jsonl`) carrying a `managed_cursor_key` with no durable failure row under that key in any incarnation | the mirror is pruned only after a durable delete, so one whose durable row is already gone keeps `gbrain doctor --fast` warning. The apply removes the ledger row after reading the durable rows again; a successful sync of the source prunes its own mirror-only rows too |
 
 Kept and counted, never retired: a cursor whose pending request is still
 queued, running or recovering (`pending_request_live`), and a cursor the live
 writer can still resume with its recorded options (`resumable`; doctor prints
-the exact `gbrain sync ... --retry-failed` command). The apply rechecks every
+the exact `gbrain sync ... --retry-failed` command). An `incarnation_retired`
+cursor is retired even when its recording principal is the live local writer
+with recorded options: that veto is for a cursor the writer could still
+resume, which no retired key can be. Rows on an archived source are never
+listed, and an apply that finds the source archived meanwhile keeps them.
+Retiring an old incarnation's bookkeeping says nothing about whether the
+current source's files are imported; `gbrain sync status --source <id> --json`
+does. Without a database connection, `gbrain doctor --fast` reports the mirror
+rows it cannot verify as `warn` ("could not be verified"), never `fail`: a
+better fast score there is less certainty, not recovery; `gbrain doctor --only
+sync_failures` with the brain reachable is the authoritative check.
+The apply rechecks every
 predicate in the deleting statement and removes the cursor, its same-key
 failure row and its manifest (when no other cursor shares the run) in one
 transaction, so a cursor the writer picked up meanwhile is left alone. Do not

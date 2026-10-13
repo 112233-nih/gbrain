@@ -11,7 +11,7 @@ import { digest, sha256 } from './digest.ts';
 import { getWriteRequest, admitWriteInTransaction, foregroundPriority, intentDigest, receiptFor } from './journal.ts';
 import { preparationConfigView } from './config-snapshot.ts';
 import { isWriteCapacityWait, retryWriteAdmission } from './admission-retry.ts';
-import { assertPersistenceAccepting, awaitWrite, foregroundWriteCompletions, startPersistenceConsumer, type WriteWait } from './service.ts';
+import { assertPersistenceAccepting, awaitWrite, foregroundWriteCompletions, startPersistenceConsumer } from './service.ts';
 import { assertSyncEntryOrigin, discoverManagedSync, resolveManagedSyncContext, readSyncFile, syncGit, type ManagedSyncContext, type SyncDiscovery } from './sync-discovery.ts';
 import { syncCursorOptions } from './sync-slices.ts';
 import { isImageFilePath, isMultimodalEnabled } from '../sync.ts';
@@ -46,7 +46,9 @@ import { SYNC_READ_BOUND, type TreeBlob } from './sync-blobs.ts';
 import { dryRunScreen, heldImageEntry, isSyncReadBound, loadSyncScreenRun, oversizeHold, pinnedBlob, pinnedContent, pinnedImageBytes, preparationStalledHold, prepareTimeFenceHold, screenFrozenImport, type HeldEntry, type SyncScreenRun } from './sync-screen.ts';
 import { frozenImageIntent, sameImageBytes } from './sync-image.ts';
 import { fenceReceiptLocation } from '../fence-repair/refusal.ts';
-import { managedSyncWriteDiagnostic } from './sync-write-diagnostic.ts';
+import { managedSyncWriteDiagnostic, writeWaitOf } from './sync-write-diagnostic.ts';
+import { checkpointSuperseded } from './sync-checkpoint-replaced.ts';
+import { publicFailureDetail } from './publication-failure.ts';
 import { fileChangedAfterAdmission, headCommittedBytes, originFaultHold, pageChangeProof, pageChangedHold, pinnedWorktreeConflict, receiptPageFaultHold, worktreeDirtyHold } from './sync-page-fault.ts';
 import { faultPoint } from './fault-points.ts';
 import { pipelined } from '../page-state/transactions.ts';
@@ -252,16 +254,6 @@ function waivedCursor(cursor: Cursor, waived: NoopWaiver): Cursor {
 }
 /** The rollback signal of an admission whose cursor no longer holds the frozen entry (ENG-A7). */
 class CursorMoved extends Error {}
-/** DX-A3 / ENG-A12: how the wait for a still-unfinished sync write ended, with its request ID kept. */
-export type ManagedSyncWriteWait = { status: 'pending'; request_id: string }
-  | { status: 'blocked'; request_id: string; cause: string; command: string }
-  | { status: 'read_failed'; request_id: string; reason: string; transient: boolean; sqlstate?: string; attempts: number; message: string; why: string };
-function writeWaitOf(wait: WriteWait): ManagedSyncWriteWait {
-  if (wait.kind === 'blocked') return { status: 'blocked', request_id: wait.request_id, cause: wait.cause, command: wait.command };
-  if (wait.kind !== 'read_failed') return { status: 'pending', request_id: wait.row.request_id };
-  const { kind: _kind, row: _row, ...failure } = wait;
-  return { status: 'read_failed', ...failure };
-}
 async function replaceCursor(engine: BrainEngine, key: string, before: CursorHeader, next: Cursor, assertActive: () => void): Promise<Cursor> {
   return engine.transaction(async tx => {
     assertActive();
@@ -716,12 +708,14 @@ async function settleFailedRequest(engine: BrainEngine, input: { cursor: Cursor;
   if (converted === 'pending') return { result: result(cursor, 'partial', input.signal?.aborted ? 'timeout' : 'writer_pending') };
   if (converted && 'tripped' in converted) return { result: breakerResult(converted.tripped, pending, done, remote) };
   if (converted) { input.assertActive(); return { cursor: converted }; }
+  // #6513: a checkpoint another run superseded records nothing; this run goes on with the winning cursor as it stands.
+  if (checkpointSuperseded(pending, done)) return { cursor: await currentCursor(engine, key, cursor) };
   const { failure, ledgerRecorded } = await recordManagedSyncFailure(engine, { source_id: cursor.sourceId, source_incarnation: cursor.incarnation, path: pending.intent.path ?? '<checkpoint>',
     code: done.error_code ?? (done.state === 'cancelled' ? 'cancelled' : 'storage_error'), message: done.error_message ?? 'The accepted sync request did not commit.',
     request_id: pending.requestId, run_id: cursor.runId, target: cursor.target, cursor_key: key,
     syncOptions: cursor.syncOptions ?? syncOptions, processingOptions: cursor.processingOptions ?? processingOptions,
     phase: pending.intent.kind === 'managed_sync_checkpoint' ? 'checkpoint' : 'receipt', state: done.state, observation_id: pending.requestId,
-    first_seen: new Date(done.completed_at ?? done.updated_at).toISOString() });
+    first_seen: new Date(done.completed_at ?? done.updated_at).toISOString(), ...(done.error_detail ? { write_error_detail: publicFailureDetail(done.error_detail) } : {}) });
   // #5762: the hint is built after the failed transaction, from a fresh read of the request indexes.
   const hint = done.error_code === CHECKPOINT_VALIDATION_TIMEOUT && !remote ? await checkpointTimeoutHint(engine,
     { requestId: pending.requestId, sourceId: cursor.sourceId, processingOptions: pending.intent.processingOptions, syncOptions: pending.intent.syncOptions ?? syncOptions, repoPath: pending.intent.repoPath ?? input.run.repoPath }) : null;
@@ -1180,8 +1174,8 @@ async function retryFailedStart(engine: BrainEngine, cursor: Cursor, key: string
   const recorded = await engine.executeRaw("SELECT 1 FROM op_checkpoints WHERE op='managed-sync-failure' AND fingerprint=$1 AND completed_keys->0->>'run_id'=$2", [key, cursor.runId]);
   assertActive();
   if (!((failed && ['failed', 'conflict', 'cancelled'].includes(failed.state)) || (recorded.length && (failed?.state === 'committed' || !failed)))) return null;
-  // Only the #6340 page faults convert here (a content refusal under --retry-failed keeps its explicit rediscovery).
-  const pageFault = !!failed && !!cursor.pending && (pinnedWorktreeConflict(failed) || failed.error_code === 'revision_conflict');
+  // Only the #6340 page faults convert here (a content refusal under --retry-failed keeps its explicit rediscovery; #6513: a checkpoint is never a page fault).
+  const pageFault = !!failed && !!cursor.pending && cursor.pending.intent.kind !== 'managed_sync_checkpoint' && (pinnedWorktreeConflict(failed) || failed.error_code === 'revision_conflict');
   const screen = pageFault ? await loadSyncScreenRun(input.startupConfig, cursor.sourceId, cursor.processingOptions ?? processingOptions, authority.writer.remote) : null;
   const converted = screen ? await convertBlockedCursor(engine, cursor, key, assertActive, { ...input.frozenRun, screen, observedAt: cursor.discoveredAt ?? input.runStartedAt }) : cursor;
   assertActive();
