@@ -78,7 +78,7 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-/** The SQL string literal on `line` that holds the statement_timeout change, with interpolations as numbers. */
+/** The SQL string literal on `line` that holds the statement_timeout change: a tagged template's interpolations are bind parameters ($1, $2, …), any other interpolation is spliced text, read as a number. */
 function sqlLiteral(line: string): string {
   const at = line.search(RAISER);
   const before = line.slice(0, at);
@@ -92,6 +92,10 @@ function sqlLiteral(line: string): string {
   } else {
     const end = line.indexOf("'", at);
     literal = line.slice(before.lastIndexOf("'") + 1, end > 0 ? end : undefined);
+  }
+  if (open >= 0 && line[open] === '`' && /[\w$]$/.test(before.slice(0, open))) {
+    let n = 0;
+    return literal.replace(/\$\{[^}]*\}/g, () => `$${++n}`);
   }
   return literal.replace(/\$\{[^}]*\}/g, '1000');
 }
@@ -112,6 +116,9 @@ describe('guard: every statement_timeout change in gbrain reaches the driver bud
     expect(unreadable(sqlLiteral(`await tx.executeRaw("SELECT set_config('statement_timeout', current_setting('app.t'), true)");`))).not.toBeNull();
     expect(unreadable(sqlLiteral(`await tx.executeRaw("SET LOCAL statement_timeout = 'later'");`))).not.toBeNull();
     expect(unreadable(sqlLiteral("await conn.executeRaw(`SET LOCAL statement_timeout = '${perBatchTimeoutSec}s'`);"))).toBeNull();
+    expect(sqlLiteral("await tx`SELECT set_config('statement_timeout', ${statementTimeout}, true)`;")).toBe("SELECT set_config('statement_timeout', $1, true)");
+    expect(unreadable(sqlLiteral("await tx`SELECT set_config('statement_timeout', ${statementTimeout}, true)`;"))).toBeNull();
+    expect(unreadable(sqlLiteral("await tx`SELECT set_config('statement_timeout', ${statementTimeout}, ${local})`;"))).toBeNull();
   });
 
   test('no src/ path raises or lifts statement_timeout in a form the per-statement budget misses', () => {
