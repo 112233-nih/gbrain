@@ -12,12 +12,12 @@ identifiers and attribution are available in the pre-removal Git revision
 
 ## [0.60.193.0] - 2026-10-13
 
-**A Postgres read that follows a failed statement on the same pooled connection now gets back only its own rows.** A statement that streamed rows and then failed (a runtime error after its first rows, or a cancel or timeout while it was still producing them) left its row count behind in the driver. The next statement on that connection then returned its rows after that many empty slots. So `persistence_brain`'s one-row read came back as two rows, and a managed connector sync refused with `storage_error` ("requires exactly one known boolean persistence state") before its sweep started. Before the strict readers, the same read came back as `enabled = false` and the run took the unmanaged path (#6482). A cancel at consumer stop is enough to leave the count behind.
+**`gbrain backup check` no longer reports a repository with a failed push as "unknown" when a local git call is slow.** On a busy machine, a 2-second local git probe (`git status`, `rev-parse`) that timed out threw away verdicts the check had already established. A recorded failed push (`last_push_failed`) and a completed probe's unpushed or dirty finding both came back as `unknown` / `probe_failed`, so the failing count dropped to zero.
 
 ### Itemized changes
 
-- **Driver row count.** The vendored driver resets a statement's row count at every ReadyForQuery, not only at CommandComplete. The fix went in through `patches/postgres@3.4.9.patch`. Three tests fail on the base driver: an error after the first rows, a cancel mid-stream, and a statement pipelined behind a mid-stream failure.
-- **Connector retry flake.** In the one-off `persistence-connector-retry` failure, the `--retry-failed` run threw `storage_error` with no sweep and left one failed receipt instead of two. That signature now reproduces deterministically: every pooled connection's last statement streams a row and then fails before the retry run. The new case fails before this fix and passes after it.
+- `assessBackupRepository` (`src/core/backup/repository.ts`) keeps an established bad verdict when a later local probe fails. A recorded failed push stays `failing` / `last_push_failed`, and an `unpushed` or `dirty` state stays as found, both with verification `unavailable`. A failed probe still never certifies `ok`. The 2-second timeout is unchanged. Test: a forced `ETIMEDOUT` on `git status` in `test/backup-verification.serial.test.ts` (before: `failing` 0; after: 1).
+- Test infrastructure: a PGLite brain restored from the test snapshot (`GBRAIN_PGLITE_SNAPSHOT`) now stamps the seeded sources' `created_at` with the restore time, beside the existing TimeZone re-pin. Before, it kept the snapshot's build time. A CI-cached snapshot more than an hour old therefore made every fresh test brain show the `behavior_changes` disclosure, and `test/search-c5-identical.test.ts` failed on any PR that left `src/core/*.ts` alone. Pin: `test/pglite-snapshot-timezone.serial.test.ts`.
 
 ## [0.60.192.0] - 2026-10-13
 
