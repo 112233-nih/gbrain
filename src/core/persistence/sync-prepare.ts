@@ -38,6 +38,7 @@ import { companyBrainProfile } from '../company-brain/profile.ts';
 import { companyBrainPolicyFingerprint } from '../company-brain/policy.ts';
 import { isUnboundSourcePage, UNBOUND_COLLISION_MESSAGE } from './unbound-source.ts';
 import { checkpointRetryCommand, findIncompleteSyncReceipt } from './checkpoint-validation.ts';
+import { checkpointCursorReplaced } from './sync-checkpoint-replaced.ts';
 import { frontmatterSlugConflictMessage } from './verb-errors.ts';
 import { chunkerStamp } from '../chunkers/code.ts';
 import { clearGitHold, countGitHolds, recordSyncImportProvenance } from './sync-holds.ts';
@@ -419,6 +420,9 @@ export async function prepareManagedSyncMutation(unbounded: BrainEngine, row: Wr
       async () => { if (await earlierGroupMemberFailed(tx, row)) throw syncPublicationRefusal('revision_conflict', 'An earlier page of this sync did not commit.', row, p, `Request ${row.request_id} follows a page of the same bulk group that did not commit, so this page must not publish after it.`); },
       async () => {
         const cursor = await shared;
+        // #6513: a checkpoint whose cursor another run replaced is superseded, not conflicted; a page keeps `revision_conflict`.
+        const replaced = checkpointCursorReplaced(p, cursor?.run_id, row.source_id);
+        if (replaced) throw syncPublicationRefusal(replaced.code, replaced.message, row, p, replaced.cause);
         if (cursor && (cursor.run_id !== p.runId || (cursor.request_id !== row.request_id && !cursor.group?.includes(row.request_id) && !(screening?.unsaved && cursor.request_id == null)))) throw syncPublicationRefusal('revision_conflict', 'The accepted sync cursor changed before publication.', row, p,
           `Another sync run of ${row.source_id} replaced the cursor this request belongs to.`);
       },
@@ -450,6 +454,9 @@ export async function prepareManagedSyncMutation(unbounded: BrainEngine, row: Wr
   if (p.kind === 'managed_sync_checkpoint') return { sourceExclusive: true, observedRevision: null, validate, apply: async tx => {
     const [cursor] = await tx.executeRaw<{ completed_keys: [{ runId: string; index: number; total: number }] }>(
       "SELECT completed_keys FROM op_checkpoints WHERE op='managed-sync' AND fingerprint=$1 FOR UPDATE", [p.cursorKey]);
+    // #6513: validation passed under this run; a replacement that landed since is the same supersession, not an index lag.
+    const replaced = checkpointCursorReplaced(p, cursor?.completed_keys[0]?.runId, row.source_id);
+    if (replaced) throw syncPublicationRefusal(replaced.code, replaced.message, row, p, replaced.cause);
     if (!cursor || cursor.completed_keys[0].runId !== p.runId || cursor.completed_keys[0].index !== p.total || cursor.completed_keys[0].total !== p.total) {
       throw syncPublicationRefusal('revision_conflict', 'The sync cursor is not fully committed.', row, p,
         `Not every page write of this sync run has committed, so the checkpoint of ${row.source_id} did not advance.`);
