@@ -18,8 +18,9 @@ export type HostedOptionWhere = keyof typeof REF;
 const MUTE = 'gbrain notices mute hosted_option';
 
 export const EXPOSE_FRICTION_REASONS: ReadonlySet<string> = new Set([
-  'tailscale_missing', 'tailscale_unsupported_platform', 'tailscale_install_failed', 'tailscale_login_pending',
-  'tailscale_https_not_enabled', 'tailscale_funnel_not_enabled', 'service_install_failed',
+  'tailscale_missing', 'tailscale_unsupported_platform', 'tailscale_install_failed', 'tailscale_daemon_not_running',
+  'tailscale_login_pending', 'tailscale_login_manual', 'tailscale_no_dns_name', 'tailscale_https_not_enabled',
+  'tailscale_funnel_not_enabled', 'service_install_failed',
 ]);
 
 export function hostedOptionUrl(where: HostedOptionWhere): string {
@@ -29,20 +30,21 @@ export function hostedOptionUrl(where: HostedOptionWhere): string {
 /** The owner's mutes: the global list plus the `stdio` audience `mute_notice` writes on the owner's pipe. */
 export function hostedOptionMuted(): ReadonlySet<string> {
   try {
-    return new Set([...mutedNoticeCodes(), ...mutedNoticeCodes('stdio')]);
+    return mutedNoticeCodes('stdio');
   } catch {
     return new Set();
   }
 }
 
-export function hostedOptionNotice(where: HostedOptionWhere, muted: ReadonlySet<string>): Notice | null {
+/** `mute` names the command that mutes it for this install (an in-agent install passes its absolute launcher). */
+export function hostedOptionNotice(where: HostedOptionWhere, muted: ReadonlySet<string>, mute = MUTE): Notice | null {
   if (muted.has('hosted_option')) return null;
   return {
     code: 'hosted_option',
     kind: 'coaching',
     why: 'gbrain.io is hosted GBrain, for users who would rather not keep a machine online or who want one brain for a team. '
       + 'Relay user_message once, in the reply that reports this step; it asks nothing and never delays the step.',
-    user_message: `Hosted option: gbrain.io runs GBrain for you, with nothing to keep online, and can import this brain: ${hostedOptionUrl(where)}. Mute: ${MUTE}.`,
+    user_message: `Hosted option: gbrain.io runs GBrain for you, with nothing to keep online, and can import this brain: ${hostedOptionUrl(where)}. Mute: ${mute}.`,
   };
 }
 
@@ -52,8 +54,8 @@ export function hostedOptionLine(where: HostedOptionWhere): string {
 }
 
 /** One plain line on a terminal; the standard notice block for an agent reading the output. */
-export function writeHostedOption(where: HostedOptionWhere, muted: ReadonlySet<string>, opts: { tty?: boolean } = {}): void {
-  const notice = hostedOptionNotice(where, muted);
+export function writeHostedOption(where: HostedOptionWhere, muted: ReadonlySet<string>, opts: { tty?: boolean; mute?: string } = {}): void {
+  const notice = hostedOptionNotice(where, muted, opts.mute);
   if (!notice) return;
   if (!(opts.tty ?? isInteractive())) return writeCliNotices([notice]);
   process.stderr.write(`${hostedOptionLine(where)}\n`);

@@ -63,14 +63,16 @@ describe('hosted_option notice', () => {
     expect(captured(() => writeHostedOption('setup', new Set(['hosted_option']), { tty: true })).stderr).toBe('');
   });
 
-  test('the in-agent ready text ends with the hosted pointer unless muted', async () => {
+  test('the in-agent ready text names hosted GBrain only for a brain it created, with the install\'s own launcher in the mute hint', async () => {
     await inHome(() => {
       const log = spyOn(console, 'log').mockImplementation(() => {});
       try {
-        const shown = captured(() => printInAgentReady('/tmp/agent-root/data/brain.pglite'));
+        const db = '/tmp/agent root/data/brain.pglite';
+        const shown = captured(() => printInAgentReady(db, true));
         expect(shown.stdout).toContain('https://gbrain.io/?ref=cli-in-agent');
-        setNoticeMuted('hosted_option', true);
-        expect(captured(() => printInAgentReady('/tmp/agent-root/data/brain.pglite')).stdout).not.toContain('gbrain.io');
+        expect(shown.stdout).toContain("'/tmp/agent root/bin/gbrain' notices mute hosted_option");
+        expect(captured(() => printInAgentReady(db, false)).stdout).not.toContain('gbrain.io');
+        expect(captured(() => printInAgentReady(db)).stdout).not.toContain('gbrain.io');
       } finally { log.mockRestore(); }
     });
   });
