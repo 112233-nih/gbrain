@@ -10,6 +10,20 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [0.60.217.0] - 2026-10-13
+
+**Pages whose writes keep refusing `source_changed` can now be listed, resolved and measured, and maintenance stops adding to the pile (#6643).** A page whose canonical file differs from its database copy refuses every coordinated write with `source_changed` (`file_database_drift`) until someone reconciles it. Nothing listed those pages, nothing resolved them in bulk, and `synthesize_concepts` paid for a new narrative for each drifted concept on every cycle and left another conflict receipt each time. Now the audit groups the receipts by page, maintenance checks the file before it spends or admits anything, `gbrain repair file-drift` resolves the pages through canonical reconciliation, and doctor counts what is left.
+
+### Itemized changes
+
+- `gbrain sources reconcile <source> --audit --conflicts [--window <n>]` (read-only) lists conflict receipts grouped by slug: receipt and drift-receipt counts, first and last seen, producers, the last committed write, whether the file still differs (checked live on the canonical owner host), the source path, git tracked/committed state and the drift class. It reads a bounded window of request sequences (100,000 by default, at most 1,000,000), paginates by slug and says whether the window covered all history.
+- MCP `list_write_conflicts` (read scope) returns the database-derived part of the same audit to remote callers, filtered by source grant, slug fence and page visibility in the SQL that counts. No paths, hashes, revisions or live checks leave the host.
+- `synthesize_concepts` skips a drifted concept before any provider call or admission, on every cycle, records the skip in `dream.concepts.drift_skips` (a separate key from the retry bound) and releases it when the file and database agree. The phase reports `warn` with `skipped_file_drift` and the commands to run.
+- A prepared maintenance write to a drifted page refuses `source_changed` / `file_database_drift` before admission, without a request row. A replay of an earlier request id still returns its receipt.
+- `gbrain repair file-drift --source <id> (--slug <s>... | --request <id>... | --all-drifted [--class <name>]) --prefer file|database` is explicit-only and preview-bound. The preferred side wins inside reconcile's protections (protected metadata, the tag union, protected takes and private fact rows), and each page's preview lists its `exceptions`. `--all-drifted` refuses a selection that mixes drift classes unless `--class` keeps one. `--apply --expect <hash>` applies exactly the previewed set under derived request ids, resumes an interrupted apply, and reports `repaired`, `refused` or `changed_since_preview` per page.
+- Doctor `maintenance_write_drift` (ops) counts drifted pages behind the newest 20,000 request sequences and the recorded concept skips, and names the audit and the repair preview.
+- Docs: [file drift](docs/guides/repair.md#file-drift), the troubleshooting row and [maintenance write drift](docs/guides/troubleshooting.md#maintenance-write-drift), and `list_write_conflicts` in the MCP tool reference.
+
 ## [0.60.216.0] - 2026-10-13
 
 **A managed sync now recovers by itself from pages that only failed because another page of the same sync failed, and a checkpoint that such a page refused commits on the next run (#6643).** A page cancelled or refused only because an earlier page of its sync did not commit (a knock-on) used to stop the run for good. `--retry-failed` either did nothing or rediscovered the whole manifest, and a checkpoint refused by such a receipt never committed, so a drained catch-up stayed one checkpoint short indefinitely. The run now re-freezes a knock-on under a fresh request, the checkpoint skips receipts the cursor already settled, and `gbrain sync status` names what is really blocking.

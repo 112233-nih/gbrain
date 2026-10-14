@@ -4,7 +4,7 @@ import { boundedReads } from './bounded-reads.ts';
 import { join } from 'node:path';
 import type { BrainEngine, FactRow } from '../engine.ts';
 import { loadConfig, type GBrainConfig } from '../config.ts';
-import { opError, type OperationContext } from '../ops/contract.ts';
+import { opError, type OperationContext, type OperationError } from '../ops/contract.ts';
 import { readFix, trustedCliRequired } from '../ops/op-fix.ts';
 import type { Action } from '../agent-output.ts';
 import { currentSubmissionAuthority } from '../minions/submission-authority.ts';
@@ -27,6 +27,7 @@ import { nativeLockCapability } from './native-lock.ts';
 import { assertPhysicalRoot } from './physical-root.ts';
 import { isConnectorSourceKind } from './connector-identity.ts';
 import { MaintenanceWriteWait } from './maintenance-wait.ts';
+import { auditConflictsCommand, FILE_DRIFT_MESSAGE, liveFileDrift } from './drift-conflicts.ts';
 import { declaredWriteTrust, lowerToDerivedTier, readDerivationDeclaration, recordTaintEdges, type DerivationDeclaration } from '../trust/taint.ts';
 
 export interface MaintenanceAuthority {
@@ -168,11 +169,26 @@ async function submitMaintenance(engine: BrainEngine, authority: MaintenanceAuth
     const scan = scanCanonicalFences(parseMarkdown(intent.content, slug));
     if (scan.defects.length) throw fenceOperationError(scan.defects[0]!, slug, authority.writer.sourceId);
   }
+  // #6643 (B1): a canonical file that already differs from the database refuses at publication; refuse before a request
+  // exists, so a producer that runs every cycle stops adding a conflict receipt per cycle. A replay above still returns its receipt.
+  if (file && authority.binding && snapshot && !snapshot.page.deleted_at
+    && (await liveFileDrift(engine, authority.writer.sourceId, slug, snapshot)).still_present === true) {
+    throw maintenanceDriftRefusal(authority.writer.sourceId, slug);
+  }
   const row = await admitWrite(engine, { principal: authority.writer.principal, requestId, operation: 'submit_job',
     sourceId: authority.writer.sourceId, sourceIncarnation: authority.writer.sourceIncarnation, slug,
     pageId: snapshot?.page.id ?? null, authority: authority.writer, callerIntent: intent, intent,
     worktreeId: file ? authority.binding?.worktree_id : null, topologyGeneration: file ? authority.binding?.topology_generation : null });
   return writeResponse(wait.observe(await waitForWrite(engine, row, loadConfig() ?? { engine: engine.kind }, wait.ms())));
+}
+
+/** #6643: `source_changed` / `file_database_drift` before admission: the audit and repair commands, never a new request. */
+export function maintenanceDriftRefusal(sourceId: string, slug: string): OperationError {
+  return opError('source_changed', FILE_DRIFT_MESSAGE,
+    `Maintenance submitted nothing for ${slug} in '${sourceId}': its canonical file differs from the database copy, so the write would only add another conflict receipt. `
+    + `List every such page with ${auditConflictsCommand(sourceId)}, then preview the resolution with gbrain repair file-drift --source ${sourceId} --slug ${slug} --prefer file (or --prefer database). Neither copy was changed.`,
+    { detail: 'file_database_drift', fix: readFix(`Lists the pages of source ${sourceId} whose writes keep refusing source_changed, grouped by slug; read-only.`,
+      { argv: ['gbrain', 'sources', 'reconcile', sourceId, '--brain', 'host', '--audit', '--conflicts', '--json'] }) });
 }
 
 /** #5523: a Life Chronicle timeline row projected onto the depth page in the same publication. */
