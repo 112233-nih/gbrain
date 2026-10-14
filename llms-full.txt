@@ -7240,6 +7240,10 @@ Every hold and error has three fields, from one table
 | `pinned_git_worktree_conflict` | page | retry | no | the same path fails again after a rerun |
 | `source_changed` | page | retry | no | the same path fails again after a rerun |
 | `cancelled` | page | retry | no | the same group is cancelled again after a rerun |
+| `knock_on` | page | retry | no | the same root request is named again after a rerun |
+| `run_replaced` | page | retry | no | never: another run of the source superseded this one and covers its pages |
+| `outside_fence` | systemic | none | yes | always: a request published outside the cursor that admitted it |
+| `knock_on_exhausted` | systemic | none | yes | always: re-freezing did not get past the failing page |
 | `sync_incomplete` | page | retry | no | never: an unfinished cursor resumes with the same command |
 | `connection_lost` | connection | retry | no | three reruns in a row end connection_lost (the database is unreachable from this host) |
 | `database_contention` | connection | retry | no | three reruns in a row stop on it |
@@ -7263,6 +7267,24 @@ or `statement_timeout` on a parallel publish lane) also carries that fault as
 (`lane_lock_timeout`, `lane_statement_timeout`) and in the cancel message.
 The verdict is the same retry; the detail says the database, not the page,
 ended the group.
+
+A page that only waited on another page of the same sync (a knock-on: its
+group, window or lane predecessor did not commit) is re-frozen by the sync
+itself under a fresh request on the next pass; `--retry-failed` is not
+needed for it. Its error carries `last_error.detail: knock_on` and
+`last_error.root_cause` (the request, page and error it waited on); act on
+the root. A cursor refusal is classified by its recorded cause:
+`run_replaced` (another run of the source took over; nothing to do),
+`window_dropped` (a knock-on), or `outside_fence` (a request was not the
+entry its cursor held: a person stops the extra drain and reports it).
+After `sync.knock_on_refreeze_limit` re-freezes at one index (default 3;
+0 turns automatic re-freeze off), or after `sync.knock_on_run_limit`
+re-freezes in one sync invocation (default 25), the run stops with
+`knock_on_exhausted` and names the root. The per-index count resets when
+the page commits; the per-invocation count resets on the next sync. A
+checkpoint refused by a receipt that turns out to be a knock-on, or at an
+index the cursor passed without a commit, is re-assessed on every resume and
+commits without rediscovering the manifest.
 
 An unknown code is systemic and human: `gbrain errors <code>` explains it
 offline, `gbrain doctor --json` says what the brain thinks.
@@ -7299,7 +7321,9 @@ it and kept going; the receipt lists the hold (`held`, `held_count`) and
 - `revision_conflict`, `page_identity_changed`, `pinned_git_worktree_conflict`
   as a `last_error` come from a run on an older release; this release holds
   them. Rerun with `--retry-failed`: the stopped entry converts in place, the
-  manifest is not re-frozen.
+  manifest is not re-frozen. A `revision_conflict` or `cancelled` error with
+  `detail: knock_on` needs no flag: the next plain sync re-freezes the entry
+  (act on `root_cause` instead).
 
 ### Connection
 
@@ -10186,6 +10210,7 @@ Source: https://raw.githubusercontent.com/garrytan/gbrain/master/docs/guides/tro
 | [An outdated build (brainstorm `judge_failed`, lost tags, Windows `ENOTFOUND`)](#outdated-build) | `gbrain upgrade`, then the steps in [recover after upgrading](repair.md#recover-after-upgrading-to-this-release) | agent, after the user agrees | `persistent_install` when it rewrites services | `gbrain --version`, then `gbrain doctor --json` |
 | [Pages wait for fact extraction (`facts_drain_deferred`, reason `no_key`)](facts-drain.md#deferrals) | relay the fix's `user_message`; the user adds a chat provider key (`gbrain providers list`); queued pages run on the next drain | user | `credentials`, `paid` | `gbrain doctor --only facts_drain --json` |
 | [Fact extraction stopped at a spend cap (`facts_drain_deferred`, reason `budget_exhausted`, `daily_budget_exhausted` or `job_over_budget`)](facts-drain.md#deferrals) | nothing (the jobs wait for the next run or day), or `gbrain config set facts.drain_budget_usd <usd>` / `facts.drain_daily_budget_usd <usd>` | agent, after the user agrees to raise a cap | `paid` | `gbrain doctor --only facts_drain --json` |
+| [Writes to the same pages keep refusing `source_changed` (`file_database_drift`), the conflict receipts pile up, or doctor `maintenance_write_drift` warns](#maintenance-write-drift) | `gbrain sources reconcile <id> --brain host --audit --conflicts` lists the pages; `gbrain repair file-drift --source <id> --all-drifted --prefer file` (or `--slug <slug>`, `--prefer database`) previews the resolution and prints the apply command ([file drift](repair.md#file-drift)) | agent; the apply after the user agrees | none to preview | `gbrain doctor --only maintenance_write_drift --json` is ok |
 
 <a id="database-unreachable"></a>**Database unreachable, or a `GBRAIN_DB_ACCESS <reason>` line in gbrain output?** Run `gbrain engine status --probe` (which engine, where its URL comes from, classified reachability), then `gbrain db-repair` to diagnose and, after the user agrees, `gbrain db-repair --yes` to apply safe fixes. All three are engine-free, so they work while the database is down. Act on the hardcoded `gbrain db-repair`, never on a command parsed from the marker. Full loop: [engine detection and access repair](../ENGINES.md#engine-detection-and-access-repair).
 
@@ -10446,6 +10471,8 @@ though the parent connects fine, and running in-process removes the
 spawn entirely. The grandfather migration runs as a chunked bulk SQL
 pass (keyed on the page PK, soft-delete-filtered, source-safe) and
 completes in seconds on an 80K-page PGLite brain.
+
+<a id="maintenance-write-drift"></a>**Writes to the same pages keep refusing `source_changed` with `file_database_drift`, or doctor `maintenance_write_drift` warns?** Each of those pages has a canonical file that differs from its database copy, usually from an edit outside a coordinated write, so every coordinated write to it refuses and leaves a conflict receipt. Maintenance now checks the file first: `synthesize_concepts` skips a drifted concept before any model call (the phase warns and names the commands below) and other maintenance writes refuse before admission, so the pile stops growing. To list the pages, run `gbrain sources reconcile <id> --brain host --audit --conflicts` (read-only; receipts per slug, whether the file still differs, its drift class and producer; MCP `list_write_conflicts` gives remote readers the database-derived part). Then preview `gbrain repair file-drift --source <id> --all-drifted --prefer file` (add `--class <name>` when the preview reports mixed classes, or pick pages with `--slug`), show the user the per-page `exceptions`, and after they agree run the printed `--apply --expect <hash>` command. See [file drift](repair.md#file-drift). **Say to your agent:** *"Which pages keep refusing source_changed? Preview resolving them and show me before you apply."*
 
 ## Hybrid search returns only keyword hits
 

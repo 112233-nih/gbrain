@@ -50,6 +50,7 @@ const SCAN = [
   /persistence_host_bindings h JOIN persistence_source_bindings/, /r\.recovery IS NOT NULL AND NOT\(r\.worktree_id/,
   /FROM persistence_effects e JOIN persistence_worktrees w ON w\.id=e\.worktree_id WHERE e\.recovery IS NOT NULL/,
   /FROM persistence_topology_changes c/, /FROM persistence_worktree_refreshes f JOIN/, /^WITH expired AS/, /page_projection_jobs/,
+  /^WITH purged AS \( DELETE FROM persistence_consumers/,
 ];
 const statementKinds = new Set(['execute', 'simple']);
 const flat = (sql: string) => sql.replace(/\s+/g, ' ').trim();
