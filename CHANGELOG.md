@@ -10,7 +10,7 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
-## [0.60.216.0] - 2026-10-13
+## [0.60.217.0] - 2026-10-13
 
 **Fencing legacy facts no longer leaks, loops or blocks.** When a legacy fact is adopted into a fence row that an earlier, interrupted run left behind, the row is now rebuilt from the stored fact, so the fact's own kind, dates, confidence, visibility and speaker attribution are kept. Before, a leftover row with a different visibility made the adoption refuse every time, and one with the same visibility overwrote the fact's metadata. A managed adoption that gbrain refused as a planning defect is no longer resubmitted every cycle, so the writer stops collecting one identical failed request per page per cycle. And one fact that can't be fenced now holds up only its own page: the phantom-redirect pass runs for the rest of the source.
 
@@ -22,6 +22,25 @@ identifiers and attribution are available in the pre-removal Git revision
 - **Phantom redirects** (`src/core/cycle/extract-facts.ts`, `src/core/cycle/phantom-redirect.ts`): the pass holds only top-level pages that own legacy fact rows, or that are the provenance page of an ontology observation, instead of waiting for the whole source. Held pages are excluded before the per-pass cap, so they never crowd out other phantoms. The count is `phantoms_held_legacy_rows` in the cycle report.
 - **Stale plans** (`src/core/facts/unfenced-facts.ts`): when a legacy fact changed between planning and submission, the page is skipped and replanned next run, so an older plan never writes old metadata back over the newer row.
 - **Census** (`scripts/diagnose/fence-adoption-census.sql`): a read-only query that counts failed adoptions by build, code and message (first and last seen, last 24 hours) and shows how many of those pages still hold legacy facts.
+
+## [0.60.216.0] - 2026-10-13
+
+**A managed sync now recovers by itself from pages that only failed because another page of the same sync failed, and a checkpoint that such a page refused commits on the next run (#6643).** A page cancelled or refused only because an earlier page of its sync did not commit (a knock-on) used to stop the run for good. `--retry-failed` either did nothing or rediscovered the whole manifest, and a checkpoint refused by such a receipt never committed, so a drained catch-up stayed one checkpoint short indefinitely. The run now re-freezes a knock-on under a fresh request, the checkpoint skips receipts the cursor already settled, and `gbrain sync status` names what is really blocking.
+
+### Itemized changes
+
+- **Knock-ons are typed and re-frozen** (`src/core/persistence/sync-knock-on.ts`, `sync-run.ts` `recoverKnockOn`): every canceller (window, suffix, lane fault, never-admitted predecessor, bulk group member) stamps `error_detail = { origin: 'sync_knock_on', reason, root_request_id }`, which survives compaction. Receipts written before this release match only by their producers' exact messages, and an operator's cancel never matches. The run re-freezes the entry through the existing narrowed gate, under `sync.holds=fail` too and without `--retry-failed`. Two limits apply: `sync.knock_on_refreeze_limit` (per page, default 3; 0 turns re-freezing off) and `sync.knock_on_run_limit` (per sync invocation, default 25). Past either, the run stops with the new code `knock_on_exhausted`, and `root_cause` names the request it waited on.
+- **Checkpoints** (`checkpoint-validation.ts`): the cursor records the index ranges it passed without a commit, and checkpoint validation skips receipts at those indexes. For a cursor that began before this release, it also skips knock-ons. A checkpoint refused with `recovery_required` is re-assessed on every resume and commits under a fresh request, without rediscovering the manifest.
+- **"The accepted sync cursor changed" records its cause:** `run_replaced` (superseded, not failed), `window_dropped` (a knock-on; only for a request the cursor recorded dropping), or `outside_fence` (a coordination fault that needs a person). Cancels that respect the cursor fence take one request row per transaction, and only while the cursor still holds the failed entry.
+- **`--retry-failed` reports what it waits for:** while the old run still has an open or recovering request, it returns `partial` / `writer_pending` with `retryWait` naming that request, instead of returning the old blocked result. Queued foreground and maintenance writes on other pages no longer hold it back.
+- **`gbrain sync status --json`** adds three fields and shows the cursor the recorded failure belongs to:
+  - `last_error.root_cause`, the request that actually failed;
+  - `cursors[]`, every live cursor of the source, with its writer, pending request and resume command;
+  - `checkpoint_blockers`, every receipt that would block the checkpoint now, each marked `knock_on`.
+- **Operator step for a brain already stuck** (not run on upgrade):
+  1. Restart serve and the job workers on the new release.
+  2. Check that `checkpoint_blockers` lists nothing, or only knock-ons.
+  3. Run `gbrain sync --no-pull --source <id> --yes`.
 
 ## [0.60.215.0] - 2026-10-13
 
