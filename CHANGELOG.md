@@ -10,7 +10,7 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
-## [0.60.220.0] - 2026-10-14
+## [0.60.221.0] - 2026-10-14
 
 **When a file you edited by hand blocks every write to its source, one command now shows you both versions and lets you pick which one to keep (#6650).** If you edit a page file while gbrain is publishing a write to that same file, gbrain can no longer tell whether it is safe to put the file back. It used to stop there and leave every later write to that source pending, and the only ways out were deleting the file or editing the database by hand. `gbrain repair stuck-recovery` previews the blocked file with a diff of the version from before the write against what is on disk now. You then choose: `--keep prior` restores the old version so the write publishes again, or `--keep disk` keeps your edit and drops the write. Either way, both versions are backed up first.
 
@@ -55,6 +55,19 @@ Run it on the host that owns the source. Only you choose: there is no default `-
 - **Tests:**
   - `test/repair-stuck-recovery.test.ts` (PGLite) covers the preview, both choices on live requests with and without a recorded failure, terminal and effect refusals, the bounded lock wait, staging and byte accounting, kills at every step, mixed-version finish, replay and the consent exit.
   - `test/e2e/repair-stuck-recovery-postgres.test.ts` covers a SIGKILL at each step on real Postgres.
+
+## [0.60.220.0] - 2026-10-14
+
+**New users who'd rather not run GBrain themselves now hear about hosted GBrain at gbrain.io, in the docs and in one CLI line at the moments self-hosting is hardest.** The README shows the official wordmark and a tip under the intro. Agents installing for a first-time user, or for someone with no machine that stays online, mention gbrain.io once in the install reply and never hold up a local install. The CLI prints one muteable `hosted_option` line when `gbrain setup` or an in-agent install creates a brain, when `gbrain mcp expose` writes its first receipt, and when expose stops at a Tailscale or service step.
+
+### Itemized changes
+
+- **Docs.** README: the wordmark from gbrain.io/branding (`docs/images/brand/gbrain-wordmark{,-light}.svg`, light variant in dark mode), a `[!TIP]` pointing first-time and no-server users at gbrain.io, and free setup help at support@gbrain.io. Two README paragraphs that repeat linked docs were shortened to stay under the 45,000-byte cap. AGENTS.md and INSTALL_FOR_AGENTS.md tell installing agents when to mention hosted. INSTALL.md, the personal-brain and company-brain tutorials and the remote-MCP guide each get one callout. The Grok Bot and Muse guides gain a hosted row in their path tables. Every link carries a `?ref=` tag for attribution.
+- **`hosted_option` coaching notice** (`src/core/onboard/hosted-option.ts`). A terminal gets one stderr line: `Hosted option: gbrain.io runs GBrain for you, nothing to keep online: <link>  (hide: gbrain notices mute hosted_option)`. An agent reading the output gets the standard notice block. It shows once on `gbrain setup <harness>` that created the brain (`ref=cli-setup`), once on an in-agent install that created the brain, naming that install's own launcher in the mute hint (`cli-in-agent`), once on the `gbrain mcp expose` run that writes the first receipt (`cli-mcp-expose`), and at each expose Tailscale or service friction exit (`cli-mcp-expose-friction`). It never shows on bare `gbrain init`, consent-pending, `--dry-run`, `--status`, `--remove`, a re-publish or a muted install, and it is never part of a consent request. No network call and no telemetry.
+- **Mute.** `gbrain notices mute hosted_option`, or `mute_notice` on stdio. `gbrain notices --help`, `notices list --json` (`muteable`) and the `mute_notice` `invalid_params` list now include it.
+- **Output changes.** `gbrain setup` on a new brain: `notices[]` is now `[first_run_decisions, hosted_option]`, and non-TTY human output gains a second `[AGENT]` block. `gbrain mcp expose --json` gains an optional `notices` key on the first-receipt run and at friction exits; the consent payload is unchanged.
+- **Flake fix.** `test/page-purge-journal-timeout-6511.test.ts` "[R2] a carrying request admitted and cancelled…" slept a fixed 50 ms before reading the queued write's row. On a slow CI Postgres the row wasn't there yet, the hook threw, and the purge ended `storage_error`. It now polls (bounded at 10 s) until the row exists and still asserts `queued`. Forcing the sleep to 0 reproduces the failure on the old code.
+- **Tests.** `test/hosted-option.test.ts` (new) covers the copy, the ref table, muting and both output forms. `test/setup.test.ts` and `test/mcp-expose.test.ts` pin where the notice shows and where it never does.
 
 ## [0.60.219.0] - 2026-10-14
 
