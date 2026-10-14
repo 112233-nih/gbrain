@@ -26,6 +26,8 @@ import { claimWorktree } from '../../src/core/persistence/ownership.ts';
 import { registerLocalWriter, withVerifiedLocalRegistration, type LocalRegistration } from '../../src/core/persistence/identity.ts';
 import { disposePersistenceConsumer } from '../../src/core/persistence/service.ts';
 import { _resetWriteThroughCacheForTest } from '../../src/core/write-through.ts';
+import { readWriteSwitchSnapshot } from '../../src/core/persistence/switches.ts';
+import { readPublicationCeilingMs } from '../../src/core/persistence/publication-deadline.ts';
 
 interface TraceRecord { t: number; ms: number; conn: number; kind: string; sql: string }
 type Phase = 'admission' | 'claim' | 'prepare' | 'recovery_record' | 'publication' | 'completion' | 'consumer_scan' | 'wait_poll' | 'effects' | 'other';
@@ -163,6 +165,9 @@ d('#6007 put_page statement budget (Postgres)', () => {
         const windows: { put: [number, number]; receipt: [number, number] }[] = [];
         for (let i = 0; i < 5; i++) {
           await settle();
+          // The 5 s config snapshots (write switches, publication ceiling) are refreshed outside the measured window, so a
+          // slow host whose writes run more than 5 s after the warm-up still measures one write with warm caches.
+          await Promise.all([readWriteSwitchSnapshot(engine), readPublicationCeilingMs(engine)]);
           const requestId = randomUUID();
           const started = now();
           const result = await dispatch('put_page', { slug: `notes/budget-${i}`, content: `---\ntitle: Budget ${i}\ntype: note\n---\n\n${body}`, request_id: requestId });
