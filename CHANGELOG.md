@@ -10,6 +10,82 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
+## [0.60.216.0] - 2026-10-13
+
+**A managed sync now recovers by itself from pages that only failed because another page of the same sync failed, and a checkpoint that such a page refused commits on the next run (#6643).** A page cancelled or refused only because an earlier page of its sync did not commit (a knock-on) used to stop the run for good. `--retry-failed` either did nothing or rediscovered the whole manifest, and a checkpoint refused by such a receipt never committed, so a drained catch-up stayed one checkpoint short indefinitely. The run now re-freezes a knock-on under a fresh request, the checkpoint skips receipts the cursor already settled, and `gbrain sync status` names what is really blocking.
+
+### Itemized changes
+
+- **Knock-ons are typed and re-frozen** (`src/core/persistence/sync-knock-on.ts`, `sync-run.ts` `recoverKnockOn`): every canceller (window, suffix, lane fault, never-admitted predecessor, bulk group member) stamps `error_detail = { origin: 'sync_knock_on', reason, root_request_id }`, which survives compaction. Receipts written before this release match only by their producers' exact messages, and an operator's cancel never matches. The run re-freezes the entry through the existing narrowed gate, under `sync.holds=fail` too and without `--retry-failed`. Two limits apply: `sync.knock_on_refreeze_limit` (per page, default 3; 0 turns re-freezing off) and `sync.knock_on_run_limit` (per sync invocation, default 25). Past either, the run stops with the new code `knock_on_exhausted`, and `root_cause` names the request it waited on.
+- **Checkpoints** (`checkpoint-validation.ts`): the cursor records the index ranges it passed without a commit, and checkpoint validation skips receipts at those indexes. For a cursor that began before this release, it also skips knock-ons. A checkpoint refused with `recovery_required` is re-assessed on every resume and commits under a fresh request, without rediscovering the manifest.
+- **"The accepted sync cursor changed" records its cause:** `run_replaced` (superseded, not failed), `window_dropped` (a knock-on; only for a request the cursor recorded dropping), or `outside_fence` (a coordination fault that needs a person). Cancels that respect the cursor fence take one request row per transaction, and only while the cursor still holds the failed entry.
+- **`--retry-failed` reports what it waits for:** while the old run still has an open or recovering request, it returns `partial` / `writer_pending` with `retryWait` naming that request, instead of returning the old blocked result. Queued foreground and maintenance writes on other pages no longer hold it back.
+- **`gbrain sync status --json`** adds three fields and shows the cursor the recorded failure belongs to:
+  - `last_error.root_cause`, the request that actually failed;
+  - `cursors[]`, every live cursor of the source, with its writer, pending request and resume command;
+  - `checkpoint_blockers`, every receipt that would block the checkpoint now, each marked `knock_on`.
+- **Operator step for a brain already stuck** (not run on upgrade):
+  1. Restart serve and the job workers on the new release.
+  2. Check that `checkpoint_blockers` lists nothing, or only knock-ons.
+  3. Run `gbrain sync --no-pull --source <id> --yes`.
+
+## [0.60.215.0] - 2026-10-13
+
+### Itemized changes
+
+- **Flake fix: `test/doctor-pglite-datadir.test.ts` case (c) stages its stale `postmaster.pid` with a provably dead PID.** The case wrote the fixed PID 99999; on a busy gate VM (`pid_max` 4194304) that number can belong to a live process, and the live-postmaster guard in `validatePgliteLayout` then refuses the directory, so the verdict read `unsupported-layout` instead of `wal-corruption-likely` (GBRA-89's finding). The PID now comes from a child that was spawned and reaped (`test/helpers/dead-pid.ts`, the helper four other tests already carried inline). Forced probe (the case writes a live PID, which is what CI saw): 3/3 fail before with exactly that verdict, 16/16 after. The assertion is unchanged.
+- **Flake fix: `test/progress.test.ts` asserts its `cpu_ms` idle bound on a window the hypervisor did not steal from.** The case blocks the thread for 200 ms and expects under 100 ms of thread CPU; one CI run billed 268 ms. The guest kernels CI runs on (Ubuntu generic, no `CONFIG_PARAVIRT_TIME_ACCOUNTING`) charge vCPU time the host steals to whichever thread is current, so a steal burst beginning right after the wait wakes lands in that thread's CPU clock; the failing runner had lost 28 % of its CPU to steal over the job. The test now reads the VM-wide steal counter (`/proc/stat`) around the window and re-measures, at most five times, until a window with zero steal; the `< 100` bound is unchanged and is asserted on that window, a machine without `/proc/stat` asserts the first window as before, and the failure message carries the steal per attempt. Nested-VM proof of the mechanism: a guest thread spinning 1,500 ms of wall time under a host CPU quota read 1,500 ms of thread CPU while the guest recorded 1,700 ms of steal; the same quota during an `Atomics.wait` read 1.3 ms. Forced probe (a preload that applies the kernel's observable behaviour, a 268 ms CPU-clock jump plus the matching steal advance, once at the wake): the old test fails 3/3 at 269–271 ms, the fixed test passes 3/3 on its second window, and the control with the same jump and no steal (real work) still fails. `docs/progress-events.md` says `cpu_ms` includes stolen time under such a hypervisor.
+- **Flake fix: `test/scripts/ci-bounded-run.test.ts` tells a reaped grandchild from a zombie.** Two cases assert that the backgrounded grandchild of a stalled attempt is gone after the runner ends the process group, with `process.kill(pid, 0)`; that call also answers for a zombie, and a killed grandchild whose shell parent died with it is a zombie until init reaps it (CI run 38474251233, `test (7)`: `Received: true`). `alive()` now reads the state field of `/proc/<pid>/stat` and treats `Z`/`X` as dead, falling back to `kill -0` where `/proc` is absent. Forced probe: the file run under a child subreaper that never reaps orphans (the zombie is then held for the whole run) fails both cases 3/3 on master and passes 7/7 with the fix, 10–11 zombies held each time; a grandchild that genuinely escapes the group (`setsid`) still fails the fixed test. No assertion changed.
+- **Flake fix: `test/persistence-git-coalescing-5530.slow.test.ts` reads the writer-busy request after the consumer lets it go, not at the end of its 1.5 s wait (GBRA-87, from #6653).** The case holds the worktree lock, submits a put_page with `waitMs: 1500`, and read the request row as soon as that wait ended; on a loaded runner the consumer claimed the write late, so the read landed while the write was still in flight (`running`, phase `preparing` before #6628's claim stamp and `publishing` after it, as #6641's gate saw 15 ms after the claim), while the write itself still ended `queued` / `writer_busy` with no claim phase. The test now polls the row (50 ms steps, at most 30 s) until it leaves `running`, then makes the same assertion; `waitMs` and the expected row are unchanged. Forced probe on PGLite: a 2 s stall at `consumer:preparing`, at `consumer:prepared`, or right after the publishing claim stamp fails the old read and passes the new one; the Postgres arm passed 3 of 3.
+- **Diagnostic: `test/cli-exit-drain.test.ts` failure messages carry each stream's end state and event order.** One run (38352625321) read 0 of 100 stdout bytes while the exit code and the sibling cases were fine, and the message could not tell a stream closed under its reader from one that ended cleanly empty; it now records `readableEnded`/`destroyed`/`errored` for both streams and the order of `end`, `close` and `exit` events. No assertion changed; the three cases still assert the same bytes.
+
+## [0.60.214.0] - 2026-10-13
+
+**`search` and `query` start the query embed (and `query`'s expansion) alongside the keyword arms instead of after them, so a search no longer waits for both one after the other.** On a 20,000-page Postgres brain with Voyage embeddings and reranking, the median warm `search` dropped from 578 ms to 424 ms and `query` from 578 ms to 448 ms (two rounds of 40 unique questions each); on a 400-page PGLite brain the saving is the keyword arms' 13 to 15 ms. Results are unchanged.
+
+### Itemized changes
+
+- **Vector side runs alongside the lexical arms** (`src/core/search/hybrid.ts`, `src/core/search/hybrid/arms.ts`): after the keyword-only gate, `startVectorSide` begins modality resolution, expansion, the query embeds and the vector searches, then the keyword, title and relational arms run as before, and `joinVectorSide` waits for the vector side. That side reads nothing the lexical and relational arms produce. Its `degraded[]` stamps (vector-pool exhaustion included) go to their own list and are appended after the lexical ones, so the order matches a sequential run. A keyword-only search (no embedding provider, embeddings opted out, System One keyword-only) starts no vector work. When the lexical arms throw, the vector side is allowed to settle before the error is rethrown.
+- **Timings** (`src/core/search/stage-timings.ts`): `StageTimer` gains `branch()` and `join()`. The part of `expansion`, `embed` and `vector` that finished while the lexical arms ran is now listed in `overlapped_ms` under the stage's name; `stages_ms` keeps the part the request waited for (the stage key is present even at 0). `sum(stages_ms) + other_ms = total_ms` still holds.
+- **Parity:** the refactor-wave-1 bench result digests match master on PGLite and on Postgres (400 pages each). With stub embedder and reranker on one retained 20,000-page Postgres brain, all 80 result lists match master's. At 4,000 fresh-imported Postgres pages master's own digests differ run to run (the HNSW index is rebuilt on each import), so that size is not a parity check.
+- **Tests:** a fail-first probe in `test/search/stage-timings-ops.test.ts` with a 300 ms embed and 300 ms lexical arms (632 ms on the old flow, under 550 ms now), a degraded-order case where the embed fails before the keyword arm, and branch/join accounting cases in `test/search/stage-timings.test.ts`.
+
+## [0.60.213.0] - 2026-10-13
+
+**`gbrain eval longmemeval --call-plan FILE` prices a paid LongMemEval run before it runs.** It writes the run's call plan in gstack's `GSTACK_EVAL_CALLS` v1 format: one line per paid lane (embeddings, rerank, trajectory extraction, per-chunk synopsis, fact keys, expansion, reader, judge) with its model, call count and token bounds. It makes no provider call and opens no brain. `gstack-eval-plan price-gate --plan-file FILE` then prices it against a cap, so a run like tokenmax's per-chunk synopses on about 100k chunks is priced before approval, not discovered in a smoke run.
+
+### Itemized changes
+
+- **Counts:** trajectory extraction and synopsis calls are exact. Haystacks are chunked offline with the import's own functions, and on the mini fixture the plan matches a real run at 13 of 13 calls each. Reader, rerank and judge inputs are upper bounds. Input tokens use one conservative rule, `ceil(chars / 3)`, and output tokens are each call's cap times its calls, so the price is a ceiling.
+- **Binding:** the plan names the exact gate command (`--call-plan-gate` overrides it), the commit, and each tracked input's sha256. An outside dataset is named by its sha256 and basename only.
+- **Preconditions** name each lane's model source and env vars (set or unset, never values), the spend caps, and that caches and retries are not counted.
+- **Refusals:** a lane the planner can't bound refuses with exit 1 and writes nothing: `--decide`, `--via-operation`, cross-modal LLM intent, or an expansion model other than claude-haiku-4-5.
+
+## [0.60.212.0] - 2026-10-13
+
+**CI test shards are packed from fresh timings again.** CI splits each test lane across several machines using the recorded run time of every test file. Test files added since the last refresh had no recorded time, so shards were packed from guesses for them. This release re-measures all three lanes from green master runs. No product behaviour changes.
+
+### Itemized changes
+
+| Lane | Files with no recorded time, before | After | Source run |
+|---|---|---|---|
+| Unit | 34 of 3307 (1.0%) | 9 of 3307 (0.3%) | Test 38428830798 |
+| Serial | 5 of 402 (1.2%) | 0 of 402 (0.0%) | Test 38428830798 |
+| E2E | 8 of 576 (1.4%) | 6 of 576 (1.0%) | E2E 38356626017 (full profile) |
+
+- `scripts/test-weights.json`, `scripts/serial-weights.json` and `scripts/e2e-weights.json`, plus their `.metadata.json` provenance files, are re-mined from master runs whose test jobs all passed. `GITHUB_EVENT_NAME=schedule bun scripts/check-weight-coverage.ts` reports OK before and after. No tests, source or thresholds change.
+
+## [0.60.211.0] - 2026-10-13
+
+**gstack lanes now run gbrain's own mechanical gates before they report done, and a push of sealed eval output to this public repo is refused.** gbrain commits its gstack config (`.gstack/pregate.json`, `.gstack/ship-policy.json`, read by gstack 1.91.98.0 and later). A lane that adds a serial test without a manifest row, changes a CLI surface without regenerating its goldens, leaves a generated file stale or lands a migration out of order now fails `gstack-pregate` with the fix line, instead of failing the full gate on the integrated tree. Nothing changes for gbrain users or for anyone not running gstack.
+
+### Itemized changes
+
+- **Repo guards** (`.gstack/pregate.json` `guards`): `serial-manifest` (`test/scripts/serial-files.test.ts`), `cli-goldens` (CLI goldens, dispatch phase, export surface), `regen-check` (`bun scripts/regen-all.ts --check`) and `migration-order` (`scripts/check-schema-migration-order.ts`), each run only when the branch touches its files.
+- **Sealed output** (`sealed`): `gstack-pregate sealed` and gstack's managed pre-push hook refuse a push that adds eval run reports, sealed-confirmation or counted cell directories, or per-cell `results.jsonl`/`usage.jsonl.gz` files. Local home paths are not checked here: gbrain's tests carry them by design.
+- **Ship policy** (`.gstack/ship-policy.json`): the release stamp files and version patterns, and the schema-migration numbering, so `gstack-pregate regate` and `gstack-tree-receipt` classify a gbrain restamp the way the tree rule does.
+- `.gitignore` admits the two files; `CONTRIBUTING.md` says what each one does.
+
 ## [0.60.210.0] - 2026-10-13
 
 **The Ubicloud gate's `verify` typecheck runs warm, so it no longer crosses the 120 s per-check cap on a loaded VM.** It crossed the cap at 121 s on two gates on 2026-10-13 (#6618, #6612), and both passed on rerun. The cause wasn't contention with test items: the VM that runs `verify` runs nothing else until verify is done. The cause was that every gate VM typechecked from scratch. `bun run typecheck` is `tsc --incremental` against `node_modules/.cache/gbrain-typecheck.tsbuildinfo`, and the checkout tarball never carries that file. A cold `tsc` takes 81 s on a 16-vCPU gate VM with nothing else running, so verify had 1.4x headroom before any host load. The cap is unchanged.
