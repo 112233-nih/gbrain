@@ -10,7 +10,7 @@ credits are retained; no result has been reassigned to another provider. Origina
 identifiers and attribution are available in the pre-removal Git revision
 `6040075c6cb95be5881cc2e1b76ef7d71f4e5d29` (retained on 2026-09-23).
 
-## [0.60.218.0] - 2026-10-13
+## [0.60.219.0] - 2026-10-14
 
 **When a file you edited by hand blocks every write to its source, one command now shows you both versions and lets you pick which one to keep (#6650).** If you edit a page file while gbrain is publishing a write to that same file, gbrain can no longer tell whether it is safe to put the file back. It used to stop there and leave every later write to that source pending, and the only ways out were deleting the file or editing the database by hand. `gbrain repair stuck-recovery` previews the blocked file with a diff of the version from before the write against what is on disk now. You then choose: `--keep prior` restores the old version so the write publishes again, or `--keep disk` keeps your edit and drops the write. Either way, both versions are backed up first.
 
@@ -55,6 +55,19 @@ Run it on the host that owns the source. Only you choose: there is no default `-
 - **Tests:**
   - `test/repair-stuck-recovery.test.ts` (PGLite) covers the preview, both choices on live requests with and without a recorded failure, terminal and effect refusals, the bounded lock wait, staging and byte accounting, kills at every step, mixed-version finish, replay and the consent exit.
   - `test/e2e/repair-stuck-recovery-postgres.test.ts` covers a SIGKILL at each step on real Postgres.
+
+## [0.60.218.0] - 2026-10-14
+
+**Fencing legacy facts no longer leaks, loops or blocks.** When a legacy fact is adopted into a fence row that an earlier, interrupted run left behind, the row is now rebuilt from the stored fact, so the fact's own kind, dates, confidence, visibility and speaker attribution are kept. Before, a leftover row with a different visibility made the adoption refuse every time, and one with the same visibility overwrote the fact's metadata. A managed adoption that gbrain refused as a planning defect is no longer resubmitted every cycle, so the writer stops collecting one identical failed request per page per cycle. And one fact that can't be fenced now holds up only its own page: the phantom-redirect pass runs for the rest of the source.
+
+### Itemized changes
+
+- **Leftover fence rows** (`src/core/facts/unfenced-facts.ts`): a leftover row is reused only when that can't widen its visibility (a private row is never reused for a world fact; the world fact gets its own row), and the reused row is re-rendered from the legacy fact. A newly fenced fact keeps its `attributed_to`.
+- **One read-back check** (`src/core/facts-fence.ts` `fenceCellReadBackProblem`): the planner runs the publisher's own check on the whole rendered fence before it submits. A page that fails is reported as unadoptable (class `whole_fence`) and nothing is submitted.
+- **No resubmission loop** (`src/core/persistence/prepared-maintenance.ts`): a `fence_unrenderable` refusal of the same intent in the last day is not resubmitted. The page is reported as unadoptable (class `prior_refusal`). It gets one more try after a day, or right away once the adoption planner changes (its revision is part of the request identity).
+- **Phantom redirects** (`src/core/cycle/extract-facts.ts`, `src/core/cycle/phantom-redirect.ts`): the pass holds only top-level pages that own legacy fact rows, or that are the provenance page of an ontology observation, instead of waiting for the whole source. Held pages are excluded before the per-pass cap, so they never crowd out other phantoms. The count is `phantoms_held_legacy_rows` in the cycle report.
+- **Stale plans** (`src/core/facts/unfenced-facts.ts`): when a legacy fact changed between planning and submission, the page is skipped and replanned next run, so an older plan never writes old metadata back over the newer row.
+- **Census** (`scripts/diagnose/fence-adoption-census.sql`): a read-only query that counts failed adoptions by build, code and message (first and last seen, last 24 hours) and shows how many of those pages still hold legacy facts.
 
 ## [0.60.217.0] - 2026-10-13
 
